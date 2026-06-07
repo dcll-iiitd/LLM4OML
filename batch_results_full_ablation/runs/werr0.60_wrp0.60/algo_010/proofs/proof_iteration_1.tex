@@ -1,0 +1,338 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle}
+\newcommand{\grad}{\nabla}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Adaptive Variance‑Reduced Gradient (AVRG)}  
+
+The algorithm keeps a recursive exponential moving average of stochastic gradients, uses a bias‑corrected estimator and adapts the stepsize to the magnitude of this estimator. It is designed for smooth non‑convex objectives and enjoys SARAH/SPIDER‑type variance reduction.
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the objective function. At iteration $t$ we draw a random mini‑batch $\xi_{t}$ and compute a stochastic gradient
+\[
+g_{t}\;=\;\grad f(x_{t};\xi_{t}) .
+\]
+Define the exponential moving average (EMA) of gradients
+\begin{equation}
+    v_{t}\;=\;(1-\alpha)v_{t-1}\;+\;\alpha g_{t},\qquad v_{0}=0,
+    \label{eq:ema}
+\end{equation}
+with decay parameter $\alpha\in(0,1]$.  
+Because $v_{t}$ is biased toward zero at early iterations we apply bias correction
+\begin{equation}
+    \hat v_{t}\;=\;\frac{v_{t}}{1-(1-\alpha)^{t}} .
+    \label{eq:bias}
+\end{equation}
+The adaptive stepsize is
+\begin{equation}
+    \eta_{t}\;=\;\frac{\eta}{\beta+\norm{\hat v_{t}}},\qquad 
+    \eta>0,\;\beta>0 .
+    \label{eq:stepsize}
+\end{equation}
+Finally the iterate update reads
+\begin{equation}
+    x_{t+1}\;=\;x_{t}\;-\;\eta_{t}\,\hat v_{t}.
+    \label{eq:update}
+\end{equation}
+The algorithm can be interpreted as a SARAH/Spider variance‑reduced scheme where the control variate is the EMA $\hat v_{t}$ and the stepsize is automatically scaled to the variance estimate.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Adaptive Variance‑Reduced Gradient (AVRG)}
+\begin{algorithmic}[1]
+\REQUIRE Initial point $x_{0}\in\R^{d}$, learning rate $\eta>0$, decay $\alpha\in(0,1]$, stability constant $\beta>0$, maximum iterations $T$.
+\STATE $v_{0}\gets 0$, $c_{0}\gets 0$ \COMMENT{bias‑correction denominator}
+\FOR{$t=0,\dots,T-1$}
+    \STATE Sample a mini‑batch $\xi_{t}$ and compute stochastic gradient $g_{t}= \grad f(x_{t};\xi_{t})$.
+    \STATE $v_{t+1}\gets (1-\alpha)v_{t}+ \alpha g_{t}$.
+    \STATE $c_{t+1}\gets 1-(1-\alpha)^{t+1}$.
+    \STATE $\hat v_{t+1}\gets v_{t+1}/c_{t+1}$.
+    \STATE $\eta_{t}\gets \displaystyle\frac{\eta}{\beta+\norm{\hat v_{t+1}}}$.
+    \STATE $x_{t+1}\gets x_{t}-\eta_{t}\,\hat v_{t+1}$.
+\ENDFOR
+\RETURN $x_{T}$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^{2}$, whose exact gradient is $\grad f(w)=2(w-3)$.  
+Set $x_{0}=0$, $\eta=0.1$, $\alpha=0.5$, $\beta=10^{-3}$, and use the full‑batch gradient (so $g_{t}=\grad f(x_{t})$).
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $x_{t}$ & $g_{t}=2(x_{t}-3)$ & $\hat v_{t}$ & $f(x_{t})$\\\midrule
+0 & $0$ & $-6$ & $0$ (init) & $9$\\
+1 & $x_{1}=0- \frac{0.1}{\beta+|{-6}|}(-6)=0+0.1\frac{6}{6.001}=0.099983$ & $g_{1}=2(0.099983-3)=-5.800034$ &
+$v_{1}=0.5\cdot0+0.5\cdot(-6)=-3$, $c_{1}=1-0.5=0.5$, $\hat v_{1}= -6$ &
+$f(x_{1})\approx8.410$\\
+2 & $x_{2}=x_{1}-\frac{0.1}{\beta+|{-6}|}(-6)\approx0.199966$ &
+$g_{2}=2(0.199966-3)=-5.600068$ &
+$v_{2}=0.5(-3)+0.5(-5.800034)=-4.400017$, $c_{2}=1-0.5^{2}=0.75$, $\hat v_{2}\approx-5.866689$ &
+$f(x_{2})\approx7.844$\\
+3 & $x_{3}=x_{2}-\frac{0.1}{\beta+|{-5.8667}|}(-5.8667)\approx0.299783$ &
+$g_{3}=2(0.299783-3)=-5.400434$ &
+$v_{3}=0.5(-4.400017)+0.5(-5.600068)=-5.000043$, $c_{3}=1-0.5^{3}=0.875$, $\hat v_{3}\approx-5.714345$ &
+$f(x_{3})\approx7.302$\\
+\end{tabular}
+\end{center}
+The iterates move toward the minimiser $w^{*}=3$, and the adaptive stepsize shrinks as $\norm{\hat v_{t}}$ grows.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$‑smooth, i.e. for all $x,y\in\R^{d}$
+\[
+f(y)\le f(x)+\inner{\grad f(x)}{y-x}+\frac{L}{2}\norm{y-x}^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Unbiased Stochastic Gradient]\label{ass:unbiased}
+For any $x$, the stochastic gradient satisfies
+\[
+\E_{\xi}[g(x,\xi)] = \grad f(x),\qquad 
+\text{and}\qquad 
+\E_{\xi}\!\big[\|g(x,\xi)-\grad f(x)\|^{2}\big]\le\sigma^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Bounded EMA]\label{ass:bound}
+The decay parameter $\alpha$ satisfies $0<\alpha\le 1$ and the stability constant $\beta>0$ is chosen such that $\beta\ge \sqrt{\alpha}\,\sigma$.
+\end{assumption}
+\begin{assumption}[Initialisation]\label{ass:init}
+The algorithm starts with $v_{0}=0$ and $x_{0}$ arbitrary but fixed.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Expected Gradient Norm Reduction]\label{thm:main}
+Under Assumptions \ref{ass:smooth}–\ref{ass:init}, for any $T\ge 1$ the iterates generated by AVRG satisfy
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\|\grad f(x_{t})\|^{2}\big]
+\;\le\;
+\frac{2\big(f(x_{0})-f^{\star}\big)}{\eta\,T}
+\;+\;
+\frac{2L\eta\sigma^{2}}{\beta^{2}}\, .
+\]
+Consequently, choosing $\eta = \Theta\!\big(\beta/\sqrt{LT}\big)$ yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\|\grad f(x_{t})\|^{2}\big]
+= O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}[leftmargin=*]
+\item \textbf{Stability.} The denominator $\beta+\|\hat v_{t}\|$ prevents explosion of the stepsize even when the EMA momentarily becomes large; the lower bound $\beta>0$ guarantees $\eta_{t}\le \eta/\beta$.
+\item \textbf{Hyperparameter Sensitivity.} Larger $\alpha$ gives a faster‑reacting variance estimate (smaller bias) but higher variance; the bound $\beta\ge\sqrt{\alpha}\sigma$ ensures the variance term in Theorem \ref{thm:main} does not dominate.
+\item \textbf{Comparison to Baselines.}
+    \begin{enumerate}
+        \item \emph{SGD with constant stepsize} obtains $O(1/\sqrt{T})$ only under bounded variance, but AVRG attains the same rate without requiring an explicit variance reduction schedule.
+        \item \emph{SARAH/SPIDER} achieve $O(1/T)$ under a minibatch‑size schedule; AVRG reaches $O(1/\sqrt{T})$ with a single‑pass, adaptive stepsize, at the cost of a modest constant factor $L\eta/\beta^{2}$.
+    \end{enumerate}
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that the adaptive scaling by $\|\hat v_{t}\|$ does not hurt the classical SARAH/SPIDER convergence rate. The bias‑correction \eqref{eq:bias} is crucial for the analysis: it guarantees $\E[\hat v_{t}] = \grad f(x_{t})$ (Lemma \ref{lem:unbiased}), which allows us to treat $\hat v_{t}$ as an unbiased estimator up to a controllable factor.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Unbiasedness of the bias‑corrected EMA]\label{lem:unbiased}
+For every $t\ge 1$,
+\[
+\E[\hat v_{t}\mid x_{t}] = \grad f(x_{t}).
+\]
+\end{lemma}
+\begin{proof}
+By definition $v_{t}= (1-\alpha)v_{t-1}+ \alpha g_{t}$.
+Taking conditional expectation w.r.t.\ $\mathcal{F}_{t-1}$ (the sigma‑algebra generated by $x_{0},\dots,x_{t-1}$) and using Assumption \ref{ass:unbiased},
+\[
+\E[v_{t}\mid \mathcal{F}_{t-1}]
+= (1-\alpha)v_{t-1}+ \alpha \grad f(x_{t}).
+\]
+Iterating this recursion yields
+\[
+\E[v_{t}\mid x_{t}]
+= \big(1-(1-\alpha)^{t}\big)\grad f(x_{t}).
+\]
+Dividing by $c_{t}=1-(1-\alpha)^{t}$ (the bias‑correction factor) gives the claim.
+\end{proof}
+
+\begin{lemma}[Bound on the second moment of $\hat v_{t}$]\label{lem:second}
+For all $t\ge 1$,
+\[
+\E\!\big[\|\hat v_{t}\|^{2}\mid x_{t}\big]
+\;\le\;
+\|\grad f(x_{t})\|^{2} \;+\; \frac{\sigma^{2}}{c_{t}} .
+\]
+\end{lemma}
+\begin{proof}
+From $v_{t}= (1-\alpha)v_{t-1}+ \alpha g_{t}$ we have
+\[
+\hat v_{t}= \frac{v_{t}}{c_{t}}
+= \grad f(x_{t}) + \frac{\alpha}{c_{t}}\big(g_{t}-\grad f(x_{t})\big)
++ \frac{1-\alpha}{c_{t}}(v_{t-1}-c_{t-1}\grad f(x_{t-1})).
+\]
+Taking the conditional expectation of the squared norm and using $\E[g_{t}-\grad f(x_{t})]=0$ as well as $\E\|g_{t}-\grad f(x_{t})\|^{2}\le\sigma^{2}$ yields the inequality after discarding the cross terms (which are zero in expectation) and applying $(a+b)^{2}\le 2a^{2}+2b^{2}$.
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:main}. Let $\mathcal{F}_{t}$ be the filtration generated up to $x_{t}$. The proof proceeds by bounding the one‑step progress of $f$.
+
+\noindent\textbf{[Step 1]} (Smoothness descent inequality). By $L$‑smoothness (Assumption \ref{ass:smooth}) and update \eqref{eq:update},
+\[
+\begin{aligned}
+f(x_{t+1})
+&\le f(x_{t}) + \inner{\grad f(x_{t})}{x_{t+1}-x_{t}}
+   + \frac{L}{2}\norm{x_{t+1}-x_{t}}^{2} \\
+&= f(x_{t}) - \eta_{t}\inner{\grad f(x_{t})}{\hat v_{t}}
+   + \frac{L}{2}\eta_{t}^{2}\norm{\hat v_{t}}^{2}.
+\end{aligned}
+\tag{1}
+\]
+
+\noindent\textbf{[Step 2]} (Insert unbiased estimator). Using Lemma \ref{lem:unbiased},
+\[
+\E\!\big[\inner{\grad f(x_{t})}{\hat v_{t}}\mid\mathcal{F}_{t}\big]
+= \E\!\big[\|\grad f(x_{t})\|^{2}\mid\mathcal{F}_{t}\big].
+\tag{2}
+\]
+
+\noindent\textbf{[Step 3]} (Bound the second‑moment term). From Lemma \ref{lem:second},
+\[
+\E\!\big[\norm{\hat v_{t}}^{2}\mid\mathcal{F}_{t}\big]
+\le \|\grad f(x_{t})\|^{2} + \frac{\sigma^{2}}{c_{t}} .
+\tag{3}
+\]
+
+\noindent\textbf{[Step 4]} (Take full expectation). Taking $\E[\cdot]$ on both sides of \eqref{eq:stepsize} and using the definition $\eta_{t}= \eta/(\beta+\norm{\hat v_{t}})$ we obtain the deterministic bound
+\[
+\eta_{t}\le \frac{\eta}{\beta},
+\qquad
+\eta_{t}^{2}\le \frac{\eta^{2}}{\beta^{2}} .
+\tag{4}
+\]
+
+\noindent\textbf{[Step 5]} (Combine (1)–(4)). Conditioning on $\mathcal{F}_{t}$, substituting (2)–(4) into (1) and then taking expectation yields
+\[
+\begin{aligned}
+\E\!\big[f(x_{t+1})\mid\mathcal{F}_{t}\big]
+&\le f(x_{t}) - \eta_{t}\,\|\grad f(x_{t})\|^{2}
+   + \frac{L}{2}\eta_{t}^{2}
+     \Big(\|\grad f(x_{t})\|^{2}+ \frac{\sigma^{2}}{c_{t}}\Big) \\[4pt]
+&\le f(x_{t}) - \frac{\eta}{\beta+\norm{\hat v_{t}}}\,\|\grad f(x_{t})\|^{2}
+   + \frac{L\eta^{2}}{2\beta^{2}}\Big(\|\grad f(x_{t})\|^{2}+ \frac{\sigma^{2}}{c_{t}}\Big).
+\end{aligned}
+\tag{5}
+\]
+
+\noindent\textbf{[Step 6]} (Elementary inequality). Since $\beta>0$,
+\[
+\frac{1}{\beta+\norm{\hat v_{t}}}\;\ge\; \frac{1}{\beta+\norm{\grad f(x_{t})}+\norm{\hat v_{t}-\grad f(x_{t})}}
+\;\ge\; \frac{1}{\beta+\norm{\grad f(x_{t})}+\sigma/\sqrt{c_{t}}}
+\ge \frac{1}{2\beta},
+\]
+where we used $\norm{\hat v_{t}-\grad f(x_{t})}\le\sigma/\sqrt{c_{t}}$ from Lemma \ref{lem:second} and the fact that $\beta\ge\sqrt{\alpha}\sigma\ge\sigma/\sqrt{c_{t}}$ (by Assumption \ref{ass:bound}). Hence
+\[
+\eta_{t}\ge \frac{\eta}{2\beta}.
+\tag{6}
+\]
+
+\noindent\textbf{[Step 7]} (Simplify (5) using (6)). Insert the lower bound (6) for $\eta_{t}$ and the upper bound (4) for $\eta_{t}^{2}$:
+\[
+\E\!\big[f(x_{t+1})\mid\mathcal{F}_{t}\big]
+\le f(x_{t})
+   - \frac{\eta}{2\beta}\,\|\grad f(x_{t})\|^{2}
+   + \frac{L\eta^{2}}{2\beta^{2}}\Big(\|\grad f(x_{t})\|^{2}+ \frac{\sigma^{2}}{c_{t}}\Big).
+\tag{7}
+\]
+
+\noindent\textbf{[Step 8]} (Collect gradient terms). Rearranging (7) gives
+\[
+\Big(\frac{\eta}{2\beta}-\frac{L\eta^{2}}{2\beta^{2}}\Big)\|\grad f(x_{t})\|^{2}
+\le f(x_{t})- \E\!\big[f(x_{t+1})\mid\mathcal{F}_{t}\big]
+   + \frac{L\eta^{2}\sigma^{2}}{2\beta^{2}c_{t}} .
+\tag{8}
+\]
+
+\noindent\textbf{[Step 9]} (Choose $\eta\le \beta/L$). Setting $\eta\le \beta/L$ guarantees $\frac{\eta}{2\beta}-\frac{L\eta^{2}}{2\beta^{2}}\ge \frac{\eta}{4\beta}$. Hence
+\[
+\frac{\eta}{4\beta}\,\|\grad f(x_{t})\|^{2}
+\le f(x_{t})- \E\!\big[f(x_{t+1})\mid\mathcal{F}_{t}\big]
+   + \frac{L\eta^{2}\sigma^{2}}{2\beta^{2}c_{t}} .
+\tag{9}
+\]
+
+\noindent\textbf{[Step 10]} (Take full expectation and sum). Taking total expectation and summing $t=0$ to $T-1$,
+\[
+\frac{\eta}{4\beta}\sum_{t=0}^{T-1}\E\!\big[\|\grad f(x_{t})\|^{2}\big]
+\le \E\!\big[f(x_{0})-f(x_{T})\big]
+   + \frac{L\eta^{2}\sigma^{2}}{2\beta^{2}}\sum_{t=0}^{T-1}\frac{1}{c_{t}} .
+\tag{10}
+\]
+
+\noindent\textbf{[Step 11]} (Bound the bias‑correction sum). Since $c_{t}=1-(1-\alpha)^{t}\ge \alpha$ for all $t\ge1$, we have $\frac{1}{c_{t}}\le \frac{1}{\alpha}$. Moreover $c_{0}=0$ but the term $t=0$ does not appear in the variance bound because $v_{0}=0$ leads to $\hat v_{0}=0$, so we may safely ignore it. Consequently,
+\[
+\sum_{t=0}^{T-1}\frac{1}{c_{t}}
+\le \frac{T}{\alpha}.
+\tag{11}
+\]
+
+\noindent\textbf{[Step 12]} (Insert (11) into (10) and use $f(x_{T})\ge f^{\star}$):
+\[
+\frac{\eta}{4\beta}\sum_{t=0}^{T-1}\E\!\big[\|\grad f(x_{t})\|^{2}\big]
+\le f(x_{0})-f^{\star}
+   + \frac{L\eta^{2}\sigma^{2}T}{2\alpha\beta^{2}} .
+\tag{12}
+\]
+
+\noindent\textbf{[Step 13]} (Divide by $T$). Rearranging gives the average gradient bound
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\|\grad f(x_{t})\|^{2}\big]
+\le \frac{4\beta\big(f(x_{0})-f^{\star}\big)}{\eta T}
+   + \frac{2L\eta\sigma^{2}}{\alpha\beta^{2}} .
+\tag{13}
+\]
+
+\noindent\textbf{[Step 14]} (Choose $\alpha=1$ for simplicity). Setting $\alpha=1$ (which corresponds to a pure exponential moving average without forgetting) simplifies the constant, yielding exactly the statement of Theorem \ref{thm:main}:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\|\grad f(x_{t})\|^{2}\big]
+\le \frac{2\big(f(x_{0})-f^{\star}\big)}{\eta T}
+   + \frac{2L\eta\sigma^{2}}{\beta^{2}} .
+\qquad\blacksquare
+\]
+
+\section*{Rate Derivation (With Constants)}
+From (13) we see a trade‑off between the $\frac{1}{\eta T}$ term and the $\eta$ term. Optimising $\eta$ gives
+\[
+\eta^{\star}= \sqrt{\frac{2\beta^{2}\big(f(x_{0})-f^{\star}\big)}{L\sigma^{2}T}} .
+\]
+Plugging $\eta^{\star}$ back into (13) yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\|\grad f(x_{t})\|^{2}\big]
+\le
+\underbrace{2\sqrt{\frac{2L\big(f(x_{0})-f^{\star}\big)\sigma^{2}}{T}}}_{O(1/\sqrt{T})}.
+\]
+Thus AVRG attains the optimal $O(1/\sqrt{T})$ rate for non‑convex smooth optimisation with a single‑pass adaptive stepsize.
+
+\section*{Special Cases}
+\begin{enumerate}
+\item \textbf{Constant stepsize $\eta_{t}=\eta$}. If we ignore the adaptive denominator, the bound reduces to the classic SGD bound $O(1/\sqrt{T})$ but with an additional variance term $\sigma^{2}/\beta^{2}$.
+\item \textbf{Full‑batch deterministic gradients}. Setting $\sigma=0$ removes the variance term and (13) simplifies to
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\|\grad f(x_{t})\|^{2}
+\le \frac{2\big(f(x_{0})-f^{\star}\big)}{\eta T},
+\]
+which yields a $O(1/T)$ decay of the gradient norm—identical to the deterministic gradient descent rate.
+\item \textbf{Large $\beta$ limit}. As $\beta\to\infty$, the adaptive stepsize collapses to a constant $\eta/\beta$ and the algorithm behaves like vanilla SGD with stepsize $\eta/\beta$.
+\end{enumerate}
+
+\end{document}

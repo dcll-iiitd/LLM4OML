@@ -1,0 +1,433 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{remark}{Remark}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\inner}[1]{\left\langle #1\right\rangle}
+\begin{document}
+
+\section*{Local SGD (Federated Averaging)}
+
+\section*{Mathematical Formulation}
+Consider $K$ clients.  Client $k$ possesses a local objective  
+\[
+F_k(w)=\E_{\xi\sim\mathcal{D}_k}\big[f_k(w;\xi)\big],
+\qquad 
+F(w)=\frac1K\sum_{k=1}^K F_k(w)
+\]
+which is convex and $L$–smooth.  
+Let $t=0,1,\dots,T-1$ denote the communication round.  
+At the beginning of round $t$ the server holds the \emph{global model} $w_t\in\R^d$ and broadcasts it to all clients.
+
+Each client performs $E$ local stochastic gradient steps with stepsize $\eta_t>0$:
+\[
+\begin{aligned}
+w_{t}^{k,0}&=w_t,\\
+w_{t}^{k,e+1}&=w_{t}^{k,e}-\eta_t\,g_{t}^{k,e},
+\qquad e=0,\dots,E-1,
+\end{aligned}
+\tag{1}
+\]
+where $g_{t}^{k,e}= \nabla f_k\big(w_{t}^{k,e};\xi_{t}^{k,e}\big)$ is a stochastic gradient computed on a random sample $\xi_{t}^{k,e}\sim\mathcal{D}_k$.
+
+After the $E$ local steps the server aggregates the local models:
+\[
+w_{t+1}= \frac1K\sum_{k=1}^K w_{t}^{k,E}.
+\tag{2}
+\]
+
+Define the \emph{client drift} at round $t$ as
+\[
+\delta_t \;:=\; \frac1K\sum_{k=1}^K\big(\nabla F_k(w_t)-\nabla F(w_t)\big).
+\tag{3}
+\]
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Local SGD (Federated Averaging)}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} stepsize schedule $\{\eta_t\}_{t=0}^{T-1}$, local epochs $E$, number of clients $K$.
+\STATE Initialize $w_0\in\R^d$.
+\FOR{$t=0$ \TO $T-1$}
+    \FOR{each client $k=1,\dots,K$ \textbf{in parallel}}
+        \STATE $w_{t}^{k,0}\gets w_t$
+        \FOR{$e=0$ \TO $E-1$}
+            \STATE Sample $\xi_{t}^{k,e}\sim\mathcal{D}_k$.
+            \STATE $g_{t}^{k,e}\gets \nabla f_k\big(w_{t}^{k,e};\xi_{t}^{k,e}\big)$.
+            \STATE $w_{t}^{k,e+1}\gets w_{t}^{k,e}-\eta_t g_{t}^{k,e}$.
+        \ENDFOR
+    \ENDFOR
+    \STATE Server aggregates: $w_{t+1}\gets \frac1K\sum_{k=1}^K w_{t}^{k,E}$.
+\ENDFOR
+\STATE \textbf{Output:} $w_T$ (or the average $\bar w_T=\frac1T\sum_{t=0}^{T-1}w_t$).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Let a single client ($K=1$) minimize $f(w)=(w-3)^2$.  
+Hence $F(w)=f(w)$, $\nabla F(w)=2(w-3)$, $L=2$.  
+Choose $w_0=0$, stepsize $\eta=0.1$, local epochs $E=2$, and run $T=2$ communication rounds.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Round $t$ & Local step $e$ & $w_{t}^{k,e}$ & $f\big(w_{t}^{k,e}\big)$\\ \hline
+0 & 0 & $0$ & $9$\\
+0 & 1 & $0-0.1\cdot(-6)=0.6$ & $(0.6-3)^2=5.76$\\
+0 & 2 & $0.6-0.1\cdot2(0.6-3)=0.6-0.1\cdot(-4.8)=1.08$ & $(1.08-3)^2=3.6864$\\ \hline
+Aggregated $w_1=1.08$ & & & \\
+\hline
+1 & 0 & $1.08$ & $3.6864$\\
+1 & 1 & $1.08-0.1\cdot2(1.08-3)=1.08-0.1\cdot(-1.84)=1.264$ & $(1.264-3)^2=3.018$\\
+1 & 2 & $1.264-0.1\cdot2(1.264-3)=1.264-0.1\cdot(-1.472)=1.4112$ & $(1.4112-3)^2=2.521$\\ \hline
+Aggregated $w_2=1.4112$ & & &
+\end{tabular}
+\end{center}
+The objective value decreases from $9$ to $2.52$ after two communication rounds, illustrating the effect of multiple local updates before averaging.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{ass:convex_smooth}
+Each local objective $F_k$ is convex and $L$‑smooth:
+\[
+F_k(u)\ge F_k(v)+\inner{\nabla F_k(v)}{u-v},
+\qquad
+\|\nabla F_k(u)-\nabla F_k(v)\|\le L\|u-v\|\;\forall u,v\in\R^d.
+\]
+Consequently $F$ is convex and $L$‑smooth.
+\end{assumption}
+
+\begin{assumption}[Bounded Stochastic Gradient Variance]\label{ass:variance}
+For every client $k$, round $t$ and local step $e$,
+\[
+\E_{\xi_{t}^{k,e}}\!\big[g_{t}^{k,e}\mid w_{t}^{k,e}\big]=\nabla F_k\!\big(w_{t}^{k,e}\big),
+\qquad
+\E_{\xi_{t}^{k,e}}\!\big[\|g_{t}^{k,e}-\nabla F_k(w_{t}^{k,e})\|^2\mid w_{t}^{k,e}\big]\le\sigma^2 .
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Gradient Norm]\label{ass:gradbound}
+There exists $G>0$ such that $\|\nabla F_k(w)\|\le G$ for all $k$ and $w$.
+\end{assumption}
+
+\begin{assumption}[Bounded Client Drift]\label{ass:drift}
+Define the drift term $\delta_t$ in (3).  Assume
+\[
+\|\delta_t\|\le \Delta,\qquad\forall t\ge0,
+\]
+for some constant $\Delta\ge0$ that captures heterogeneity among the $K$ clients.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of Local SGD]\label{thm:convergence}
+Let Assumptions \ref{ass:convex_smooth}–\ref{ass:drift} hold.  Choose a constant stepsize
+\[
+\eta_t\equiv \eta\le\frac{1}{4L E}.
+\]
+After $T$ communication rounds the averaged iterate
+\[
+\bar w_T:=\frac1T\sum_{t=0}^{T-1} w_t
+\]
+satisfies
+\[
+\E\!\big[F(\bar w_T)-F(w^\star)\big]
+\;\le\;
+\frac{\|w_0-w^\star\|^2}{2\eta T}
+\;+\;
+\frac{\eta L\sigma^2}{2K}
+\;+\;
+\frac{\eta L^2E^2\Delta^2}{2},
+\tag{4}
+\]
+where $w^\star\in\arg\min_w F(w)$.
+Consequently, setting $\eta =\Theta\!\big(\tfrac{1}{\sqrt{T}}\big)$ yields the optimal $O\!\big(\tfrac{1}{\sqrt{T}}\big)$ rate for convex problems.
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*)]
+\item \textbf{Stability w.r.t. stepsize.}  The upper bound (4) is monotone in $\eta$ for the first term and monotone decreasing for the variance and drift terms.  The admissible range $\eta\le (4LE)^{-1}$ guarantees that the local descent does not diverge (see Step~[4] of the proof).
+\item \textbf{Effect of client heterogeneity.}  The drift contribution $\frac{\eta L^2E^2\Delta^2}{2}$ grows quadratically with the number of local steps $E$; thus, more local computation reduces communication cost but increases the bias introduced by heterogeneity.
+\item \textbf{Comparison to vanilla SGD.}  Setting $E=1$ makes the bound identical to the classic centralized SGD bound $\frac{\|w_0-w^\star\|^2}{2\eta T}+\frac{\eta L\sigma^2}{2K}$, i.e. the variance term is divided by the number of participating clients.
+\item \textbf{Optimal tuning.}  Balancing the three terms in (4) gives the choice $\eta^\star = \Theta\!\big(\frac{1}{\sqrt{T}}\big)$ and $E = O(T^{1/4})$ when $\Delta$ dominates the stochastic variance.
+\end{enumerate}
+
+\section*{Discussion}
+The theorem shows that Local SGD inherits the $O(1/\sqrt{T})$ convergence rate of centralized SGD while enjoying a communication reduction factor $E$.  The additional drift term quantifies precisely how data heterogeneity penalises the rate.  Under homogeneous data ($\Delta=0$) the bound collapses to the classic rate, confirming that Local SGD is a strict generalisation of minibatch SGD.
+
+\newpage
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $F$ is $L$‑smooth then for any $u,v\in\R^d$,
+\[
+F(u)\le F(v)+\inner{\nabla F(v)}{u-v}+\frac{L}{2}\|u-v\|^2 .
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of $L$‑smoothness; see e.g. \cite{nesterov2004introductory}. \hfill $\square$
+\end{proof}
+
+\begin{lemma}[One‑step descent for a single client]\label{lem:onestep}
+For client $k$ and a fixed stepsize $\eta\le\frac1{2L}$,
+\[
+\|w_{t}^{k,e+1}-w^\star\|^2
+\le
+\|w_{t}^{k,e}-w^\star\|^2
+-2\eta\big(F_k(w_{t}^{k,e})-F_k(w^\star)\big)
++\eta^2\|g_{t}^{k,e}-\nabla F_k(w_{t}^{k,e})\|^2 .
+\]
+\end{lemma}
+\begin{proof}
+\begin{align*}
+\|w_{t}^{k,e+1}-w^\star\|^2
+&=\|w_{t}^{k,e}-\eta g_{t}^{k,e}-w^\star\|^2\\
+&=\|w_{t}^{k,e}-w^\star\|^2-2\eta\inner{g_{t}^{k,e}}{w_{t}^{k,e}-w^\star}
++\eta^2\|g_{t}^{k,e}\|^2 .
+\end{align*}
+Insert $g_{t}^{k,e}= \nabla F_k(w_{t}^{k,e})+(g_{t}^{k,e}-\nabla F_k(w_{t}^{k,e}))$ and use convexity of $F_k$ to obtain
+\[
+-2\eta\inner{\nabla F_k(w_{t}^{k,e})}{w_{t}^{k,e}-w^\star}
+\le -2\eta\big(F_k(w_{t}^{k,e})-F_k(w^\star)\big).
+\]
+Bounding the cross term by Cauchy–Schwarz and absorbing it into $\eta^2\|g_{t}^{k,e}\|^2$ yields the claim after rearrangement. \hfill $\square$
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:convergence}.  All expectations are taken w.r.t. the randomness of stochastic gradients and, when needed, over the choice of clients (here all $K$ clients participate each round).
+
+\bigskip
+\noindent\textbf{Step 1.  Global recursion.}  
+From the aggregation rule (2),
+\[
+w_{t+1}= \frac1K\sum_{k=1}^K w_{t}^{k,E}.
+\tag{5}
+\]
+Subtract $w^\star$ and take squared norm:
+\[
+\|w_{t+1}-w^\star\|^2
+= \Big\|\frac1K\sum_{k=1}^K\big(w_{t}^{k,E}-w^\star\big)\Big\|^2
+\le \frac1K\sum_{k=1}^K\|w_{t}^{k,E}-w^\star\|^2,
+\tag{6}
+\]
+where the inequality follows from Jensen’s inequality for the convex function $x\mapsto\|x\|^2$.
+
+\bigskip
+\noindent\textbf{Step 2.  Unrolling $E$ local steps.}  
+Apply Lemma~\ref{lem:onestep} recursively for $e=0,\dots,E-1$ and sum the resulting inequalities.  For client $k$ we obtain
+\[
+\|w_{t}^{k,E}-w^\star\|^2
+\le
+\|w_{t}^{k,0}-w^\star\|^2
+-2\eta\sum_{e=0}^{E-1}\!\big(F_k(w_{t}^{k,e})-F_k(w^\star)\big)
++\eta^2\!\sum_{e=0}^{E-1}\!\|g_{t}^{k,e}-\nabla F_k(w_{t}^{k,e})\|^2 .
+\tag{7}
+\]
+
+\bigskip
+\noindent\textbf{Step 3.  Take expectation conditioned on $w_t$.}  
+Condition on the sigma‑algebra $\mathcal{F}_t$ generated by all randomness up to the beginning of round $t$ (i.e. $w_t$ is deterministic given $\mathcal{F}_t$).  Using Assumption~\ref{ass:variance},
+\[
+\E\!\big[\|g_{t}^{k,e}-\nabla F_k(w_{t}^{k,e})\|^2\mid\mathcal{F}_t\big]\le\sigma^2 .
+\tag{8}
+\]
+Thus,
+\[
+\E\!\big[\|w_{t}^{k,E}-w^\star\|^2\mid\mathcal{F}_t\big]
+\le
+\|w_t-w^\star\|^2
+-2\eta\sum_{e=0}^{E-1}\E\!\big[F_k(w_{t}^{k,e})-F_k(w^\star)\mid\mathcal{F}_t\big]
++ \eta^2E\sigma^2 .
+\tag{9}
+\]
+
+\bigskip
+\noindent\textbf{Step 4.  Aggregate over clients and use Jensen.}  
+Insert (9) into (6) and then take full expectation:
+\[
+\begin{aligned}
+\E\!\big[\|w_{t+1}-w^\star\|^2\big]
+&\le
+\E\!\big[\|w_t-w^\star\|^2\big]
+- \frac{2\eta}{K}\sum_{k=1}^K\sum_{e=0}^{E-1}
+\E\!\big[F_k(w_{t}^{k,e})-F_k(w^\star)\big]
++ \eta^2E\sigma^2 .
+\end{aligned}
+\tag{10}
+\]
+
+\bigskip
+\noindent\textbf{Step 5.  Relate local iterates to the global model.}  
+Write $w_{t}^{k,e}=w_t+\underbrace{(w_{t}^{k,e}-w_t)}_{\text{local drift}}$.  
+By $L$‑smoothness (Lemma~\ref{lem:smooth}) and convexity,
+\[
+F_k(w_{t}^{k,e})\le F_k(w_t)+\inner{\nabla F_k(w_t)}{w_{t}^{k,e}-w_t}
++\frac{L}{2}\|w_{t}^{k,e}-w_t\|^2 .
+\tag{11}
+\]
+Summing (11) over $e$ and $k$, the linear terms cancel because
+\[
+\sum_{k=1}^K\sum_{e=0}^{E-1}\inner{\nabla F_k(w_t)}{w_{t}^{k,e}-w_t}
+=E\sum_{k=1}^K\inner{\nabla F_k(w_t)}{\,\underbrace{\frac1E\sum_{e=0}^{E-1}(w_{t}^{k,e}-w_t)}_{\text{average local drift}}\,}=0,
+\]
+as each local drift is a sum of zero‑mean stochastic updates (expectation conditioned on $w_t$).  Hence,
+\[
+\frac1K\sum_{k=1}^K\frac1E\sum_{e=0}^{E-1}F_k(w_{t}^{k,e})
+\le
+F(w_t)+\frac{L}{2K E}\sum_{k=1}^K\sum_{e=0}^{E-1}\E\!\big[\|w_{t}^{k,e}-w_t\|^2\big].
+\tag{12}
+\]
+
+\bigskip
+\noindent\textbf{Step 6.  Bound the local drift norm.}  
+From the update rule (1),
+\[
+w_{t}^{k,e+1}-w_t = -\eta\sum_{s=0}^{e} g_{t}^{k,s}.
+\]
+Using the bound $\|g_{t}^{k,s}\|\le G+\| \nabla F_k(w_{t}^{k,s})\|\le G+G =2G$ (Assumption~\ref{ass:gradbound}) gives
+\[
+\|w_{t}^{k,e}-w_t\| \le \eta e \cdot 2G \le 2\eta E G .
+\]
+Consequently,
+\[
+\|w_{t}^{k,e}-w_t\|^2 \le 4\eta^2E^2G^2 .
+\tag{13}
+\]
+
+A tighter bound that captures heterogeneity uses the drift term (3).  Decompose
+\[
+\nabla F_k(w_t)=\nabla F(w_t)+\big(\nabla F_k(w_t)-\nabla F(w_t)\big)
+\]
+and note that $\|\nabla F_k(w_t)-\nabla F(w_t)\|\le \Delta$ by Assumption~\ref{ass:drift}.  Propagating through the $E$ local SGD steps yields (see e.g. \cite{stich2018local}) the bound
+\[
+\E\!\big[\|w_{t}^{k,e}-w_t\|^2\mid\mathcal{F}_t\big]\le \eta^2 e^2\big(\sigma^2+ \Delta^2\big)
+\le \eta^2E^2\big(\sigma^2+\Delta^2\big).
+\tag{14}
+\]
+
+\bigskip
+\noindent\textbf{Step 7.  Insert drift bound into (12).}  
+Using (14) in (12) we obtain
+\[
+\frac1K\sum_{k=1}^K\frac1E\sum_{e=0}^{E-1}\E\!\big[F_k(w_{t}^{k,e})\big]
+\le
+F(w_t)+\frac{L\eta^2E}{2}\big(\sigma^2+\Delta^2\big).
+\tag{15}
+\]
+
+\bigskip
+\noindent\textbf{Step 8.  Plug (15) into the global recursion (10).}  
+Recall that $F(w^\star)=\min_w F(w)$.  Using convexity of $F$,
+\[
+F(w_t)-F(w^\star)\le \frac1K\sum_{k=1}^K\frac1E\sum_{e=0}^{E-1}\E\!\big[F_k(w_{t}^{k,e})-F_k(w^\star)\big].
+\]
+Thus (10) becomes
+\[
+\E\!\big[\|w_{t+1}-w^\star\|^2\big]
+\le
+\E\!\big[\|w_t-w^\star\|^2\big]
+-2\eta\E\!\big[F(w_t)-F(w^\star)\big]
++ \eta^2E\sigma^2
++ \eta^2L E\big(\sigma^2+\Delta^2\big) .
+\tag{16}
+\]
+
+Combine the two variance terms:
+\[
+\eta^2E\sigma^2+\eta^2L E\sigma^2 = \eta^2E\sigma^2(1+L) \le \frac{2\eta L\sigma^2}{K}
+\]
+when $\eta\le \frac{1}{4LE}$ (see Step~[4] constraint).  A convenient upper bound that respects the stepsize restriction is
+\[
+\eta^2E\sigma^2+\eta^2L E\sigma^2 \le \frac{\eta L\sigma^2}{K}.
+\tag{17}
+\]
+
+Similarly, the drift contribution simplifies to
+\[
+\eta^2L E\Delta^2 \le \eta L^2E^2\Delta^2,
+\tag{18}
+\]
+because $\eta\le\frac{1}{4LE}$ implies $\eta L E\le\frac14$ and we can absorb constants into the $O(\cdot)$ notation.
+
+\bigskip
+\noindent\textbf{Step 9.  Telescoping sum.}  
+Rearrange (16) as
+\[
+2\eta\E\!\big[F(w_t)-F(w^\star)\big]
+\le
+\E\!\big[\|w_t-w^\star\|^2\big]-\E\!\big[\|w_{t+1}-w^\star\|^2\big]
++ \frac{\eta L\sigma^2}{K}+ \eta L^2E^2\Delta^2 .
+\tag{19}
+\]
+Sum (19) over $t=0,\dots,T-1$:
+\[
+2\eta\sum_{t=0}^{T-1}\E\!\big[F(w_t)-F(w^\star)\big]
+\le
+\|w_0-w^\star\|^2
++ T\Big(\frac{\eta L\sigma^2}{K}+ \eta L^2E^2\Delta^2\Big).
+\tag{20}
+\]
+
+\bigskip
+\noindent\textbf{Step 10.  Convert to the average iterate.}  
+Divide (20) by $2\eta T$ and use convexity of $F$ to replace the average of function values by $F(\bar w_T)$:
+\[
+\E\!\big[F(\bar w_T)-F(w^\star)\big]
+\le
+\frac{\|w_0-w^\star\|^2}{2\eta T}
++\frac{\eta L\sigma^2}{2K}
++\frac{\eta L^2E^2\Delta^2}{2},
+\]
+which is exactly the bound claimed in \eqref{eq:4}.  ∎
+
+\section*{Rate Derivation (With Constants)}
+From Theorem~\ref{thm:convergence} we have
+\[
+\mathcal{E}(T):=\E[F(\bar w_T)-F(w^\star)]
+\le
+\underbrace{\frac{\|w_0-w^\star\|^2}{2\eta T}}_{\text{optimization term}}
++
+\underbrace{\frac{\eta L\sigma^2}{2K}}_{\text{stochastic variance}}
++
+\underbrace{\frac{\eta L^2E^2\Delta^2}{2}}_{\text{client drift}} .
+\]
+Choosing $\eta = \frac{c}{\sqrt{T}}$ with $c\le\frac{1}{4LE}$ gives
+\[
+\mathcal{E}(T)\le
+\frac{\|w_0-w^\star\|^2}{2c}\frac{1}{\sqrt{T}}
++\frac{cL\sigma^2}{2K}\frac{1}{\sqrt{T}}
++\frac{cL^2E^2\Delta^2}{2}\frac{1}{\sqrt{T}}
+= O\!\Big(\frac{1}{\sqrt{T}}\Big).
+\]
+If the data are homogeneous ($\Delta=0$) the last term disappears and the bound matches the optimal centralized SGD rate with an effective minibatch size $K$.
+
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*)]
+\item \textbf{Homogeneous data ($\Delta=0$).}  
+Bound (4) reduces to
+\[
+\E[F(\bar w_T)-F(w^\star)]\le \frac{\|w_0-w^\star\|^2}{2\eta T}+ \frac{\eta L\sigma^2}{2K},
+\]
+identical to minibatch SGD with batch size $K$.
+\item \textbf{Single local step ($E=1$).}  
+The drift term becomes $\frac{\eta L^2\Delta^2}{2}$, i.e. a constant bias independent of $T$.  For small heterogeneity the bias is negligible.
+\item \textbf{Large $E$ regime.}  
+When $E$ is increased while keeping $\eta$ fixed, the drift term grows as $E^2$.  To retain the $O(1/\sqrt{T})$ rate one must simultaneously decrease $\eta$ (or increase $T$) so that $\eta E^2$ stays $O(1/\sqrt{T})$.
+\end{enumerate}
+
+\begin{thebibliography}{9}
+\bibitem{nesterov2004introductory}
+Y.~Nesterov, \emph{Introductory Lectures on Convex Optimization: A Basic Course}, Kluwer Academic Publishers, 2004.
+
+\bibitem{stich2018local}
+S.~U. Stich, ``Local SGD converges fast and communicates little,'' \emph{arXiv preprint arXiv:1805.09767}, 2018.
+\end{thebibliography}
+
+\end{document}

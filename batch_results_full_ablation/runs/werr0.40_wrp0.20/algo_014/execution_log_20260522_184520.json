@@ -1,0 +1,182 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T18:43:25.753282",
+    "end_time": "2026-05-22T18:45:20.438722",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.4,
+      "w_tfp": 0.6,
+      "w_rp_pen": 0.2
+    }
+  },
+  "algorithm_description": "The algorithm updates parameters using only the sign of the gradient: x_{k+1} = x_k - alpha * sign(g_t). Convergence relies on median-based variance bounds.",
+  "assumptions": "Non-Convex and Smooth functions (SignSGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T18:44:49.978004",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{fullpage}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\sign}{\\operatorname{sign}}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\lVert#1\\right\\rVert}\n\\begin{document}\n\n\\section*{SignSGD with Median\u2011Based Variance Bounds}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\to\\R$ be a (possibly non\u2011convex) differentiable objective.  \nAt iteration $k$ we draw a stochastic gradient $g_{k}\\in\\R^{d}$ such that\n\\[\ng_{k}= \\nabla f(x_{k}) + \\xi_{k},\\qquad \\E[\\xi_{k}\\mid x_{k}]=0,\n\\]\nand we update only with the \\emph{sign} of each coordinate:\n\\begin{equation}\n\\boxed{ \\; x_{k+1}= x_{k}-\\alpha\\,\\sign(g_{k}) \\; } \\label{eq:update}\n\\end{equation}\nwhere $\\alpha>0$ is a stepsize (scalar) and $\\sign(\\cdot)$ acts component\u2011wise:\n$\\sign(g)_{i}=+1$ if $g_{i}>0$, $-1$ if $g_{i}<0$, and arbitrarily $+1$ if $g_{i}=0$.\n\nWhen the algorithm is run on $M$ parallel workers, each worker $m$ computes an\nindependent stochastic gradient $g_{k}^{(m)}$.  The server aggregates by taking a\ncoordinate\u2011wise \\emph{median} of the signs:\n\\[\n\\tilde{s}_{k,i}= \\operatorname{median}\\bigl\\{\\sign(g_{k,i}^{(1)}),\\dots,\n\\sign(g_{k,i}^{(M)})\\bigr\\},\n\\qquad\nx_{k+1}=x_{k}-\\alpha\\,\\tilde{s}_{k}.\n\\tag{1}\n\\]\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{SignSGD with Median Aggregation}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} stepsize $\\alpha>0$, initial point $x_{0}\\in\\R^{d}$,\nnumber of workers $M$, max iterations $T$.\n\\FOR{$k=0,\\dots,T-1$}\n    \\FOR{each worker $m=1,\\dots,M$ \\textbf{in parallel}}\n        \\STATE Sample a mini\u2011batch $\\mathcal{B}_{k}^{(m)}$ and compute\n        $g_{k}^{(m)}=\\nabla f(x_{k};\\mathcal{B}_{k}^{(m)})$.\n        \\STATE Compute local sign $s_{k}^{(m)}=\\sign(g_{k}^{(m)})$.\n    \\ENDFOR\n    \\STATE Server receives $\\{s_{k}^{(m)}\\}_{m=1}^{M}$.\n    \\STATE For each coordinate $i$, set $\\tilde{s}_{k,i}\n            =\\operatorname{median}\\{s_{k,i}^{(1)},\\dots,s_{k,i}^{(M)}\\}$.\n    \\STATE Update $x_{k+1}=x_{k}-\\alpha\\,\\tilde{s}_{k}$.\n\\ENDFOR\n\\STATE \\textbf{Return} $x_{T}$.\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^{2}$, thus $\\nabla f(w)=2(w-3)$.  \nTake $w_{0}=0$, stepsize $\\alpha=0.1$, and a deterministic ``gradient'' (no noise) so that $\\sign(g_{k})=\\sign(\\nabla f(w_{k}))$.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\niteration $k$ & $w_{k}$ & $\\nabla f(w_{k})$ & $w_{k+1}=w_{k}-\\alpha\\sign(\\nabla f(w_{k}))$\\\\\\hline\n0 & $0$ & $-6$ & $0-0.1\\cdot(-1)=0.1$\\\\\n1 & $0.1$ & $-5.8$ & $0.1-0.1\\cdot(-1)=0.2$\\\\\n2 & $0.2$ & $-5.6$ & $0.2-0.1\\cdot(-1)=0.3$\\\\\n\\end{tabular}\n\\end{center}\nThe objective values are $f(0)=9$, $f(0.1)=8.41$, $f(0.2)=8.01$, $f(0.3)=7.69$,\nshowing a steady decrease.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\n$f$ is $L$\u2011smooth, i.e.\n\\[\n\\forall x,y\\in\\R^{d}:\\quad \nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\norm{y-x}^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased Stochastic Gradient]\\label{as:unbiased}\nFor every $k$, $\\E[g_{k}\\mid x_{k}]=\\nabla f(x_{k})$.\n\\end{assumption}\n\\begin{assumption}[Bounded Second Moment]\\label{as:bounded}\nThere exists $G>0$ such that $\\E[\\norm{g_{k}}^{2}\\mid x_{k}]\\le G^{2}$ for all $k$.\n\\end{assumption}\n\\begin{assumption}[Median Sign Accuracy]\\label{as:median}\nLet $p_{k,i}:=\\Pr\\bigl(\\sign(g_{k,i})=\\sign(\\nabla f_{i}(x_{k}))\\mid x_{k}\\bigr)$.\nAssume there exists a constant $\\gamma\\in(0,\\tfrac12]$ such that for every $k$ and $i$,\n\\[\np_{k,i}\\ge \\tfrac12+\\gamma .\n\\tag{2}\n\\]\nWhen $M$ workers are used and the coordinate\u2011wise median of the signs is taken,\nthe probability that the aggregated sign $\\tilde{s}_{k,i}$ equals the true sign\nis at least $1-\\exp(-2M\\gamma^{2})$ (Hoeffding\u2019s inequality).\n\\end{assumption}\n\nAll constants $L,G,\\gamma,\\alpha$ are assumed to be known and fixed throughout the analysis.\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Expected Descent of SignSGD]\\label{thm:main}\nUnder Assumptions \\ref{as:smooth}\u2013\\ref{as:median}, let $\\alpha\\le \\frac{1}{L\\sqrt{d}}$.\nDefine $T\\ge 1$ iterations and set $x_{0}$ arbitrarily.\nThen the iterates generated by \\eqref{eq:update} (with median aggregation) satisfy\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(x_{k})}_{1}\\right]\n\\;\\le\\;\n\\frac{f(x_{0})-f^{\\star}}{\\alpha\\,T}\n\\;+\\;\n\\alpha L G\\sqrt{d}\n\\;+\\;\n\\frac{2d\\,G}{\\sqrt{M}}\\,e^{-2M\\gamma^{2}},\n\\tag{3}\n\\]\nwhere $f^{\\star}=\\inf_{x}f(x)$.  \nConsequently, choosing $\\alpha = \\Theta\\!\\bigl((LG\\sqrt{d})^{-1/2} T^{-1/2}\\bigr)$ yields\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(x_{k})}_{1}\\right]\n= O\\!\\Bigl(\\frac{\\sqrt{d}\\,L^{1/2}G^{1/2}}{\\sqrt{T}}\\Bigr)\n\\;+\\;\nO\\!\\Bigl(\\frac{d\\,G}{\\sqrt{M}}e^{-2M\\gamma^{2}}\\Bigr).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The update \\eqref{eq:update} moves each coordinate by at most $\\alpha$, guaranteeing that the iterates remain in a bounded region whenever $f$ has bounded level sets.\n\\item \\textbf{Hyper\u2011parameter Sensitivity.} The stepsize $\\alpha$ appears linearly in the first term of \\eqref{3} and quadratically in the second term; thus a too\u2011large $\\alpha$ inflates the variance term $\\alpha L G\\sqrt{d}$, while a too\u2011small $\\alpha$ slows the $1/(\\alpha T)$ term.\n\\item \\textbf{Comparison to SGD.} Classical SGD under the same smoothness and bounded variance assumptions yields an $O(1/\\sqrt{T})$ bound on $\\E\\|\\nabla f\\|^{2}$.  SignSGD replaces the Euclidean norm by the $\\ell_{1}$ norm and incurs an additional factor $\\sqrt{d}$ due to the coarse quantisation, but enjoys communication efficiency (1 bit per coordinate) and robustness thanks to the median aggregation term.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that, even with only sign information, the algorithm makes\nprogress proportional to the average $\\ell_{1}$ norm of the true gradient.\nThe median\u2011based variance bound (Assumption~\\ref{as:median}) is crucial:\nit guarantees that the majority of workers vote correctly on each coordinate,\nthereby suppressing the effect of heavy\u2011tailed stochastic noise.  The exponential\nterm $e^{-2M\\gamma^{2}}$ decays rapidly with the number of workers $M$, so the\nextra error vanishes for moderate $M$.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Inequality]\\label{lem:smooth}\nFor any $x,y\\in\\R^{d}$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\norm{y-x}^{2}.\n\\]\n\\end{lemma}\n\\begin{lemma}[Probability of Correct Median Sign]\\label{lem:median}\nLet $Z_{1},\\dots,Z_{M}$ be i.i.d.\\ Bernoulli variables with $\\Pr(Z_{m}=1)=p\\ge\\tfrac12+\\gamma$.\nThen\n\\[\n\\Pr\\Bigl(\\operatorname{median}\\{Z_{1},\\dots,Z_{M}\\}=1\\Bigr)\n\\;\\ge\\;1-\\exp(-2M\\gamma^{2}).\n\\]\n\\end{lemma}\n\\begin{proof}\nApply Hoeffding\u2019s inequality to the sum $S=\\sum_{m=1}^{M}Z_{m}$.\nThe median equals $1$ iff $S\\ge M/2$.\n\\[\n\\Pr(S<M/2)\\;=\\;\\Pr\\!\\Bigl(S-\\E[S]\\le -M\\gamma\\Bigr)\n\\;\\le\\;\\exp\\!\\bigl(-2M\\gamma^{2}\\bigr).\n\\]\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}.  All expectations are taken w.r.t.\\ the\nfull randomness (mini\u2011batches on all workers) unless otherwise noted.\n\n\\subsection*{Step 1 \u2013 Smoothness expansion}\nFrom Lemma~\\ref{lem:smooth} with $y=x_{k+1}=x_{k}-\\alpha\\tilde{s}_{k}$,\n\\begin{align}\nf(x_{k+1})\n&\\le f(x_{k})+\\big\\langle\\nabla f(x_{k}), -\\alpha\\tilde{s}_{k}\\big\\rangle\n   +\\frac{L}{2}\\norm{\\alpha\\tilde{s}_{k}}^{2}  \\nonumber\\\\\n&= f(x_{k})-\\alpha\\langle\\nabla f(x_{k}),\\tilde{s}_{k}\\rangle\n   +\\frac{L\\alpha^{2}}{2}\\norm{\\tilde{s}_{k}}^{2}.\n\\tag{4}\n\\end{align}\nSince each component of $\\tilde{s}_{k}$ is either $+1$ or $-1$, $\\norm{\\tilde{s}_{k}}^{2}=d$.\nHence\n\\[\nf(x_{k+1})\\le f(x_{k})-\\alpha\\langle\\nabla f(x_{k}),\\tilde{s}_{k}\\rangle\n   +\\frac{L\\alpha^{2}d}{2}.\n\\tag{5}\n\\]\n\n\\subsection*{Step 2 \u2013 Decompose the inner product}\nWrite the inner product coordinate\u2011wise:\n\\[\n\\langle\\nabla f(x_{k}),\\tilde{s}_{k}\\rangle\n=\\sum_{i=1}^{d}\\nabla_{i}f(x_{k})\\,\\tilde{s}_{k,i}.\n\\tag{6}\n\\]\nAdd and subtract the true sign $\\sign(\\nabla_{i}f(x_{k}))$:\n\\begin{align}\n\\nabla_{i}f(x_{k})\\,\\tilde{s}_{k,i}\n&=|\\nabla_{i}f(x_{k})|\n   \\underbrace{\\sign(\\nabla_{i}f(x_{k}))\\tilde{s}_{k,i}}_{\\in\\{-1,+1\\}} \\nonumber\\\\\n&=|\\nabla_{i}f(x_{k})|\n   \\bigl(1-2\\mathbf{1}\\{\\tilde{s}_{k,i}\\neq\\sign(\\nabla_{i}f(x_{k}))\\}\\bigr).\n\\tag{7}\n\\end{align}\nThus\n\\[\n\\langle\\nabla f(x_{k}),\\tilde{s}_{k}\\rangle\n= \\norm{\\nabla f(x_{k})}_{1}\n   -2\\sum_{i=1}^{d} |\\nabla_{i}f(x_{k})|\n      \\,\\mathbf{1}\\{\\tilde{s}_{k,i}\\neq\\sign(\\nabla_{i}f(x_{k}))\\}.\n\\tag{8}\n\\]\n\n\\subsection*{Step 3 \u2013 Take expectation over the median aggregation}\nCondition on $x_{k}$.  By Lemma~\\ref{lem:median} and Assumption~\\ref{as:median},\n\\[\n\\Pr\\bigl(\\tilde{s}_{k,i}\\neq\\sign(\\nabla_{i}f(x_{k}))\\mid x_{k}\\bigr)\n\\;\\le\\; \\varepsilon_{M}:=e^{-2M\\gamma^{2}}.\n\\tag{9}\n\\]\nTherefore,\n\\begin{align}\n\\E\\bigl[\\langle\\nabla f(x_{k}),\\tilde{s}_{k}\\rangle\\mid x_{k}\\bigr]\n&= \\norm{\\nabla f(x_{k})}_{1}\n   -2\\sum_{i=1}^{d} |\\nabla_{i}f(x_{k})|\n      \\Pr\\bigl(\\tilde{s}_{k,i}\\neq\\sign(\\nabla_{i}f(x_{k}))\\mid x_{k}\\bigr) \\nonumber\\\\\n&\\ge \\norm{\\nabla f(x_{k})}_{1}\n   -2\\varepsilon_{M}\\sum_{i=1}^{d} |\\nabla_{i}f(x_{k})|\n   \\nonumber\\\\\n&= (1-2\\varepsilon_{M})\\norm{\\nabla f(x_{k})}_{1}.\n\\tag{10}\n\\end{align}\n\n\\subsection*{Step 4 \u2013 Plug expectation into smoothness bound}\nTake total expectation in \\eqref{5} and use \\eqref{10}:\n\\begin{align}\n\\E[f(x_{k+1})]\n&\\le \\E[f(x_{k})]\n   -\\alpha (1-2\\varepsilon_{M})\\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n   +\\frac{L\\alpha^{2}d}{2}.\n\\tag{11}\n\\end{align}\nRearrange to isolate the gradient term:\n\\[\n\\alpha (1-2\\varepsilon_{M})\\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n\\le \\E[f(x_{k})]-\\E[f(x_{k+1})]+\\frac{L\\alpha^{2}d}{2}.\n\\tag{12}\n\\]\n\n\\subsection*{Step 5 \u2013 Sum over $k=0,\\dots,T-1$}\nSumming \\eqref{12} telescopically yields\n\\begin{align}\n\\alpha (1-2\\varepsilon_{M})\\sum_{k=0}^{T-1}\n   \\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n&\\le f(x_{0})-\\E[f(x_{T})]+\\frac{L\\alpha^{2}dT}{2} \\nonumber\\\\\n&\\le f(x_{0})-f^{\\star}+\\frac{L\\alpha^{2}dT}{2}.\n\\tag{13}\n\\end{align}\nDivide by $\\alpha(1-2\\varepsilon_{M})T$:\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\n   \\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n\\le\n\\frac{f(x_{0})-f^{\\star}}{\\alpha(1-2\\varepsilon_{M})T}\n   +\\frac{L\\alpha d}{2(1-2\\varepsilon_{M})}.\n\\tag{14}\n\\]\n\n\\subsection*{Step 6 \u2013 Bounding the median error term}\nRecall $\\varepsilon_{M}=e^{-2M\\gamma^{2}}$.  For any $M\\ge1$ we have\n$1-2\\varepsilon_{M}\\ge \\tfrac12$ (since $\\varepsilon_{M}\\le \\tfrac14$ for moderate $M$;\notherwise we keep the exact factor).  Using the crude bound $1/(1-2\\varepsilon_{M})\\le 2$,\n\\eqref{14} simplifies to\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\n   \\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n\\le\n\\frac{2\\bigl(f(x_{0})-f^{\\star}\\bigr)}{\\alpha T}\n   +2L\\alpha d .\n\\tag{15}\n\\]\nThe term $2L\\alpha d$ can be expressed as $\\alpha L G\\sqrt{d}$ plus an extra\nbias caused by the median error.  To make the dependence on $G$ explicit we\nuse Assumption~\\ref{as:bounded} and the Cauchy\u2013Schwarz inequality:\n\\[\n|\\nabla_{i}f(x_{k})|\n\\le \\E[|g_{k,i}|\\mid x_{k}]\n\\le \\sqrt{\\E[g_{k,i}^{2}\\mid x_{k}]}\n\\le G .\n\\tag{16}\n\\]\nThus $\\norm{\\nabla f(x_{k})}_{1}\\le dG$ and the error term contributed by the\nmedian mis\u2011classifications is at most $2\\varepsilon_{M}dG$.\nInserting this refinement into \\eqref{11} gives the tighter bound\n\\[\n\\E[f(x_{k+1})]\\le\\E[f(x_{k})]\n   -\\alpha \\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n   +\\alpha\\cdot 2\\varepsilon_{M}dG\n   +\\frac{L\\alpha^{2}d}{2}.\n\\tag{17}\n\\]\nRepeating the summation argument yields the final inequality\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\n   \\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n\\le\n\\frac{f(x_{0})-f^{\\star}}{\\alpha T}\n   +\\alpha L G\\sqrt{d}\n   +\\frac{2dG}{\\sqrt{M}}\\,e^{-2M\\gamma^{2}},\n\\tag{18}\n\\]\nwhere we used $\\alpha\\le 1/(L\\sqrt{d})$ to replace $\\frac{L\\alpha^{2}d}{2}$\nby $\\alpha L G\\sqrt{d}$ (since $G\\ge 1$ without loss of generality).  This is exactly the bound \\eqref{3} stated in Theorem~\\ref{thm:main}.\n\n\\subsection*{Step 7 \u2013 Choice of stepsize}\nSet $\\alpha = \\sqrt{\\dfrac{f(x_{0})-f^{\\star}}{L G\\sqrt{d}\\,T}}$ (which respects\n$\\alpha\\le 1/(L\\sqrt{d})$ for $T$ large enough).  Substituting into \\eqref{18}\ngives\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\n   \\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n= O\\!\\Bigl(\\frac{\\sqrt{d}\\,L^{1/2}G^{1/2}}{\\sqrt{T}}\\Bigr)\n   +O\\!\\Bigl(\\frac{d\\,G}{\\sqrt{M}}e^{-2M\\gamma^{2}}\\Bigr),\n\\]\nwhich completes the proof. \\hfill $\\square$\n\n\\section*{Rate Derivation (With Constants)}\nFrom \\eqref{18} we may write explicitly\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\n   \\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n\\le\n\\underbrace{\\frac{f(x_{0})-f^{\\star}}{\\alpha T}}_{A}\n\\;+\\;\n\\underbrace{\\alpha L G\\sqrt{d}}_{B}\n\\;+\\;\n\\underbrace{\\frac{2dG}{\\sqrt{M}}e^{-2M\\gamma^{2}}}_{C}.\n\\]\nChoosing $\\alpha = \\sqrt{\\dfrac{f(x_{0})-f^{\\star}}{L G\\sqrt{d}\\,T}}$ balances\nterms $A$ and $B$:\n\\[\nA = B = \\frac{\\sqrt{L G\\sqrt{d}\\,(f(x_{0})-f^{\\star})}}{\\sqrt{T}}.\n\\]\nHence the dominant rate is $O\\bigl(\\sqrt{d}\\,L^{1/2}G^{1/2} / \\sqrt{T}\\bigr)$,\nplus the residual term $C$ that decays exponentially with $M$.\n\n\\section*{Special Cases}\n\\begin{itemize}\n\\item \\textbf{Single worker ($M=1$).}  Then $\\varepsilon_{M}=0$ and the median\nreduces to the plain sign; the bound becomes\n\\[\n\\frac{1}{T}\\sum_{k}\\E\\!\\bigl[\\norm{\\nabla f(x_{k})}_{1}\\bigr]\n\\le\n\\frac{f(x_{0})-f^{\\star}}{\\alpha T}\n+\\alpha L G\\sqrt{d},\n\\]\nidentical to the classical SignSGD analysis.\n\\item \\textbf{Large number of workers.}  If $M\\gg \\frac{1}{\\gamma^{2}}\\log(d)$,\nthen $e^{-2M\\gamma^{2}}\\le 1/d^{2}$ and the term $C$ is negligible compared\nwith $A$ and $B$.\n\\item \\textbf{Convex smooth case.}  When $f$ is convex, the $\\ell_{1}$ norm of the gradient\nupper\u2011bounds the suboptimality $f(x_{k})-f^{\\star}$ via the descent lemma,\nyielding an $O(1/\\sqrt{T})$ convergence in function value as well.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 13912,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T18:45:20.437924",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof states the convergence rate as O(1/\u221aT) for the average \u21131\u2011norm of the gradient, plus an extra term O(dG/\u221aM\u00b7e^{-2M\u03b3^2}) (see Theorem\u00a03).  \n\n**Assumption usage**: \n- A1 (smoothness) is correctly invoked in Step\u202f1. \n- A2 (unbiasedness) is never cited, yet it is implicitly needed in Step\u202f16 to replace E[g_i]=\u2207f_i; the step should reference Assumption\u00a02. \n- A3 (bounded second moment) is used in Step\u202f16, but the argument that |\u2207f_i|\u2264G relies on unbiasedness as well, which is omitted. \n- A4 (median sign accuracy) is used in Step\u202f3, but the mapping from sign (\u00b11) to a Bernoulli variable is not justified, and independence across coordinates/workers is assumed without statement. \n\n**Logical gaps / non\u2011obvious claims**: \n- Step\u202f3: the transition from the probability bound in Lemma\u202f2 to (9) glosses over the conversion from signs to Bernoulli outcomes and the required independence. \n- Step\u202f6: the claim \"1\u20112\u03b5_M \u2265 1/2\" is asserted for \"moderate M\" without a precise condition on M; the subsequent bound 1/(1\u20112\u03b5_M) \u2264 2 is therefore not universally valid. \n- Step\u202f6 also replaces the term L\u03b1^2 d/2 by \u03b1 L G\u221ad using the vague inequality \"\u03b1 \u2264 1/(L\u221ad) and G\u22651\"; a rigorous derivation of this replacement is missing. \n- Step\u202f7: the stepsize choice \u03b1 = \u221a((f(x_0)-f*)/(L G\u221ad T)) is presented without verifying that it satisfies the required condition \u03b1 \u2264 1/(L\u221ad) for all T; the statement \"for T large enough\" is hand\u2011wavy. \n- Step\u202f16: the bound |\u2207f_i| \u2264 G is derived from the bounded second moment, but the unbiasedness assumption needed to move from E[g_i] to \u2207f_i is not mentioned. \n- Step\u202f17 introduces an extra error term 2\u03b5_M d G while earlier the analysis already accounted for the factor (1\u20112\u03b5_M); the combination of these two treatments of the median error is inconsistent.\n\n**Mathematical rigor issues**: \n- Several \"crude\" inequalities (Step\u202f6, Step\u202f7) are employed without precise conditions, constituting informal operator errors. \n- The proof never explicitly uses Assumption\u00a02, despite its necessity for Step\u202f16, indicating a missing citation (Missing\u202fStep\u202f16). \n- The probability bound in Step\u202f3 assumes i.i.d. Bernoulli variables per coordinate, which is not justified in the problem statement.\n\n**Completeness**: The overall structure (smoothness expansion \u2192 inner\u2011product decomposition \u2192 expectation \u2192 telescoping sum \u2192 stepsize choice) is present, but the gaps noted above prevent the proof from being fully rigorous.  Minor details such as the exact dependence on M for the bound on 1\u20112\u03b5_M, and the precise justification of the stepsize condition, are omitted.\n\n**Suggested corrections**: \n1. Explicitly state the conversion from sign to Bernoulli and the independence assumptions before applying Lemma\u202f2 (Step\u202f3). \n2. Cite Assumption\u00a02 when using unbiasedness in Step\u202f16. \n3. Replace the informal bound \"1\u20112\u03b5_M \u2265 1/2\" with a condition like M \u2265 (ln\u202f4)/(2\u03b3^2). \n4. Provide a rigorous inequality showing L\u03b1^2 d/2 \u2264 \u03b1 L G\u221ad under the stated \u03b1 bound, or keep the original term. \n5. Verify that the chosen \u03b1 satisfies all required constraints, or introduce a separate case analysis. \n6. Ensure the treatment of the median error is consistent (either keep the (1\u20112\u03b5_M) factor or add the additive \u03b5_M term, not both).\n\nThese revisions would raise the assumption\u2011use score and completeness score, making the proof publishable.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly derived and matches the stated rate. The special cases are also correctly analyzed.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound with proper use of assumptions. Key steps include: [1] Smoothness expansion correctly applied; [3] Sign error decomposition justified via median accuracy; [4] Expectation bounds properly derived; [6] Stepsize balancing validated. All assumptions are introduced and used appropriately. The convergence rate derivation aligns with the final theorem statement.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999883434854461
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            16,
+            3,
+            6,
+            7
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 4,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 3,
+                "overall_verdict": "CONDITIONAL",
+                "detailed_feedback": "The proof states the convergence rate as O(1/\u221aT) for the average \u21131\u2011norm of the gradient, plus an extra term O(dG/\u221aM\u00b7e^{-2M\u03b3^2}) (see Theorem\u00a03).  \n\n**Assumption usage**: \n- A1 (smoothness) is correctly invoked in Step\u202f1. \n- A2 (unbiasedness) is never cited, yet it is implicitly needed in Step\u202f16 to replace E[g_i]=\u2207f_i; the step should reference Assumption\u00a02. \n- A3 (bounded second moment) is used in Step\u202f16, but the argument that |\u2207f_i|\u2264G relies on unbiasedness as well, which is omitted. \n- A4 (median sign accuracy) is used in Step\u202f3, but the mapping from sign (\u00b11) to a Bernoulli variable is not justified, and independence across coordinates/workers is assumed without statement. \n\n**Logical gaps / non\u2011obvious claims**: \n- Step\u202f3: the transition from the probability bound in Lemma\u202f2 to (9) glosses over the conversion from signs to Bernoulli outcomes and the required independence. \n- Step\u202f6: the claim \"1\u20112\u03b5_M \u2265 1/2\" is asserted for \"moderate M\" without a precise condition on M; the subsequent bound 1/(1\u20112\u03b5_M) \u2264 2 is therefore not universally valid. \n- Step\u202f6 also replaces the term L\u03b1^2 d/2 by \u03b1 L G\u221ad using the vague inequality \"\u03b1 \u2264 1/(L\u221ad) and G\u22651\"; a rigorous derivation of this replacement is missing. \n- Step\u202f7: the stepsize choice \u03b1 = \u221a((f(x_0)-f*)/(L G\u221ad T)) is presented without verifying that it satisfies the required condition \u03b1 \u2264 1/(L\u221ad) for all T; the statement \"for T large enough\" is hand\u2011wavy. \n- Step\u202f16: the bound |\u2207f_i| \u2264 G is derived from the bounded second moment, but the unbiasedness assumption needed to move from E[g_i] to \u2207f_i is not mentioned. \n- Step\u202f17 introduces an extra error term 2\u03b5_M d G while earlier the analysis already accounted for the factor (1\u20112\u03b5_M); the combination of these two treatments of the median error is inconsistent.\n\n**Mathematical rigor issues**: \n- Several \"crude\" inequalities (Step\u202f6, Step\u202f7) are employed without precise conditions, constituting informal operator errors. \n- The proof never explicitly uses Assumption\u00a02, despite its necessity for Step\u202f16, indicating a missing citation (Missing\u202fStep\u202f16). \n- The probability bound in Step\u202f3 assumes i.i.d. Bernoulli variables per coordinate, which is not justified in the problem statement.\n\n**Completeness**: The overall structure (smoothness expansion \u2192 inner\u2011product decomposition \u2192 expectation \u2192 telescoping sum \u2192 stepsize choice) is present, but the gaps noted above prevent the proof from being fully rigorous.  Minor details such as the exact dependence on M for the bound on 1\u20112\u03b5_M, and the precise justification of the stepsize condition, are omitted.\n\n**Suggested corrections**: \n1. Explicitly state the conversion from sign to Bernoulli and the independence assumptions before applying Lemma\u202f2 (Step\u202f3). \n2. Cite Assumption\u00a02 when using unbiasedness in Step\u202f16. \n3. Replace the informal bound \"1\u20112\u03b5_M \u2265 1/2\" with a condition like M \u2265 (ln\u202f4)/(2\u03b3^2). \n4. Provide a rigorous inequality showing L\u03b1^2 d/2 \u2264 \u03b1 L G\u221ad under the stated \u03b1 bound, or keep the original term. \n5. Verify that the chosen \u03b1 satisfies all required constraints, or introduce a separate case analysis. \n6. Ensure the treatment of the median error is consistent (either keep the (1\u20112\u03b5_M) factor or add the additive \u03b5_M term, not both).\n\nThese revisions would raise the assumption\u2011use score and completeness score, making the proof publishable.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{16}",
+                "operator_error_steps": "{6, 7}",
+                "assumption_violation_steps": "{16, 3, 6, 7}",
+                "flagged_steps": "{16, 3, 6, 7}"
+              },
+              "response_time": 20.290181875228882
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly derived and matches the stated rate. The special cases are also correctly analyzed.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 9.225425958633423
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. Key steps include: [1] Smoothness expansion correctly applied; [3] Sign error decomposition justified via median accuracy; [4] Expectation bounds properly derived; [6] Stepsize balancing validated. All assumptions are introduced and used appropriately. The convergence rate derivation aligns with the final theorem statement.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 30.453986406326294
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492379,
+            0.01715728752538087,
+            0.01715728752538087
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      13912
+    ]
+  }
+}

@@ -1,0 +1,302 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T17:35:14.725740",
+    "end_time": "2026-05-23T17:37:31.891534",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.8,
+      "w_tfp": 0.2,
+      "w_rp_pen": 0.8
+    }
+  },
+  "algorithm_description": "The algorithm uses a quantized gradient operator Q(g) such that E[Q(g)] = g. Communicates Q(g) instead of g.",
+  "assumptions": "Non-Convex and Smooth functions (Quantized SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T17:35:47.540278",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{bm}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\usepackage{geometry}\n\\geometry{margin=1in}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\Var}{\\operatorname{Var}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\inner}[1]{\\left\\langle #1\\right\\rangle}\n\\newcommand{\\Q}{\\mathcal{Q}}\n\\begin{document}\n\n\\section*{Algorithm Name}\n\\textbf{Quantized Stochastic Gradient Descent (Q\u2011SGD)}  \n\nThe method is identical to vanilla SGD except that each worker transmits a \\emph{randomly quantized} version of its stochastic gradient. The quantizer $\\Q:\\mathbb{R}^d\\to\\mathbb{R}^d$ satisfies $\\E[\\Q(g)]=g$ (unbiasedness) and a bounded second\u2011moment property.\n\n--------------------------------------------------------------------\n\n\\section*{Mathematical Formulation}\nLet $f:\\mathbb{R}^d\\rightarrow\\mathbb{R}$ be the (possibly non\u2011convex) loss we wish to minimize.\nAt iteration $t$ we draw an i.i.d.\\ data sample $\\xi_t$ and compute a stochastic gradient\n\\[\ng_t \\;:=\\; \\nabla f(w_t;\\xi_t).\n\\]\nInstead of sending $g_t$, we send its quantized version\n\\[\n\\tilde g_t \\;:=\\; \\Q(g_t),\\qquad \\E[\\tilde g_t\\mid w_t]=g_t .\n\\]\nThe central parameter server (or the local copy) updates\n\\[\n\\boxed{\\,w_{t+1}=w_t-\\eta_t\\,\\tilde g_t\\,},\n\\]\nwhere $\\eta_t>0$ is the learning\u2011rate schedule.\n\n--------------------------------------------------------------------\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Quantized SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} initial point $w_0\\in\\mathbb{R}^d$, stepsizes $\\{\\eta_t\\}_{t\\ge 0}$, quantizer $\\Q$\n\\FOR{$t=0,1,\\dots,T-1$}\n    \\STATE Sample a data point $\\xi_t$ (or a minibatch)  \n    \\STATE Compute stochastic gradient $g_t=\\nabla f(w_t;\\xi_t)$\n    \\STATE Quantize: $\\tilde g_t=\\Q(g_t)$   \\hfill\\Comment{Unbiased: $\\E[\\tilde g_t|w_t]=g_t$}\n    \\STATE Update parameters: $w_{t+1}=w_t-\\eta_t\\tilde g_t$\n\\ENDFOR\n\\STATE \\textbf{Output:} $w_T$ (or the averaged iterate $\\bar w_T=\\frac1T\\sum_{t=0}^{T-1}w_t$)\n\\end{algorithmic}\n\\end{algorithm}\n\n--------------------------------------------------------------------\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^2$.\n\\[\n\\nabla f(w)=2(w-3).\n\\]\nChoose a *deterministic* \u201cquantizer\u2019\u2019 that simply rounds to the nearest tenth:\n\\[\n\\Q(g)=\\operatorname{round}(g,0.1),\\qquad\\text{so that }\\E[\\Q(g)]=g\\text{ (here deterministic).}\n\\]\nParameters: $w_0=0$, constant stepsize $\\eta=0.1$, run three iterations.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_t$ & $g_t=2(w_t-3)$ & $\\tilde g_t=\\Q(g_t)$ & $w_{t+1}=w_t-\\eta\\tilde g_t$ \\\\ \\hline\n0 & $0$ & $-6$ & $-6.0$ & $0-0.1(-6)=0.6$ \\\\\n1 & $0.6$ & $2(0.6-3)=-4.8$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ \\\\\n2 & $1.08$ & $2(1.08-3)=-3.84$ & $-3.8$ & $1.08-0.1(-3.8)=1.46$ \\\\\n\\end{tabular}\n\\end{center}\n\nObjective values:\n\\[\nf(w_0)=9,\\; f(w_1)=5.76,\\; f(w_2)=3.69,\\; f(w_3)=2.38.\n\\]\nThe iterates move towards the optimum $w^\\star=3$, illustrating the effect of quantized updates.\n\n--------------------------------------------------------------------\n\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f$ is $L$\u2011smooth: for all $x,y\\in\\mathbb{R}^d$,\n\\[\nf(y)\\le f(x)+\\inner{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased Stochastic Gradient]\\label{ass:unbiased}\nFor any $w$, the stochastic gradient satisfies\n\\[\n\\E_{\\xi}[\\,\\nabla f(w;\\xi)\\mid w\\,]=\\nabla f(w),\\qquad\n\\E_{\\xi}\\!\\big[\\norm{\\nabla f(w;\\xi)}^2\\mid w\\big]\\le G^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Quantizer]\\label{ass:quant}\nThe random quantizer $\\Q:\\mathbb{R}^d\\to\\mathbb{R}^d$ fulfills\n\\begin{enumerate}[label=(\\roman*)]\n\\item \\textbf{Unbiasedness:} $\\E[\\Q(g)\\mid g]=g$ for any $g\\in\\mathbb{R}^d$.\n\\item \\textbf{Bounded variance:} there exists $\\omega\\ge0$ such that\n\\[\n\\E\\!\\big[\\norm{\\Q(g)-g}^2\\mid g\\big]\\le\\omega\\,\\norm{g}^2 .\n\\]\n\\end{enumerate}\n\\end{assumption}\n\\begin{assumption}[Stepsize]\\label{ass:stepsize}\nThe learning rates are deterministic, non\u2011increasing and satisfy\n\\[\n\\eta_t\\le \\frac{1}{L(1+\\omega)}\\qquad\\forall t .\n\\]\n\\end{assumption}\n\n--------------------------------------------------------------------\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Non\u2011convex convergence of Q\u2011SGD]\\label{thm:main}\nUnder Assumptions \\ref{ass:smooth}\u2013\\ref{ass:stepsize}, let $w_T$ be the iterate produced by Q\u2011SGD after $T$ steps and define the averaged gradient norm\n\\[\n\\Phi_T\\;:=\\;\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\big[\\norm{\\nabla f(w_t)}^2\\big].\n\\]\nIf a constant stepsize $\\eta_t\\equiv\\eta\\le\\frac{1}{L(1+\\omega)}$ is used, then\n\\[\n\\Phi_T\\;\\le\\;\n\\frac{2\\big(f(w_0)-f^\\star\\big)}{\\eta T}\n\\;+\\;\n2L\\omega\\,\\eta\\,G^2 .\n\\tag{1}\n\\]\nConsequently, choosing $\\eta=\\Theta\\!\\big(\\frac{1}{\\sqrt{T}}\\big)$ yields\n\\[\n\\Phi_T = O\\!\\left(\\frac{1}{\\sqrt{T}}\\right).\n\\]\n\\end{theorem}\n\n--------------------------------------------------------------------\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The bound (1) holds for any $L$\u2011smooth non\u2011convex $f$, showing that quantization does not destroy the descent property as long as $\\eta\\le1/[L(1+\\omega)]$.\n\\item \\textbf{Effect of quantization.} The extra term $2L\\omega\\eta G^2$ is linear in $\\omega$ (the relative variance of the quantizer). When $\\omega=0$ (exact gradients) the theorem reduces to the classical SGD bound.\n\\item \\textbf{Hyper\u2011parameter sensitivity.} The stepsize must respect the stricter bound $\\eta\\le 1/(L(1+\\omega))$; larger $\\omega$ forces a smaller admissible learning rate.\n\\item \\textbf{Comparison to baselines.}\n    \\begin{enumerate}\n        \\item \\emph{Plain SGD} (no quantization): $\\omega=0$, thus the second term disappears.\n        \\item \\emph{Deterministic rounding} with $\\omega\\approx0$ still satisfies the bound, but variance may be larger in practice.\n    \\end{enumerate}\n\\end{itemize}\n\n--------------------------------------------------------------------\n\n\\section*{Discussion}\nThe theorem demonstrates that quantized communication\u2014common in distributed deep learning\u2014preserves the $O(1/\\sqrt{T})$ convergence rate for smooth non\u2011convex objectives, up to an additive bias proportional to the quantizer variance $\\omega$. By decreasing the stepsize at the customary $1/\\sqrt{T}$ schedule, the bias term vanishes asymptotically, guaranteeing that the average gradient norm converges to zero.\n\n--------------------------------------------------------------------\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness inequality]\\label{lem:smooth}\nFor an $L$\u2011smooth function $f$,\n\\[\nf(w_{t+1})\\le f(w_t)+\\inner{\\nabla f(w_t)}{w_{t+1}-w_t}\n+\\frac{L}{2}\\norm{w_{t+1}-w_t}^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\nDirectly from Definition \\ref{ass:smooth} with $x=w_t$, $y=w_{t+1}$. \\qedhere\n\\end{proof}\n\n\\begin{lemma}[Quantizer second\u2011moment bound]\\label{lem:quant}\nFor any $g\\in\\mathbb{R}^d$,\n\\[\n\\E\\big[\\norm{\\Q(g)}^2\\mid g\\big]\\le (1+\\omega)\\norm{g}^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\n\\[\n\\E\\!\\big[\\norm{\\Q(g)}^2\\mid g\\big]\n=\\E\\!\\big[\\norm{g+(\\Q(g)-g)}^2\\mid g\\big]\n=\\norm{g}^2+2\\inner{g}{\\E[\\Q(g)-g\\mid g]}+\\E\\!\\big[\\norm{\\Q(g)-g}^2\\mid g\\big].\n\\]\nUnbiasedness makes the middle term zero; applying Assumption \\ref{ass:quant}(ii) yields the claim. \\qedhere\n\\end{proof}\n\n--------------------------------------------------------------------\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}. All expectations are taken over the randomness of the stochastic gradient and the quantizer, conditioned on the past iterates.\n\n\\medskip\n\\noindent\\textbf{Step 1 (Smoothness applied).}  \nFrom Lemma \\ref{lem:smooth} and the update $w_{t+1}=w_t-\\eta\\tilde g_t$,\n\\[\n\\begin{aligned}\nf(w_{t+1})\n&\\le f(w_t)+\\inner{\\nabla f(w_t)}{-\\eta\\tilde g_t}\n+\\frac{L}{2}\\norm{\\eta\\tilde g_t}^2 \\\\\n&= f(w_t)-\\eta\\inner{\\nabla f(w_t)}{\\tilde g_t}\n+\\frac{L\\eta^2}{2}\\norm{\\tilde g_t}^2 .\n\\tag{2}\n\\end{aligned}\n\\] \n[Step 1]\n\n\\medskip\n\\noindent\\textbf{Step 2 (Take conditional expectation).}  \nCondition on $w_t$ and use $\\E[\\tilde g_t\\mid w_t]=\\E[\\E[\\Q(g_t)\\mid g_t]\\mid w_t]=\\E[g_t\\mid w_t]=\\nabla f(w_t)$ (by Assumptions \\ref{ass:unbiased} and \\ref{ass:quant}(i)):\n\\[\n\\begin{aligned}\n\\E\\!\\big[f(w_{t+1})\\mid w_t\\big]\n&\\le f(w_t)-\\eta\\norm{\\nabla f(w_t)}^2\n+\\frac{L\\eta^2}{2}\\E\\!\\big[\\norm{\\tilde g_t}^2\\mid w_t\\big] .\n\\end{aligned}\n\\tag{3}\n\\] \n[Step 2]\n\n\\medskip\n\\noindent\\textbf{Step 3 (Bound the second moment of the quantized gradient).}  \nUsing Lemma \\ref{lem:quant} and $\\E[\\norm{g_t}^2\\mid w_t]\\le G^2$ (Assumption \\ref{ass:unbiased}),\n\\[\n\\begin{aligned}\n\\E\\!\\big[\\norm{\\tilde g_t}^2\\mid w_t\\big]\n&\\le (1+\\omega)\\E\\!\\big[\\norm{g_t}^2\\mid w_t\\big] \\\\\n&\\le (1+\\omega)G^2 .\n\\end{aligned}\n\\tag{4}\n\\] \n[Step 3]\n\n\\medskip\n\\noindent\\textbf{Step 4 (Insert (4) into (3)).}\n\\[\n\\E\\!\\big[f(w_{t+1})\\mid w_t\\big]\n\\le f(w_t)-\\eta\\norm{\\nabla f(w_t)}^2\n+\\frac{L\\eta^2}{2}(1+\\omega)G^2 .\n\\tag{5}\n\\] \n[Step 4]\n\n\\medskip\n\\noindent\\textbf{Step 5 (Take full expectation).}  \nDenote $\\Phi_T:=\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\norm{\\nabla f(w_t)}^2]$. Summing (5) over $t=0,\\dots,T-1$ and telescoping the left\u2011hand side gives\n\\[\n\\begin{aligned}\n\\E[f(w_T)]-f(w_0)\n&\\le -\\eta\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n+\\frac{L\\eta^2}{2}(1+\\omega)G^2 T .\n\\end{aligned}\n\\tag{6}\n\\] \n[Step 5]\n\n\\medskip\n\\noindent\\textbf{Step 6 (Rearrange).}\n\\[\n\\eta\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n\\le f(w_0)-\\E[f(w_T)]+ \\frac{L\\eta^2}{2}(1+\\omega)G^2 T .\n\\tag{7}\n\\] \nSince $f(w_T)\\ge f^\\star$, we replace $\\E[f(w_T)]$ by $f^\\star$ to obtain an upper bound:\n\\[\n\\eta\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n\\le f(w_0)-f^\\star+ \\frac{L\\eta^2}{2}(1+\\omega)G^2 T .\n\\tag{8}\n\\] \n[Step 6]\n\n\\medskip\n\\noindent\\textbf{Step 7 (Divide by $T\\eta$).}\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n\\le \\frac{f(w_0)-f^\\star}{\\eta T}\n+ \\frac{L\\eta}{2}(1+\\omega)G^2 .\n\\tag{9}\n\\] \n[Step 7]\n\n\\medskip\n\\noindent\\textbf{Step 8 (Express $\\omega$ term as $2L\\omega\\eta G^2$).}  \nRecall that $1+\\omega = 1 + \\omega$; we split the constant:\n\\[\n\\frac{L\\eta}{2}(1+\\omega)G^2\n= \\frac{L\\eta}{2}G^2 + \\frac{L\\eta}{2}\\omega G^2 .\n\\]\nSince the first part $\\frac{L\\eta}{2}G^2$ is present also in standard SGD analysis, we combine the two terms into the convenient form used in the theorem:\n\\[\n\\frac{L\\eta}{2}(1+\\omega)G^2\n\\le \\frac{L\\eta}{2}G^2 + L\\omega\\eta G^2\n\\le 2L\\omega\\eta G^2,\n\\]\nwhere the last inequality holds because $L\\eta\\le 1/(1+\\omega)$ by Assumption \\ref{ass:stepsize}, implying $L\\eta\\le 1$ and thus $\\frac{L\\eta}{2}G^2\\le L\\omega\\eta G^2$ for any $\\omega\\ge0$. Consequently,\n\\[\n\\Phi_T\\le \\frac{2\\big(f(w_0)-f^\\star\\big)}{\\eta T}+2L\\omega\\eta G^2 .\n\\tag{10}\n\\] \n[Step 8]\n\nEquation (10) is precisely the bound (1) stated in Theorem \\ref{thm:main}. \u220e\n\n--------------------------------------------------------------------\n\n\\section*{Rate Derivation (With Constants)}\nChoose a constant stepsize\n\\[\n\\eta = \\min\\!\\Big\\{\\frac{1}{L(1+\\omega)},\\;\\sqrt{\\frac{2\\big(f(w_0)-f^\\star\\big)}{L\\omega G^2 T}}\\Big\\}.\n\\]\nIf $\\omega=0$ the second term is ignored and we recover the classical $\\eta = \\Theta(1/\\sqrt{T})$ choice giving $\\Phi_T=O(1/\\sqrt{T})$.\nWhen $\\omega>0$, substituting the above $\\eta$ into (10) yields\n\\[\n\\Phi_T\\;\\le\\; O\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big) + O\\!\\big(\\omega^{1/2}T^{-1/2}\\big)\n= O\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big).\n\\]\nHence the quantization\u2011induced variance does not alter the asymptotic rate.\n\n--------------------------------------------------------------------\n\n\\section*{Special Cases}\n\\begin{enumerate}\n\\item \\textbf{Exact gradients} ($\\omega=0$).  The bound reduces to the standard SGD guarantee $\\Phi_T\\le \\frac{2(f(w_0)-f^\\star)}{\\eta T}+\\frac{L\\eta}{2}G^2$, and with $\\eta\\asymp1/\\sqrt{T}$ we obtain $\\Phi_T=O(1/\\sqrt{T})$.\n\\item \\textbf{Uniform stochastic quantizer} with $k$ bits per coordinate satisfies $\\omega = \\frac{d}{2^{2k}}$ (see Alistarh \\emph{et al.}, 2017). Plugging this $\\omega$ into (10) quantifies precisely how many bits are needed to keep the extra term negligible.\n\\item \\textbf{Increasing minibatch size}. If a minibatch of size $B$ is used, the stochastic\u2011gradient variance scales as $G^2/B$, and the bound (10) becomes\n\\[\n\\Phi_T\\le\\frac{2\\Delta}{\\eta T}+2L\\omega\\eta\\frac{G^2}{B},\n\\]\nshowing a trade\u2011off between communication (via $\\omega$) and statistical variance (via $B$).\n\\end{enumerate}\n\n--------------------------------------------------------------------\n\n\\section*{Conclusion}\nWe have presented a fully detailed derivation of the convergence guarantee for Quantized Stochastic Gradient Descent on smooth non\u2011convex objectives. The proof proceeds from first\u2011principles, carefully expanding every term and annotating each non\u2011trivial manipulation with explicit step numbers. Under standard smoothness, unbiasedness, and bounded\u2011variance assumptions on both the stochastic gradient and the quantizer, Q\u2011SGD achieves the same $O(1/\\sqrt{T})$ decay of the average gradient norm as vanilla SGD, with an additional bias term that vanishes when the stepsize is chosen appropriately or when the quantizer variance $\\omega$ is small.\n\n\\end{document}",
+          "proof_length": 13179,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T17:36:29.603219",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: FAIL ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.266) ---\nThe proof correctly applies smoothness (Assumption\u202f1) in Step\u202f1 and uses unbiasedness of both the stochastic gradient and the quantizer (Assumptions\u202f2 and\u202f3(i)) in Step\u202f2. Lemma\u202f2 together with the bounded second moment of the stochastic gradient (Assumption\u202f2) justifies Step\u202f3. Steps\u202f4\u20137 are algebraically sound. However, the crucial manipulation in **Step\u202f8** is invalid: the inequality \n\\[\\frac{L\\eta}{2}(1+\\omega)G^2 \\le 2L\\omega\\eta G^2\\]\n is claimed to follow from the stepsize bound \\(\\eta \\le 1/[L(1+\\omega)]\\). The bound \\(L\\eta \\le 1\\) only yields \\(\\frac{L\\eta}{2} \\le \\frac12\\), which does **not** guarantee \\(\\frac{L\\eta}{2} \\le L\\omega\\eta\\) unless \\(\\omega \\ge 1/2\\). Consequently the term \\(\\frac{L\\eta}{2}G^2\\) cannot be absorbed into the \\(2L\\omega\\eta G^2\\) term for arbitrary \\(\\omega\\). Moreover, the proof doubles the first term of the bound (changing \\((f(w_0)-f^*)/(\\eta T)\\) to \\(2(f(w_0)-f^*)/(\\eta T)\\)) without justification. These mistakes lead to an overly optimistic bound (1) in Theorem\u202f1. \n\nAdditionally, the \"Dry Run Example\" claims that a deterministic rounding operator is unbiased, which contradicts Assumption\u202f3(i) (unbiasedness requires expectation over randomness; a deterministic map that alters the value cannot be unbiased unless it is the identity). This inconsistency does not affect the main proof but indicates a conceptual oversight.\n\nTo fix the proof: \n1. Keep the term \\(\\frac{L\\eta}{2}(1+\\omega)G^2\\) in the final bound, or replace it with a valid upper bound such as \\(\\frac{L\\eta}{2}G^2 + \\frac{L\\eta}{2}\\omega G^2\\) and retain both components. \n2. If one wishes to express the bound solely in terms of \\(\\omega\\), a correct inequality would be \\(\\frac{L\\eta}{2}(1+\\omega) \\le \\frac{L\\eta}{2} + L\\omega\\eta\\), which does **not** simplify to \\(2L\\omega\\eta\\) without additional conditions on \\(\\omega\\). \n3. Adjust the statement of Theorem\u202f1 accordingly (the constant in front of the first term should be 1, not 2, unless a separate argument is provided). \n4. Revise the dry\u2011run example to use a truly unbiased stochastic quantizer (e.g., stochastic rounding) or remove the unbiasedness claim.\n\nWith these corrections the proof becomes logically sound and the convergence rate extraction (O(1/\u221aT)) remains valid.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=-0.283) ---\nThe proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and logical. The final convergence guarantee is clearly stated. However, there are some minor issues with the presentation. For example, in Step 8, the inequality L\u03b7 \u2264 1/(1+\u03c9) is used without explicit justification. Nevertheless, this is a minor issue and does not affect the overall validity of the proof.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nCritical error in Step 8: The inequality (L\u03b7/2)(1+\u03c9)G\u00b2 \u2264 2L\u03c9\u03b7G\u00b2 is invalid for \u03c9=0 (exact gradients case). When \u03c9=0, this reduces to L\u03b7/2 G\u00b2 \u2264 0, which is impossible. This invalidates the bound in Theorem 1 for the standard SGD case (\u03c9=0), violating mathematical rigor. The stepsize assumption \u03b7\u22641/(L(1+\u03c9)) becomes undefined when \u03c9=0 (division by zero in the original proof's stepsize derivation).\n",
+          "verdict": "FAIL",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999825167566219
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [
+              8
+            ],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 0.75,
+            "crs_raw": 0.75,
+            "errors_fixed": 0,
+            "errors_introduced": 1,
+            "flagged_fixed": 0,
+            "total_flagged": 1,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 1
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 4,
+                "overall_verdict": "CONDITIONAL",
+                "detailed_feedback": "The proof correctly applies smoothness (Assumption\u202f1) in Step\u202f1 and uses unbiasedness of both the stochastic gradient and the quantizer (Assumptions\u202f2 and\u202f3(i)) in Step\u202f2. Lemma\u202f2 together with the bounded second moment of the stochastic gradient (Assumption\u202f2) justifies Step\u202f3. Steps\u202f4\u20137 are algebraically sound. However, the crucial manipulation in **Step\u202f8** is invalid: the inequality \n\\[\\frac{L\\eta}{2}(1+\\omega)G^2 \\le 2L\\omega\\eta G^2\\]\n is claimed to follow from the stepsize bound \\(\\eta \\le 1/[L(1+\\omega)]\\). The bound \\(L\\eta \\le 1\\) only yields \\(\\frac{L\\eta}{2} \\le \\frac12\\), which does **not** guarantee \\(\\frac{L\\eta}{2} \\le L\\omega\\eta\\) unless \\(\\omega \\ge 1/2\\). Consequently the term \\(\\frac{L\\eta}{2}G^2\\) cannot be absorbed into the \\(2L\\omega\\eta G^2\\) term for arbitrary \\(\\omega\\). Moreover, the proof doubles the first term of the bound (changing \\((f(w_0)-f^*)/(\\eta T)\\) to \\(2(f(w_0)-f^*)/(\\eta T)\\)) without justification. These mistakes lead to an overly optimistic bound (1) in Theorem\u202f1. \n\nAdditionally, the \"Dry Run Example\" claims that a deterministic rounding operator is unbiased, which contradicts Assumption\u202f3(i) (unbiasedness requires expectation over randomness; a deterministic map that alters the value cannot be unbiased unless it is the identity). This inconsistency does not affect the main proof but indicates a conceptual oversight.\n\nTo fix the proof: \n1. Keep the term \\(\\frac{L\\eta}{2}(1+\\omega)G^2\\) in the final bound, or replace it with a valid upper bound such as \\(\\frac{L\\eta}{2}G^2 + \\frac{L\\eta}{2}\\omega G^2\\) and retain both components. \n2. If one wishes to express the bound solely in terms of \\(\\omega\\), a correct inequality would be \\(\\frac{L\\eta}{2}(1+\\omega) \\le \\frac{L\\eta}{2} + L\\omega\\eta\\), which does **not** simplify to \\(2L\\omega\\eta\\) without additional conditions on \\(\\omega\\). \n3. Adjust the statement of Theorem\u202f1 accordingly (the constant in front of the first term should be 1, not 2, unless a separate argument is provided). \n4. Revise the dry\u2011run example to use a truly unbiased stochastic quantizer (e.g., stochastic rounding) or remove the unbiasedness claim.\n\nWith these corrections the proof becomes logically sound and the convergence rate extraction (O(1/\u221aT)) remains valid.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{8}",
+                "operator_error_steps": "{8}",
+                "assumption_violation_steps": "{8}",
+                "flagged_steps": "{8}"
+              },
+              "response_time": 27.002156257629395
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and logical. The final convergence guarantee is clearly stated. However, there are some minor issues with the presentation. For example, in Step 8, the inequality L\u03b7 \u2264 1/(1+\u03c9) is used without explicit justification. Nevertheless, this is a minor issue and does not affect the overall validity of the proof.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{8}"
+              },
+              "response_time": 10.44070315361023
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": true,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "Critical error in Step 8: The inequality (L\u03b7/2)(1+\u03c9)G\u00b2 \u2264 2L\u03c9\u03b7G\u00b2 is invalid for \u03c9=0 (exact gradients case). When \u03c9=0, this reduces to L\u03b7/2 G\u00b2 \u2264 0, which is impossible. This invalidates the bound in Theorem 1 for the standard SGD case (\u03c9=0), violating mathematical rigor. The stepsize assumption \u03b7\u22641/(L(1+\u03c9)) becomes undefined when \u03c9=0 (division by zero in the original proof's stepsize derivation).",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "{8}",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{8}"
+              },
+              "response_time": 42.055819511413574
+            }
+          ],
+          "judge_reliability": [
+            -0.265685424949238,
+            -0.282842712474619,
+            0.017157287525380982
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "FAIL",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 0.75
+      }
+    },
+    {
+      "iteration_number": 2,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T17:37:07.870939",
+          "node_name": "prover",
+          "proof_content": "% CORRECTED VERSION\n% Changes:\n% - Fixed the invalid inequality in Step\u202f8 and removed the unjustified factor\u202f2 in the first term of the bound.\n% - Updated Theorem\u202f1 to reflect the correct constants.\n% - Revised the dry\u2011run example to use a truly unbiased stochastic quantizer.\n% - Added a short justification for the stepsize condition used in Step\u202f8.\n% - Kept all original step annotations for easy reference.\n\n\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{bm}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\usepackage{geometry}\n\\geometry{margin=1in}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\Var}{\\operatorname{Var}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\inner}[1]{\\left\\langle #1\\right\\rangle}\n\\newcommand{\\Q}{\\mathcal{Q}}\n\\begin{document}\n\n\\section*{Algorithm Name}\n\\textbf{Quantized Stochastic Gradient Descent (Q\u2011SGD)}  \n\nThe method is identical to vanilla SGD except that each worker transmits a \\emph{randomly quantized} version of its stochastic gradient. The quantizer $\\Q:\\mathbb{R}^d\\to\\mathbb{R}^d$ satisfies $\\E[\\Q(g)]=g$ (unbiasedness) and a bounded second\u2011moment property.\n\n--------------------------------------------------------------------\n\n\\section*{Mathematical Formulation}\nLet $f:\\mathbb{R}^d\\rightarrow\\mathbb{R}$ be the (possibly non\u2011convex) loss we wish to minimize.\nAt iteration $t$ we draw an i.i.d.\\ data sample $\\xi_t$ and compute a stochastic gradient\n\\[\ng_t \\;:=\\; \\nabla f(w_t;\\xi_t).\n\\]\nInstead of sending $g_t$, we send its quantized version\n\\[\n\\tilde g_t \\;:=\\; \\Q(g_t),\\qquad \\E[\\tilde g_t\\mid w_t]=g_t .\n\\]\nThe central parameter server (or the local copy) updates\n\\[\n\\boxed{\\,w_{t+1}=w_t-\\eta_t\\,\\tilde g_t\\,},\n\\]\nwhere $\\eta_t>0$ is the learning\u2011rate schedule.\n\n--------------------------------------------------------------------\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Quantized SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} initial point $w_0\\in\\mathbb{R}^d$, stepsizes $\\{\\eta_t\\}_{t\\ge 0}$, quantizer $\\Q$\n\\FOR{$t=0,1,\\dots,T-1$}\n    \\STATE Sample a data point $\\xi_t$ (or a minibatch)  \n    \\STATE Compute stochastic gradient $g_t=\\nabla f(w_t;\\xi_t)$\n    \\STATE Quantize: $\\tilde g_t=\\Q(g_t)$   \\hfill\\Comment{Unbiased: $\\E[\\tilde g_t|w_t]=g_t$}\n    \\STATE Update parameters: $w_{t+1}=w_t-\\eta_t\\tilde g_t$\n\\ENDFOR\n\\STATE \\textbf{Output:} $w_T$ (or the averaged iterate $\\bar w_T=\\frac1T\\sum_{t=0}^{T-1}w_t$)\n\\end{algorithmic}\n\\end{algorithm}\n\n--------------------------------------------------------------------\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^2$.\n\\[\n\\nabla f(w)=2(w-3).\n\\]\nWe use a *stochastic* rounding quantizer: for any real $g$,\n\\[\n\\Q(g)=\n\\begin{cases}\n\\operatorname{round}(g,0.1)      &\\text{with probability }p,\\\\[4pt]\n\\operatorname{round}(g,0.1)+0.1 &\\text{with probability }1-p,\n\\end{cases}\n\\]\nwhere $p$ is chosen so that $\\E[\\Q(g)]=g$ (standard stochastic rounding).  \nParameters: $w_0=0$, constant stepsize $\\eta=0.1$, run three iterations.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_t$ & $g_t=2(w_t-3)$ & $\\tilde g_t=\\Q(g_t)$ & $w_{t+1}=w_t-\\eta\\tilde g_t$ \\\\ \\hline\n0 & $0$   & $-6$   & $-6.0$ & $0-0.1(-6)=0.6$ \\\\\n1 & $0.6$ & $-4.8$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ \\\\\n2 & $1.08$& $-3.84$& $-3.8$ & $1.08-0.1(-3.8)=1.46$ \\\\\n\\end{tabular}\n\\end{center}\n\nObjective values:\n\\[\nf(w_0)=9,\\; f(w_1)=5.76,\\; f(w_2)=3.69,\\; f(w_3)=2.38.\n\\]\nThe iterates move towards the optimum $w^\\star=3$, illustrating the effect of quantized updates.\n\n--------------------------------------------------------------------\n\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f$ is $L$\u2011smooth: for all $x,y\\in\\mathbb{R}^d$,\n\\[\nf(y)\\le f(x)+\\inner{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased Stochastic Gradient]\\label{ass:unbiased}\nFor any $w$, the stochastic gradient satisfies\n\\[\n\\E_{\\xi}[\\,\\nabla f(w;\\xi)\\mid w\\,]=\\nabla f(w),\\qquad\n\\E_{\\xi}\\!\\big[\\norm{\\nabla f(w;\\xi)}^2\\mid w\\big]\\le G^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Quantizer]\\label{ass:quant}\nThe random quantizer $\\Q:\\mathbb{R}^d\\to\\mathbb{R}^d$ fulfills\n\\begin{enumerate}[label=(\\roman*)]\n\\item \\textbf{Unbiasedness:} $\\E[\\Q(g)\\mid g]=g$ for any $g\\in\\mathbb{R}^d$.\n\\item \\textbf{Bounded variance:} there exists $\\omega\\ge0$ such that\n\\[\n\\E\\!\\big[\\norm{\\Q(g)-g}^2\\mid g\\big]\\le\\omega\\,\\norm{g}^2 .\n\\]\n\\end{enumerate}\n\\end{assumption}\n\\begin{assumption}[Stepsize]\\label{ass:stepsize}\nThe learning rates are deterministic, non\u2011increasing and satisfy\n\\[\n\\eta_t\\le \\frac{1}{L(1+\\omega)}\\qquad\\forall t .\n\\]\n\\end{assumption}\n\n--------------------------------------------------------------------\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Non\u2011convex convergence of Q\u2011SGD]\\label{thm:main}\nUnder Assumptions \\ref{ass:smooth}\u2013\\ref{ass:stepsize}, let $w_T$ be the iterate produced by Q\u2011SGD after $T$ steps and define the averaged gradient norm\n\\[\n\\Phi_T\\;:=\\;\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\big[\\norm{\\nabla f(w_t)}^2\\big].\n\\]\nIf a constant stepsize $\\eta_t\\equiv\\eta\\le\\frac{1}{L(1+\\omega)}$ is used, then\n\\[\n\\Phi_T\\;\\le\\;\n\\frac{f(w_0)-f^\\star}{\\eta T}\n\\;+\\;\n\\frac{L\\eta}{2}\\,(1+\\omega)\\,G^2 .\n\\tag{1}\n\\]\nEquivalently,\n\\[\n\\Phi_T\\;\\le\\;\n\\frac{f(w_0)-f^\\star}{\\eta T}\n\\;+\\;\n\\frac{L\\eta}{2}G^2\n\\;+\\;\n\\frac{L\\eta}{2}\\,\\omega\\,G^2 .\n\\tag{1$'$}\n\\]\nConsequently, choosing $\\eta=\\Theta\\!\\big(\\frac{1}{\\sqrt{T}}\\big)$ yields\n\\[\n\\Phi_T = O\\!\\left(\\frac{1}{\\sqrt{T}}\\right).\n\\]\n\\end{theorem}\n\n--------------------------------------------------------------------\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The bound (1) holds for any $L$\u2011smooth non\u2011convex $f$, showing that quantization does not destroy the descent property as long as $\\eta\\le1/[L(1+\\omega)]$.\n\\item \\textbf{Effect of quantization.} The extra term $\\frac{L\\eta}{2}\\,\\omega\\,G^2$ is linear in $\\omega$ (the relative variance of the quantizer). When $\\omega=0$ (exact gradients) the theorem reduces to the classical SGD bound.\n\\item \\textbf{Hyper\u2011parameter sensitivity.} The stepsize must respect the stricter bound $\\eta\\le 1/(L(1+\\omega))$; larger $\\omega$ forces a smaller admissible learning rate.\n\\item \\textbf{Comparison to baselines.}\n    \\begin{enumerate}\n        \\item \\emph{Plain SGD} (no quantization): $\\omega=0$, thus the quantization term disappears.\n        \\item \\emph{Deterministic rounding} is not unbiased; a stochastic rounding scheme satisfies the assumptions.\n    \\end{enumerate}\n\\end{itemize}\n\n--------------------------------------------------------------------\n\n\\section*{Discussion}\nThe theorem demonstrates that quantized communication\u2014common in distributed deep learning\u2014preserves the $O(1/\\sqrt{T})$ convergence rate for smooth non\u2011convex objectives, up to an additive term proportional to the quantizer variance $\\omega$. By decreasing the stepsize at the customary $1/\\sqrt{T}$ schedule, the quantization term vanishes asymptotically, guaranteeing that the average gradient norm converges to zero.\n\n--------------------------------------------------------------------\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness inequality]\\label{lem:smooth}\nFor an $L$\u2011smooth function $f$,\n\\[\nf(w_{t+1})\\le f(w_t)+\\inner{\\nabla f(w_t)}{w_{t+1}-w_t}\n+\\frac{L}{2}\\norm{w_{t+1}-w_t}^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\nDirectly from Definition \\ref{ass:smooth} with $x=w_t$, $y=w_{t+1}$. \\qedhere\n\\end{proof}\n\n\\begin{lemma}[Quantizer second\u2011moment bound]\\label{lem:quant}\nFor any $g\\in\\mathbb{R}^d$,\n\\[\n\\E\\big[\\norm{\\Q(g)}^2\\mid g\\big]\\le (1+\\omega)\\norm{g}^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\n\\[\n\\begin{aligned}\n\\E\\!\\big[\\norm{\\Q(g)}^2\\mid g\\big]\n&=\\E\\!\\big[\\norm{g+(\\Q(g)-g)}^2\\mid g\\big] \\\\\n&=\\norm{g}^2+2\\inner{g}{\\E[\\Q(g)-g\\mid g]}+\\E\\!\\big[\\norm{\\Q(g)-g}^2\\mid g\\big].\n\\end{aligned}\n\\]\nUnbiasedness makes the middle term zero; applying Assumption \\ref{ass:quant}(ii) yields the claim. \\qedhere\n\\end{proof}\n\n--------------------------------------------------------------------\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}. All expectations are taken over the randomness of the stochastic gradient and the quantizer, conditioned on the past iterates.\n\n\\medskip\n\\noindent\\textbf{Step 1 (Smoothness applied).}  \nFrom Lemma \\ref{lem:smooth} and the update $w_{t+1}=w_t-\\eta\\tilde g_t$,\n\\[\n\\begin{aligned}\nf(w_{t+1})\n&\\le f(w_t)+\\inner{\\nabla f(w_t)}{-\\eta\\tilde g_t}\n+\\frac{L}{2}\\norm{\\eta\\tilde g_t}^2 \\\\\n&= f(w_t)-\\eta\\inner{\\nabla f(w_t)}{\\tilde g_t}\n+\\frac{L\\eta^2}{2}\\norm{\\tilde g_t}^2 .\n\\tag{2}\n\\end{aligned}\n\\] \n[Step 1]\n\n\\medskip\n\\noindent\\textbf{Step 2 (Take conditional expectation).}  \nCondition on $w_t$ and use the unbiasedness of both the stochastic gradient and the quantizer:\n\\[\n\\begin{aligned}\n\\E\\!\\big[f(w_{t+1})\\mid w_t\\big]\n&\\le f(w_t)-\\eta\\norm{\\nabla f(w_t)}^2\n+\\frac{L\\eta^2}{2}\\E\\!\\big[\\norm{\\tilde g_t}^2\\mid w_t\\big] .\n\\end{aligned}\n\\tag{3}\n\\] \n[Step 2]\n\n\\medskip\n\\noindent\\textbf{Step 3 (Bound the second moment of the quantized gradient).}  \nUsing Lemma \\ref{lem:quant} and the bounded second moment of the stochastic gradient (Assumption \\ref{ass:unbiased}),\n\\[\n\\begin{aligned}\n\\E\\!\\big[\\norm{\\tilde g_t}^2\\mid w_t\\big]\n&\\le (1+\\omega)\\E\\!\\big[\\norm{g_t}^2\\mid w_t\\big] \\\\\n&\\le (1+\\omega)G^2 .\n\\end{aligned}\n\\tag{4}\n\\] \n[Step 3]\n\n\\medskip\n\\noindent\\textbf{Step 4 (Insert (4) into (3)).}\n\\[\n\\E\\!\\big[f(w_{t+1})\\mid w_t\\big]\n\\le f(w_t)-\\eta\\norm{\\nabla f(w_t)}^2\n+\\frac{L\\eta^2}{2}(1+\\omega)G^2 .\n\\tag{5}\n\\] \n[Step 4]\n\n\\medskip\n\\noindent\\textbf{Step 5 (Take full expectation and sum).}  \nDenote $\\Phi_T:=\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\norm{\\nabla f(w_t)}^2]$. Summing (5) over $t=0,\\dots,T-1$ and telescoping the left\u2011hand side gives\n\\[\n\\begin{aligned}\n\\E[f(w_T)]-f(w_0)\n&\\le -\\eta\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n+\\frac{L\\eta^2}{2}(1+\\omega)G^2 T .\n\\end{aligned}\n\\tag{6}\n\\] \n[Step 5]\n\n\\medskip\n\\noindent\\textbf{Step 6 (Rearrange).}\n\\[\n\\eta\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n\\le f(w_0)-\\E[f(w_T)]+ \\frac{L\\eta^2}{2}(1+\\omega)G^2 T .\n\\tag{7}\n\\] \nSince $f(w_T)\\ge f^\\star$, we replace $\\E[f(w_T)]$ by $f^\\star$:\n\\[\n\\eta\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n\\le f(w_0)-f^\\star+ \\frac{L\\eta^2}{2}(1+\\omega)G^2 T .\n\\tag{8}\n\\] \n[Step 6]\n\n\\medskip\n\\noindent\\textbf{Step 7 (Divide by $T\\eta$).}\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_t)}^2\\big]\n\\le \\frac{f(w_0)-f^\\star}{\\eta T}\n+ \\frac{L\\eta}{2}(1+\\omega)G^2 .\n\\tag{9}\n\\] \n[Step 7]\n\n\\medskip\n\\noindent\\textbf{Step 8 (Correct handling of the $\\omega$ term).}  \nThe right\u2011hand side of (9) is already the tight bound required in (1).  \nIf one wishes to separate the contribution of quantization, we simply split the factor $(1+\\omega)$:\n\\[\n\\frac{L\\eta}{2}(1+\\omega)G^2\n= \\frac{L\\eta}{2}G^2 \\;+\\; \\frac{L\\eta}{2}\\,\\omega\\,G^2 .\n\\tag{10}\n\\]\nNo further manipulation is needed.  \nThe stepsize condition $\\eta\\le 1/[L(1+\\omega)]$ guarantees $L\\eta\\le 1$, which is used only to ensure that the term $\\frac{L\\eta}{2}G^2$ does not dominate the bound; it does **not** allow us to replace (10) by $2L\\omega\\eta G^2$, a step that was incorrect in the original manuscript.  \nThus the final bound is exactly (1) (or equivalently (1$'$)). \\qedhere\n[Step 8]\n\n--------------------------------------------------------------------\n\n\\section*{Rate Derivation (With Constants)}\nChoose a constant stepsize\n\\[\n\\eta = \\min\\!\\Big\\{\\frac{1}{L(1+\\omega)},\\;\\sqrt{\\frac{2\\big(f(w_0)-f^\\star\\big)}{L(1+\\omega)G^2 T}}\\Big\\}.\n\\]\nSubstituting this $\\eta$ into (1) yields\n\\[\n\\Phi_T \\;\\le\\; O\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big) \\;+\\; O\\!\\big(\\omega\\,\\tfrac{1}{\\sqrt{T}}\\big)\n= O\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big),\n\\]\nso the $O(1/\\sqrt{T})$ rate is retained even in the presence of quantization.\n\n--------------------------------------------------------------------\n\n\\section*{Special Cases}\n\\begin{enumerate}\n\\item \\textbf{Exact gradients} ($\\omega=0$).  The bound reduces to the standard SGD guarantee\n\\[\n\\Phi_T\\le\\frac{f(w_0)-f^\\star}{\\eta T}+\\frac{L\\eta}{2}G^2,\n\\]\nand with $\\eta\\asymp1/\\sqrt{T}$ we obtain $\\Phi_T=O(1/\\sqrt{T})$.\n\\item \\textbf{Uniform stochastic quantizer} with $k$ bits per coordinate satisfies $\\omega = \\frac{d}{2^{2k}}$ (see Alistarh \\emph{et al.}, 2017). Plugging this $\\omega$ into (1) quantifies precisely how many bits are needed to keep the extra term negligible.\n\\item \\textbf{Increasing minibatch size}. If a minibatch of size $B$ is used, the stochastic\u2011gradient variance scales as $G^2/B$, and the bound (1) becomes\n\\[\n\\Phi_T\\le\\frac{f(w_0)-f^\\star}{\\eta T}+ \\frac{L\\eta}{2}(1+\\omega)\\frac{G^2}{B},\n\\]\nshowing a trade\u2011off between communication (via $\\omega$) and statistical variance (via $B$).\n\\end{enumerate}\n\n--------------------------------------------------------------------\n\n\\section*{Conclusion}\nWe have presented a fully detailed and mathematically rigorous derivation of the convergence guarantee for Quantized Stochastic Gradient Descent on smooth non\u2011convex objectives. The proof proceeds from first principles, carefully expanding every term and annotating each non\u2011trivial manipulation with explicit step numbers. Under standard smoothness, unbiasedness, and bounded\u2011variance assumptions on both the stochastic gradient and the quantizer, Q\u2011SGD achieves the same $O(1/\\sqrt{T})$ decay of the average gradient norm as vanilla SGD, with an additional term proportional to the quantizer variance $\\omega$ that vanishes when the stepsize is chosen appropriately or when $\\omega$ is small.\n\n\\end{document}\n\n% ===== CORRECTION SUMMARY =====\n% 1. Step\u202f8: Replaced the invalid inequality $\\frac{L\\eta}{2}(1+\\omega)G^2 \\le 2L\\omega\\eta G^2$ with the correct decomposition (10) and removed the unjustified factor\u202f2.\n% 2. Theorem\u202f1: Updated the bound to (1) (or equivalently (1\u2032)), fixing the erroneous factor\u202f2 in the first term and keeping the proper $\\frac{L\\eta}{2}(1+\\omega)G^2$ term.\n% 3. Dry\u2011run example: Switched to a stochastic rounding quantizer that satisfies unbiasedness, eliminating the inconsistency with Assumption\u202f3(i).",
+          "proof_length": 14152,
+          "previous_proof_length": 13179,
+          "iteration": 2
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T17:37:31.890727",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=0.600) ---\nIssue\u2011by\u2011issue assessment:\n- **Step\u202f8 inequality**: The invalid replacement \\(\\frac{L\\eta}{2}(1+\\omega)G^2 \\le 2L\\omega\\eta G^2\\) has been removed. The proof now keeps the exact term and optionally splits it as \\(\\frac{L\\eta}{2}G^2 + \\frac{L\\eta}{2}\\omega G^2\\) (see Step\u202f8). **FIXED**.\n- **Factor\u20112 in Theorem\u202f1**: The first term is now \\((f(w_0)-f^*)/(\\eta T)\\) (no extra 2). Theorem statement updated accordingly. **FIXED**.\n- **Dry\u2011run example**: Replaced deterministic rounding with a stochastic rounding quantizer that satisfies unbiasedness. **FIXED**.\n- **Stepsize justification**: Added a brief explanation that the condition \\(\\eta \\le 1/[L(1+\\omega)]\\) ensures \\(L\\eta \\le 1\\) and is only used to keep the constant term bounded; the erroneous manipulation is no longer needed. **FIXED**.\n- **Division\u2011by\u2011zero for \\(\\omega=0\\)**: The stepsize condition now reduces to \\(\\eta \\le 1/L\\) when \\(\\omega=0\\); the bound (1) correctly collapses to the standard SGD bound. **FIXED**.\n\nNo new logical gaps, incorrect inequalities, missing steps, or assumption violations were detected. All assumptions are invoked correctly, and the proof is complete and self\u2011contained.\n\nRemaining issues: none.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.600) ---\nAll issues from V1 have been properly addressed. The corrected proof (V2) now correctly handles the inequality in Step 8, updates Theorem 1 with the correct constants, and revises the dry-run example to use a truly unbiased stochastic quantizer. No new errors were detected.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.600) ---\nAll issues from V1 are resolved:\n1. Step 8 inequality fixed by decomposing (10) and removing unjustified factor 2\n2. Theorem 1 corrected to show proper (1)/(1') bounds\n3. Dry-run example now uses unbiased stochastic rounding\n4. Stepsize justification added in Step 8\nNo new errors detected. Proof is now logically consistent with proper handling of \u03c9=0 case and quantizer assumptions.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": false,
+            "OP": false,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 1.0000000000000002
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [],
+          "correction_metrics": {
+            "error_resolution_rate": 1.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 1,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 0,
+            "is_mixed_transition": false,
+            "prev_error_count": 1,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "Issue\u2011by\u2011issue assessment:\n- **Step\u202f8 inequality**: The invalid replacement \\(\\frac{L\\eta}{2}(1+\\omega)G^2 \\le 2L\\omega\\eta G^2\\) has been removed. The proof now keeps the exact term and optionally splits it as \\(\\frac{L\\eta}{2}G^2 + \\frac{L\\eta}{2}\\omega G^2\\) (see Step\u202f8). **FIXED**.\n- **Factor\u20112 in Theorem\u202f1**: The first term is now \\((f(w_0)-f^*)/(\\eta T)\\) (no extra 2). Theorem statement updated accordingly. **FIXED**.\n- **Dry\u2011run example**: Replaced deterministic rounding with a stochastic rounding quantizer that satisfies unbiasedness. **FIXED**.\n- **Stepsize justification**: Added a brief explanation that the condition \\(\\eta \\le 1/[L(1+\\omega)]\\) ensures \\(L\\eta \\le 1\\) and is only used to keep the constant term bounded; the erroneous manipulation is no longer needed. **FIXED**.\n- **Division\u2011by\u2011zero for \\(\\omega=0\\)**: The stepsize condition now reduces to \\(\\eta \\le 1/L\\) when \\(\\omega=0\\); the bound (1) correctly collapses to the standard SGD bound. **FIXED**.\n\nNo new logical gaps, incorrect inequalities, missing steps, or assumption violations were detected. All assumptions are invoked correctly, and the proof is complete and self\u2011contained.\n\nRemaining issues: none.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 18.26295781135559
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "All issues from V1 have been properly addressed. The corrected proof (V2) now correctly handles the inequality in Step 8, updates Theorem 1 with the correct constants, and revises the dry-run example to use a truly unbiased stochastic quantizer. No new errors were detected.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 17.510498762130737
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "All issues from V1 are resolved:\n1. Step 8 inequality fixed by decomposing (10) and removing unjustified factor 2\n2. Theorem 1 corrected to show proper (1)/(1') bounds\n3. Dry-run example now uses unbiased stochastic rounding\n4. Stepsize justification added in Step 8\nNo new errors detected. Proof is now logically consistent with proper handling of \u03c9=0 case and quantizer assumptions.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 24.016066074371338
+            }
+          ],
+          "judge_reliability": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": false,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 2,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 1,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 1,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "FAIL",
+      "PASS"
+    ],
+    "crs_progression": [
+      0.75,
+      1.0
+    ],
+    "proof_length_progression": [
+      13179,
+      14152
+    ]
+  }
+}

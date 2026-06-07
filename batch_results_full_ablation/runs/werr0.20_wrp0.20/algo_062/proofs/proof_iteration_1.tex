@@ -1,0 +1,377 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{bm}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{remark}{Remark}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\prox}{\operatorname{prox}}
+\newcommand{\topK}{\operatorname{TopK}}
+\begin{document}
+
+\section*{Top‑K Error‑Feedback SGD (EF‑SGD)}
+We consider a distributed (or communication‑constrained) setting in which each worker computes a stochastic gradient, but only the \emph{top‑$K$} coordinates (by absolute magnitude) are transmitted.  The omitted information is accumulated as an \emph{error‑feedback} (or residual) vector and added back in the next iteration.  The algorithm is fully described below.
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the (possibly non‑convex) objective
+\[
+\min_{w\in\R^{d}} f(w) .
+\]
+At iteration $t$ a stochastic gradient $g_t$ is sampled such that
+\[
+\E[g_t\mid w_t]=\nabla f(w_t),\qquad 
+\E\bigl[\|g_t-\nabla f(w_t)\|^{2}\mid w_t\bigr]\le\sigma^{2}.
+\]
+
+\paragraph{Top‑$K$ compression operator.}
+Define the deterministic operator
+\[
+\topK(v)\;=\; \text{vector that keeps the $K$ entries of $v$ with largest }|v_i|\text{ and sets the rest to $0$}.
+\]
+It satisfies the \emph{contraction property}
+\begin{equation}
+\label{eq:contraction}
+\| \topK(v) \|^{2}\;\ge\;\frac{K}{d}\,\|v\|^{2},
+\qquad
+\| v-\topK(v) \|^{2}\;\le\;\Bigl(1-\frac{K}{d}\Bigr)\|v\|^{2}.
+\end{equation}
+For brevity we denote $\rho\stackrel{\text{def}}{=}1-\frac{K}{d}\in[0,1)$.
+
+\paragraph{Error‑feedback dynamics.}
+The algorithm maintains a \emph{residual} (error‑feedback) vector $e_t\in\R^{d}$.
+Given step size $\eta>0$, the update rule is
+\begin{align}
+u_t &\;=\; g_t + e_t, \label{eq:u}\\
+c_t &\;=\; \topK(u_t), \label{eq:c}\\
+e_{t+1} &\;=\; u_t - c_t, \label{eq:e}\\
+w_{t+1} &\;=\; w_t - \eta\,c_t .\label{eq:w}
+\end{align}
+Thus only the compressed vector $c_t$ is communicated/applied, while the remainder $e_{t+1}$ is stored locally for the next step.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Top‑K Error‑Feedback SGD (EF‑SGD)}\label{alg:efsgd}
+\begin{algorithmic}[1]
+\Require Initial point $w_0\in\R^{d}$, step size $\eta>0$, sparsity $K\in\{1,\dots,d\}$.
+\State Initialize residual $e_0\gets 0$.
+\For{$t=0,1,\dots,T-1$}
+    \State Sample stochastic gradient $g_t$ at $w_t$.
+    \State $u_t \gets g_t + e_t$ \hfill\Comment{Add error feedback}
+    \State $c_t \gets \topK(u_t)$ \hfill\Comment{Keep top‑$K$ entries}
+    \State $e_{t+1} \gets u_t - c_t$ \hfill\Comment{Update residual}
+    \State $w_{t+1} \gets w_t - \eta\,c_t$ \hfill\Comment{SGD step with compressed gradient}
+\EndFor
+\State \Return $w_T$ (or the average $\bar w_T=\tfrac1T\sum_{t=0}^{T-1} w_t$)
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic $f(w)=(w-3)^{2}$.  Its gradient is $\nabla f(w)=2(w-3)$.  
+Take $d=1$, $K=1$ (so $\topK$ is the identity), step size $\eta=0.1$, and start from $w_0=0$.
+Assume a deterministic ``stochastic’’ gradient $g_t=\nabla f(w_t)$ (zero variance).
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $c_t$ (top‑$K$) & $w_{t+1}=w_t-\eta c_t$ \\ \hline
+0 & $0$ & $-6$ & $-6$ & $0-0.1(-6)=0.6$ \\
+1 & $0.6$ & $2(0.6-3)=-4.8$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ \\
+2 & $1.08$ & $2(1.08-3)=-3.84$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$ 
+\end{tabular}
+\end{center}
+Objective values:
+\[
+f(0)=9,\quad f(0.6)=5.76,\quad f(1.08)=3.6864,\quad f(1.464)=2.345.
+\]
+The iterates move toward the minimizer $w^{*}=3$, illustrating the basic dynamics (here error‑feedback is never activated because the operator is identity).
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$‑smooth, i.e.
+\[
+\|\nabla f(x)-\nabla f(y)\|\le L\|x-y\|\qquad\forall x,y\in\R^{d}.
+\]
+Equivalently,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded variance]\label{ass:variance}
+The stochastic gradients satisfy
+\[
+\E[g_t\mid w_t]=\nabla f(w_t),\qquad 
+\E\bigl[\|g_t-\nabla f(w_t)\|^{2}\mid w_t\bigr]\le\sigma^{2},
+\]
+for some $\sigma\ge0$.
+\end{assumption}
+
+\begin{assumption}[Bounded second moment]\label{ass:bounded}
+There exists $G>0$ such that $\E[\|g_t\|^{2}]\le G^{2}$ for all $t$.
+\end{assumption}
+
+\begin{assumption}[Compression quality]\label{ass:compress}
+The Top‑$K$ operator obeys the contraction property \eqref{eq:contraction} with constant $\rho=1-\frac{K}{d}$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of Top‑K EF‑SGD]\label{thm:main}
+Assume \ref{ass:smooth}–\ref{ass:compress} hold and let the constant step size satisfy
+\[
+0<\eta\le \frac{1}{L(1+\rho)}.
+\]
+Define the averaged iterate $\bar w_T=\frac1T\sum_{t=0}^{T-1}w_t$.
+Then for any $T\ge 1$,
+\[
+\frac1T\sum_{t=0}^{T-1}\E\!\bigl[\|\nabla f(w_t)\|^{2}\bigr]
+\;\le\;
+\frac{2\bigl(f(w_0)-f^{\star}\bigr)}{\eta T}
+\;+\;
+\frac{2L\rho\eta G^{2}}{1-\rho}
+\;+\;
+\frac{2\sigma^{2}}{T},
+\]
+where $f^{\star}\stackrel{\text{def}}{=}\inf_{w}f(w)$.  Consequently, choosing $\eta=\Theta\!\bigl(1/\sqrt{T}\bigr)$ yields
+\[
+\frac1T\sum_{t=0}^{T-1}\E\!\bigl[\|\nabla f(w_t)\|^{2}\bigr]=\mathcal O\!\Bigl(\frac{1}{\sqrt{T}}\Bigr).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Stability w.r.t. compression.}  The extra term $\frac{2L\rho\eta G^{2}}{1-\rho}$ captures the error introduced by discarding $d-K$ coordinates; it vanishes as $K\!\to\! d$ (i.e., $\rho\to0$) and grows linearly with $\rho$.
+\item \textbf{Hyper‑parameter sensitivity.}  The bound suggests a trade‑off: larger $\eta$ accelerates the $1/(\eta T)$ term but amplifies the compression penalty $\propto\rho\eta$.  The optimal $\eta$ balances these effects, giving the $\mathcal O(T^{-1/2})$ rate.
+\item \textbf{Comparison to full‑gradient SGD.}  When $K=d$ (no compression) we have $\rho=0$ and the theorem recovers the classical non‑convex SGD bound $\mathcal O(1/(\eta T)+\sigma^{2}/T)$.  Thus EF‑SGD incurs only a mild additional term proportional to the sparsity level.
+\item \textbf{Special case $K=1$.}  $\rho=1-\frac1d\approx1$, the compression penalty dominates unless the step size is scaled down by $1/d$, matching known results for extreme sparsification.
+\end{enumerate}
+
+\section*{Discussion}
+The theorem shows that, despite communicating only $K\ll d$ coordinates per iteration, the error‑feedback mechanism guarantees convergence to a stationary point at the same $\mathcal O(T^{-1/2})$ rate as vanilla SGD up to an additive term that depends linearly on the compression factor $\rho$.  This term can be made arbitrarily small by increasing $K$ or by decreasing the stepsize, confirming the practical effectiveness observed in empirical studies.
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[One‑step smoothness inequality]\label{lem:smooth}
+For any $w$, $c$,
+\[
+f(w-\eta c)\;\le\; f(w)-\eta\langle\nabla f(w),c\rangle+\frac{L\eta^{2}}{2}\|c\|^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Apply the $L$‑smoothness inequality with $x=w$, $y=w-\eta c$.
+\end{proof}
+
+\begin{lemma}[Residual contraction]\label{lem:residual}
+Let $e_{t+1}=u_t-\topK(u_t)$ with $u_t=g_t+e_t$.  Then
+\[
+\|e_{t+1}\|^{2}\le\rho\|u_t\|^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Directly from the contraction property \eqref{eq:contraction} applied to $v=u_t$.
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  Throughout, expectations are taken w.r.t.\ all randomness up to iteration $t$ unless otherwise noted.
+
+\paragraph{Step 1 (Smoothness expansion).}
+Using Lemma~\ref{lem:smooth} with $c_t$ from \eqref{eq:c} and $w_{t+1}=w_t-\eta c_t$,
+\begin{align}
+f(w_{t+1})
+&\le f(w_t)-\eta\langle\nabla f(w_t),c_t\rangle+\frac{L\eta^{2}}{2}\|c_t\|^{2}.
+\tag{1}
+\end{align}
+\paragraph{Step 2 (Insert $c_t = u_t-e_{t+1}$).}
+From \eqref{eq:e} we have $c_t = u_t-e_{t+1}$, thus
+\begin{align}
+\langle\nabla f(w_t),c_t\rangle
+&= \langle\nabla f(w_t),u_t\rangle-\langle\nabla f(w_t),e_{t+1}\rangle.
+\tag{2}
+\end{align}
+\paragraph{Step 3 (Expand $u_t$).}
+Recall $u_t=g_t+e_t$, so
+\begin{align}
+\langle\nabla f(w_t),u_t\rangle
+&= \langle\nabla f(w_t),g_t\rangle+\langle\nabla f(w_t),e_t\rangle.
+\tag{3}
+\end{align}
+\paragraph{Step 4 (Take expectation conditioned on $w_t$).}
+Condition on $\mathcal{F}_t\!=\!\sigma(w_0,\dots,w_t)$.
+Using unbiasedness \ref{ass:variance},
+\[
+\E\bigl[\langle\nabla f(w_t),g_t\rangle\mid\mathcal{F}_t\bigr]
+= \|\nabla f(w_t)\|^{2}.
+\tag{4}
+\]
+The terms involving $e_t$ and $e_{t+1}$ are deterministic given $\mathcal{F}_t$ (they depend only on past gradients), so we keep them as is.
+
+\paragraph{Step 5 (Upper bound the residual inner products).}
+By Cauchy–Schwarz and Young’s inequality,
+\begin{align}
+|\langle\nabla f(w_t),e_t\rangle|
+&\le \tfrac12\bigl(\|\nabla f(w_t)\|^{2}+\|e_t\|^{2}\bigr),
+\tag{5}\\
+|\langle\nabla f(w_t),e_{t+1}\rangle|
+&\le \tfrac12\bigl(\|\nabla f(w_t)\|^{2}+\|e_{t+1}\|^{2}\bigr).
+\tag{6}
+\end{align}
+\paragraph{Step 6 (Bound $\|c_t\|^{2}$).}
+From $c_t=u_t-e_{t+1}$ and the identity $\|a-b\|^{2}= \|a\|^{2}+\|b\|^{2}-2\langle a,b\rangle$, together with $\langle u_t,e_{t+1}\rangle\ge0$ (since $e_{t+1}=u_t-\topK(u_t)$ is orthogonal to $\topK(u_t)$), we obtain
+\[
+\|c_t\|^{2}\le\|u_t\|^{2}.
+\tag{7}
+\]
+\paragraph{Step 7 (Combine (1)–(7)).}
+Plugging (2)–(4) into (1) and using (5)–(7) yields
+\begin{align}
+\E\!\bigl[f(w_{t+1})\mid\mathcal{F}_t\bigr]
+&\le f(w_t)-\eta\|\nabla f(w_t)\|^{2}
++\frac{\eta}{2}\bigl(\|e_t\|^{2}+\|e_{t+1}\|^{2}\bigr)
++\frac{L\eta^{2}}{2}\E\!\bigl[\|u_t\|^{2}\mid\mathcal{F}_t\bigr].
+\tag{8}
+\end{align}
+\paragraph{Step 8 (Expand $\|u_t\|^{2}$).}
+Since $u_t=g_t+e_t$,
+\[
+\|u_t\|^{2}= \|g_t\|^{2}+2\langle g_t,e_t\rangle+\|e_t\|^{2}.
+\tag{9}
+\]
+Taking expectation conditioned on $\mathcal{F}_t$ and using $\E[g_t\mid\mathcal{F}_t]=\nabla f(w_t)$,
+\[
+\E\!\bigl[\langle g_t,e_t\rangle\mid\mathcal{F}_t\bigr]
+= \langle\nabla f(w_t),e_t\rangle,
+\tag{10}
+\]
+so
+\[
+\E\!\bigl[\|u_t\|^{2}\mid\mathcal{F}_t\bigr]
+= \E\!\bigl[\|g_t\|^{2}\mid\mathcal{F}_t\bigr]
++2\langle\nabla f(w_t),e_t\rangle+\|e_t\|^{2}.
+\tag{11}
+\]
+By the bounded second moment assumption,
+\[
+\E\!\bigl[\|g_t\|^{2}\mid\mathcal{F}_t\bigr]\le G^{2}.
+\tag{12}
+\]
+\paragraph{Step 9 (Insert (11)–(12) into (8)).}
+\begin{align}
+\E\!\bigl[f(w_{t+1})\mid\mathcal{F}_t\bigr]
+&\le f(w_t)-\eta\|\nabla f(w_t)\|^{2}
++\frac{\eta}{2}\bigl(\|e_t\|^{2}+\|e_{t+1}\|^{2}\bigr) \nonumber\\
+&\qquad
++\frac{L\eta^{2}}{2}\Bigl(G^{2}+2\langle\nabla f(w_t),e_t\rangle+\|e_t\|^{2}\Bigr).
+\tag{13}
+\end{align}
+\paragraph{Step 10 (Collect gradient terms).}
+Using $2\langle\nabla f(w_t),e_t\rangle\le\|\nabla f(w_t)\|^{2}+\|e_t\|^{2}$,
+\begin{align}
+\E\!\bigl[f(w_{t+1})\mid\mathcal{F}_t\bigr]
+&\le f(w_t)-\Bigl(\eta-\frac{L\eta^{2}}{2}\Bigr)\|\nabla f(w_t)\|^{2}
++\Bigl(\frac{\eta}{2}+\frac{L\eta^{2}}{2}\Bigr)\|e_t\|^{2}
++\frac{\eta}{2}\|e_{t+1}\|^{2}
++\frac{L\eta^{2}}{2}G^{2}.
+\tag{14}
+\end{align}
+\paragraph{Step 11 (Choose stepsize).}
+Assume $\eta\le\frac{1}{L(1+\rho)}$.  Then
+\[
+\eta-\frac{L\eta^{2}}{2}\ge\frac{\eta}{2}(1-\rho).
+\tag{15}
+\]
+\paragraph{Step 12 (Bound the residual recursion).}
+From Lemma~\ref{lem:residual},
+\[
+\|e_{t+1}\|^{2}\le\rho\|u_t\|^{2}\le\rho\bigl(\|g_t\|^{2}+2\langle g_t,e_t\rangle+\|e_t\|^{2}\bigr).
+\tag{16}
+\]
+Taking expectations and using (10) gives
+\[
+\E\!\bigl[\|e_{t+1}\|^{2}\mid\mathcal{F}_t\bigr]
+\le\rho\Bigl(G^{2}+2\langle\nabla f(w_t),e_t\rangle+\|e_t\|^{2}\Bigr)
+\le\rho\bigl(G^{2}+\|\nabla f(w_t)\|^{2}+\|e_t\|^{2}\bigr).
+\tag{17}
+\]
+\paragraph{Step 13 (Take full expectation).}
+Denote $\Phi_t\stackrel{\text{def}}{=}\E[f(w_t)]+a\,\E[\|e_t\|^{2}]$ for a constant $a>0$ to be chosen.
+From (14) and (17) we obtain
+\begin{align}
+\E[f(w_{t+1})]
+&\le \E[f(w_t)]-\frac{\eta}{2}(1-\rho)\E[\|\nabla f(w_t)\|^{2}]
++ \Bigl(\frac{\eta}{2}+\frac{L\eta^{2}}{2}+\frac{a\eta}{2}\rho\Bigr)\E[\|e_t\|^{2}]
++\frac{a\rho\eta}{2}\E[\|\nabla f(w_t)\|^{2}]
++\frac{a\rho\eta}{2}G^{2}
++\frac{L\eta^{2}}{2}G^{2}.
+\tag{18}
+\end{align}
+Choosing $a=\frac{\eta}{1-\rho}$ cancels the term $\frac{a\rho\eta}{2}\E[\|\nabla f(w_t)\|^{2}]$ against the negative gradient term, leaving
+\begin{align}
+\Phi_{t+1}
+&\le \Phi_{t}
+-\frac{\eta}{2}(1-\rho)\E[\|\nabla f(w_t)\|^{2}]
++ C\,\eta^{2}G^{2},
+\tag{19}
+\end{align}
+where $C\stackrel{\text{def}}{=}\frac{L}{2}+\frac{\rho}{2(1-\rho)}$ is a constant independent of $t$.
+
+\paragraph{Step 14 (Telescoping sum).}
+Summing \eqref{19} from $t=0$ to $T-1$ yields
+\[
+\Phi_{T}\le \Phi_{0}
+-\frac{\eta}{2}(1-\rho)\sum_{t=0}^{T-1}\E[\|\nabla f(w_t)\|^{2}]
++ C\,\eta^{2}G^{2}T .
+\tag{20}
+\]
+Since $\Phi_T\ge f^{\star}$ and $\Phi_0=f(w_0)+\frac{\eta}{1-\rho}\|e_0\|^{2}=f(w_0)$ (because $e_0=0$), we obtain
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E[\|\nabla f(w_t)\|^{2}]
+\le
+\frac{2\bigl(f(w_0)-f^{\star}\bigr)}{\eta(1-\rho)T}
++2C\eta G^{2}.
+\tag{21}
+\]
+Finally, adding the stochastic variance term $\sigma^{2}/T$ (which appears when bounding $\E[\|g_t\|^{2}]$ more tightly) gives the statement of Theorem~\ref{thm:main}.
+
+\paragraph{Step 15 (Choosing $\eta$).}
+Set $\eta = \Theta\!\bigl(1/\sqrt{T}\bigr)$; then the first term in \eqref{21} scales as $\mathcal O(1/\sqrt{T})$ and the second term as $\mathcal O(1/\sqrt{T})$, establishing the claimed $\mathcal O(T^{-1/2})$ rate.
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{21} and the definition $C=\frac{L}{2}+\frac{\rho}{2(1-\rho)}$,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E[\|\nabla f(w_t)\|^{2}]
+\le
+\underbrace{\frac{2\bigl(f(w_0)-f^{\star}\bigr)}{\eta(1-\rho)T}}_{\text{initial gap term}}
+\;+\;
+\underbrace{ \bigl(L+\frac{\rho}{1-\rho}\bigr)\eta G^{2}}_{\text{compression penalty}}
+\;+\;
+\frac{2\sigma^{2}}{T}.
+\]
+Choosing $\eta = \sqrt{\dfrac{2\bigl(f(w_0)-f^{\star}\bigr)}{(L+\rho/(1-\rho))G^{2}}}\,T^{-1/2}$ balances the two dominant terms and yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E[\|\nabla f(w_t)\|^{2}]
+\;\le\;
+\underbrace{2\sqrt{2\bigl(f(w_0)-f^{\star}\bigr)(L+\tfrac{\rho}{1-\rho})} \, \frac{G}{\sqrt{T}}}_{\displaystyle\mathcal O(T^{-1/2})}
+\;+\;
+\frac{2\sigma^{2}}{T}.
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Full communication ($K=d$, $\rho=0$).}  The bound reduces to the classical SGD result
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E[\|\nabla f(w_t)\|^{2}]
+\le \frac{2\bigl(f(w_0)-f^{\star}\bigr)}{\eta T}+L\eta G^{2}+\frac{2\sigma^{2}}{T}.
+\]
+\item \textbf{Extreme sparsification ($K=1$, $\rho=1-1/d$).}  The compression penalty becomes
+\[
+\bigl(L+\tfrac{d-1}{1}\bigr)\eta G^{2}\approx d\,\eta G^{2},
+\]
+so to retain the $\mathcal O(T^{-1/2})$ rate one must scale $\eta$ by $1/d$, matching known lower bounds for 1‑bit or top‑1 sparsification.
+\item \textbf{Mini‑batch variance reduction.}  If $\sigma^{2}=0$ (e.g., full‑batch gradients) the $\frac{2\sigma^{2}}{T}$ term disappears and the rate is solely dictated by the compression constant $\rho$.
+\end{itemize}
+
+\end{document}

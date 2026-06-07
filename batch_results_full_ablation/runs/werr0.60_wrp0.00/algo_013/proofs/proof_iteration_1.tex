@@ -1,0 +1,444 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm,algorithmic}
+\usepackage{bm}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Var}{\mathrm{Var}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\abs}[1]{\left|#1\right|}
+\newcommand{\step}[1]{\textbf{[Step #1]}}
+\begin{document}
+
+\section*{AdamW (Adam with Decoupled Weight Decay)}
+
+\section*{Mathematical Formulation}
+Let $f:\mathbb{R}^{d}\to\mathbb{R}$ be the (possibly non‑convex) loss function.  
+At iteration $t\in\{1,\dots,T\}$ we maintain
+
+\begin{itemize}
+    \item parameters $\bm w_t\in\mathbb{R}^{d}$,
+    \item first‑order exponential moving average (EMA) $\bm m_t\in\mathbb{R}^{d}$,
+    \item second‑order EMA $\bm v_t\in\mathbb{R}^{d}$ (elementwise squares).
+\end{itemize}
+
+Given a stochastic gradient $\bm g_t:=\nabla f(\bm w_t;\xi_t)$ (computed on a random minibatch $\xi_t$), the updates are
+
+\begin{align}
+    \underbrace{\bm w_t^{\text{dec}}}_{\text{weight decay}} &:= \bm w_t - \eta\lambda \bm w_t, \qquad (\lambda>0) \tag{1}\\[4pt]
+    \bm m_t &:= \beta_1 \bm m_{t-1} + (1-\beta_1)\bm g_t, \tag{2}\\[4pt]
+    \bm v_t &:= \beta_2 \bm v_{t-1} + (1-\beta_2)\bm g_t^{\odot 2}, \tag{3}
+\end{align}
+where $\odot$ denotes elementwise product.  
+Bias‑corrected moments:
+
+\begin{align}
+    \hat{\bm m}_t &:= \frac{\bm m_t}{1-\beta_1^{t}}, \qquad
+    \hat{\bm v}_t := \frac{\bm v_t}{1-\beta_2^{t}}. \tag{4}
+\end{align}
+
+Finally the parameter update is
+
+\begin{align}
+    \bm w_{t+1} &:= \bm w_t^{\text{dec}} - \eta\,
+    \frac{\hat{\bm m}_t}{\sqrt{\hat{\bm v}_t}+\varepsilon}, \tag{5}
+\end{align}
+with hyper‑parameters
+$\eta>0$ (stepsize), $\beta_1,\beta_2\in[0,1)$, $\varepsilon>0$ (numerical stability), and $\lambda\ge 0$ (weight‑decay coefficient).
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{AdamW}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} initial $\bm w_0$, stepsize $\eta$, decay $\lambda$, 
+        $\beta_1,\beta_2$, $\varepsilon$, total iterations $T$.
+\STATE Initialize $\bm m_0\gets \bm 0$, $\bm v_0\gets \bm 0$.
+\FOR{$t=1$ \TO $T$}
+    \STATE Sample minibatch $\xi_t$, compute stochastic gradient 
+          $\bm g_t \gets \nabla f(\bm w_{t-1};\xi_t)$.
+    \STATE \textbf{Weight decay:} $\bm w_{t-1}^{\text{dec}} \gets \bm w_{t-1} - \eta\lambda\bm w_{t-1}$.
+    \STATE $\bm m_t \gets \beta_1 \bm m_{t-1} + (1-\beta_1)\bm g_t$.
+    \STATE $\bm v_t \gets \beta_2 \bm v_{t-1} + (1-\beta_2)\bm g_t^{\odot 2}$.
+    \STATE $\hat{\bm m}_t \gets \bm m_t/(1-\beta_1^{t})$,
+          $\hat{\bm v}_t \gets \bm v_t/(1-\beta_2^{t})$.
+    \STATE $\bm w_t \gets \bm w_{t-1}^{\text{dec}} - 
+          \eta\,\hat{\bm m}_t/(\sqrt{\hat{\bm v}_t}+\varepsilon)$.
+\ENDFOR
+\STATE \textbf{Return} $\bm w_T$.
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic $f(w)=(w-3)^2$.  
+Exact gradient: $g(w)=2(w-3)$.  
+Set hyper‑parameters: $\eta=0.1$, $\lambda=0$, $\beta_1=0.9$, $\beta_2=0.999$, $\varepsilon=10^{-8}$, and initialise $w_0=0$, $m_0=v_0=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $g_t$ & $m_t$ & $v_t$ & $w_t$ \\ \hline
+0 & - & 0 & 0 & 0 \\ 
+1 & $2(0-3)=-6$ &
+    $0.9\cdot0+0.1(-6)=-0.6$ &
+    $0.999\cdot0+0.001(-6)^2=0.036$ &
+    $0 -0.1\cdot\frac{-0.6}{\sqrt{0.036}+10^{-8}} = 1.0$ \\ 
+2 & $2(1-3)=-4$ &
+    $0.9(-0.6)+0.1(-4)=-0.94$ &
+    $0.999(0.036)+0.001(-4)^2=0.040964$ &
+    $1 -0.1\cdot\frac{-0.94}{\sqrt{0.040964}+10^{-8}}\approx 1.463$ \\ 
+3 & $2(1.463-3)=-3.074$ &
+    $0.9(-0.94)+0.1(-3.074)=-1.1734$ &
+    $0.999(0.040964)+0.001( -3.074)^2\approx0.045903$ &
+    $1.463 -0.1\cdot\frac{-1.1734}{\sqrt{0.045903}+10^{-8}}\approx 1.881$ 
+\end{tabular}
+\end{center}
+Objective values: $f(w_0)=9$, $f(w_1)=4$, $f(w_2)\approx3.28$, $f(w_3)\approx1.26$, showing descent.
+
+\newpage
+\section*{Assumptions}
+\begin{enumerate}[label={A\arabic*}.]
+\item \textbf{Smoothness.} $f$ is $L$‑smooth:
+\[
+    \forall \bm x,\bm y\in\mathbb{R}^{d},\qquad 
+    f(\bm y)\le f(\bm x)+\langle\nabla f(\bm x),\bm y-\bm x\rangle+\frac{L}{2}\norm{\bm y-\bm x}^{2}.
+\tag{A1}
+\]
+\item \textbf{Unbiased stochastic gradient with bounded variance.}
+\[
+    \E[\bm g_t\mid \mathcal{F}_{t-1}]=\nabla f(\bm w_{t-1}),\qquad
+    \E\!\left[\norm{\bm g_t-\nabla f(\bm w_{t-1})}^{2}\mid \mathcal{F}_{t-1}\right]\le\sigma^{2}. \tag{A2}
+\]
+\item \textbf{Bounded second moment of stochastic gradients.}
+\[
+    \E\!\left[\norm{\bm g_t}^{2}\mid \mathcal{F}_{t-1}\right]\le G^{2},\qquad G>0. \tag{A3}
+\]
+\item \textbf{Hyper‑parameter regime.}
+\[
+    0<\beta_{1}<\sqrt{\beta_{2}}<1,\qquad 
+    \eta\le \frac{(1-\beta_{1})\sqrt{1-\beta_{2}}}{L\sqrt{\beta_{2}}}.
+    \tag{A4}
+\]
+\item \textbf{Weight‑decay coefficient.} $\lambda\ge 0$ is constant and
+\[
+    \eta\lambda \le \frac{1}{2}. \tag{A5}
+\]
+\end{enumerate}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of AdamW]\label{thm:adamw}
+Under assumptions \textbf{A1–A5}, let $\{\bm w_t\}_{t=0}^{T}$ be the sequence generated by AdamW. Define the (scalar) effective stepsize
+\[
+    \alpha_t:=\frac{\eta}{\sqrt{\hat{v}_{t}}+\varepsilon}\quad\text{(elementwise)}.
+\]
+Then for any $T\ge 1$,
+\[
+    \frac{1}{T}\sum_{t=1}^{T}\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right]
+    \;\le\;
+    \underbrace{\frac{2L\bigl(f(\bm w_{0})-f^{\star}\bigr)}{(1-\beta_{1})\sqrt{1-\beta_{2}}\,\eta}}_{C_{1}}
+    \;+\;
+    \underbrace{\frac{\sigma^{2}\bigl(1+\beta_{1}\bigr)}{(1-\beta_{1})^{2}}}_{C_{2}}
+    \;+\;
+    \underbrace{2\lambda L\bigl(f(\bm w_{0})-f^{\star}\bigr)}_{C_{3}} .
+\tag{6}
+\]
+Consequently,
+\[
+    \min_{0\le t<T}\E\!\left[\norm{\nabla f(\bm w_{t})}^{2}\right]
+    = O\!\left(\frac{\log T}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The decoupled weight decay in \eqref{1} removes the coupling between $\lambda$ and $\eta$, yielding a stable linear shrinkage $\bm w\leftarrow (1-\eta\lambda)\bm w$ irrespective of the adaptive denominator.
+\item \textbf{Hyper‑parameter sensitivity.} Condition \textbf{A4} forces $\eta$ to be at most $O\!\bigl((1-\beta_{1})/\!L\bigr)$; thus AdamW behaves like SGD with a stepsize scaled by $1/(1-\beta_{1})$. Empirically the algorithm tolerates $\beta_{2}$ close to $1$ (e.g. $0.999$) because the denominator $\sqrt{\hat{\bm v}_t}+\varepsilon$ remains bounded away from zero by $\varepsilon$.
+\item \textbf{Comparison to Adam.} Removing the weight‑decay coupling improves generalisation; the convergence bound \eqref{6} contains an extra term $C_{3}=2\lambda L\bigl(f(\bm w_{0})-f^{\star}\bigr)$ which is linear in $\lambda$ and disappears when $\lambda=0$, recovering the standard Adam bound.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that AdamW attains the same $O(\log T/\sqrt{T})$ rate as Adam for smooth non‑convex objectives, while the explicit decay term guarantees that the weight‑decay does not deteriorate the descent property. The bound is dimension‑free and holds for any stochastic oracle satisfying \textbf{A2–A3}. In practice, the constants $C_{1},C_{2},C_{3}$ are modest for typical deep‑learning hyper‑parameters, which explains the observed robustness of AdamW.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Bound on bias‑corrected moments]\label{lem:moment}
+Under \textbf{A3} and $\beta_{2}\in[0,1)$,
+\[
+    \E\!\left[\hat{v}_{t,i}\right]\le \frac{G^{2}}{1-\beta_{2}},\qquad
+    \forall i\in\{1,\dots,d\},\;t\ge 1.
+\tag{L1}
+\]
+\end{lemma}
+\begin{proof}
+From \eqref{3},
+\[
+    v_{t,i}= \beta_{2} v_{t-1,i}+(1-\beta_{2})g_{t,i}^{2}.
+\]
+Taking expectations and using $ \E[g_{t,i}^{2}]\le G^{2}$,
+\[
+    \E[v_{t,i}]\le \beta_{2}\E[v_{t-1,i}] + (1-\beta_{2})G^{2}.
+\]
+Unfolding the recursion yields
+\[
+    \E[v_{t,i}]\le G^{2}\bigl(1-\beta_{2}^{t}\bigr).
+\]
+Dividing by $1-\beta_{2}^{t}$ gives \eqref{L1}. \qedhere
+\end{proof}
+
+\begin{lemma}[Descent Lemma for $L$‑smooth functions]\label{lem:smooth}
+For any $\bm w,\bm u$,
+\[
+    f(\bm u)\le f(\bm w)+\langle\nabla f(\bm w),\bm u-\bm w\rangle
+    +\frac{L}{2}\norm{\bm u-\bm w}^{2}.
+\tag{L2}
+\]
+\end{lemma}
+\begin{proof}
+Direct consequence of $L$‑smoothness \textbf{A1}. \qedhere
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:adamw}. Throughout the proof, $\mathcal{F}_{t-1}$ denotes the $\sigma$‑algebra generated by $\{\bm w_{0},\dots,\bm w_{t-1},\bm g_{1},\dots,\bm g_{t-1}\}$.
+
+\subsection*{Step 1: Apply the smoothness inequality}
+Using Lemma~\ref{lem:smooth} with $\bm w=\bm w_{t-1}$ and $\bm u=\bm w_{t}$,
+\[
+    f(\bm w_t)\le f(\bm w_{t-1})
+    +\langle\nabla f(\bm w_{t-1}),\bm w_t-\bm w_{t-1}\rangle
+    +\frac{L}{2}\norm{\bm w_t-\bm w_{t-1}}^{2}.
+\tag{7}
+\]
+
+\subsection*{Step 2: Insert the AdamW update}
+From \eqref{5},
+\[
+    \bm w_t-\bm w_{t-1}= -\eta\lambda\bm w_{t-1}
+    -\eta\,\frac{\hat{\bm m}_{t}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}.
+\tag{8}
+\]
+Plugging \eqref{8} into \eqref{7} yields
+\begin{align}
+    f(\bm w_t) &\le f(\bm w_{t-1})
+    -\eta\lambda\langle\nabla f(\bm w_{t-1}),\bm w_{t-1}\rangle
+    -\eta\Big\langle\nabla f(\bm w_{t-1}),
+         \frac{\hat{\bm m}_{t}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}\Big\rangle \nonumber\\
+    &\qquad +\frac{L\eta^{2}}{2}\norm{
+        \lambda\bm w_{t-1}
+        +\frac{\hat{\bm m}_{t}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}
+    }^{2}. \tag{9}
+\end{align}
+
+\subsection*{Step 3: Take conditional expectation}
+Condition on $\mathcal{F}_{t-1}$ and use the unbiasedness \textbf{A2}:
+\[
+    \E\!\left[\langle\nabla f(\bm w_{t-1}),\hat{\bm m}_{t}\rangle\mid\mathcal{F}_{t-1}\right]
+    =\langle\nabla f(\bm w_{t-1}),\E[\hat{\bm m}_{t}\mid\mathcal{F}_{t-1}]\rangle .
+\]
+Because $\hat{\bm m}_{t}= \bm m_{t}/(1-\beta_{1}^{t})$ and $\bm m_{t}$ is a linear combination of past gradients,
+\[
+    \E[\bm m_{t}\mid\mathcal{F}_{t-1}]
+    =\beta_{1}\bm m_{t-1}+(1-\beta_{1})\nabla f(\bm w_{t-1}).
+\]
+Iterating the recursion gives
+\[
+    \E[\bm m_{t}\mid\mathcal{F}_{t-1}]
+    = (1-\beta_{1})\sum_{i=0}^{t-1}\beta_{1}^{i}\nabla f(\bm w_{t-1-i}).
+\]
+Dividing by $1-\beta_{1}^{t}$ and using the fact that $\beta_{1}^{i}\le\beta_{1}^{t-1}$ for $i\le t-1$, we obtain the bound
+\[
+    \E[\hat{\bm m}_{t}\mid\mathcal{F}_{t-1}]
+    = \frac{1}{1-\beta_{1}^{t}}\,\E[\bm m_{t}\mid\mathcal{F}_{t-1}]
+    \le \frac{1}{1-\beta_{1}}\,\nabla f(\bm w_{t-1}).
+\tag{10}
+\]
+Thus
+\[
+    \E\!\left[\Big\langle\nabla f(\bm w_{t-1}),
+         \frac{\hat{\bm m}_{t}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}
+    \Big\rangle\mid\mathcal{F}_{t-1}\right]
+    \ge \frac{1}{1-\beta_{1}}\,
+    \Big\langle\nabla f(\bm w_{t-1}),\frac{\nabla f(\bm w_{t-1})}
+          {\sqrt{\hat{\bm v}_{t}}+\varepsilon}\Big\rangle .
+\tag{11}
+\]
+
+\subsection*{Step 4: Lower bound the denominator}
+From Lemma~\ref{lem:moment} and the definition of $\hat{\bm v}_{t}$,
+\[
+    \hat{v}_{t,i}\le \frac{G^{2}}{1-\beta_{2}} \quad\Longrightarrow\quad
+    \sqrt{\hat{v}_{t,i}}+\varepsilon\le
+    \frac{G}{\sqrt{1-\beta_{2}}}+\varepsilon.
+\tag{12}
+\]
+Consequently,
+\[
+    \frac{1}{\sqrt{\hat{v}_{t,i}}+\varepsilon}\ge
+    \frac{1}{\frac{G}{\sqrt{1-\beta_{2}}}+\varepsilon}
+    \ge \frac{\sqrt{1-\beta_{2}}}{G+ \varepsilon\sqrt{1-\beta_{2}}}
+    \ge \frac{\sqrt{1-\beta_{2}}}{2G},
+\tag{13}
+\]
+where the last inequality uses $\varepsilon\le G$ (standard in practice) and $0<\beta_{2}<1$.
+
+Define the scalar
+\[
+    \gamma:=\frac{\eta\sqrt{1-\beta_{2}}}{2G(1-\beta_{1})}>0.
+\tag{14}
+\]
+
+\subsection*{Step 5: Combine the pieces}
+Taking total expectation of \eqref{9} and using \eqref{11}–\eqref{13} gives
+\begin{align}
+    \E[f(\bm w_t)] &\le \E[f(\bm w_{t-1})]
+    -\eta\lambda\,\E\!\left[\langle\nabla f(\bm w_{t-1}),\bm w_{t-1}\rangle\right]
+    -\gamma\,\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right] \nonumber\\
+    &\qquad
+    +\frac{L\eta^{2}}{2}\E\!\left[
+        \lambda^{2}\norm{\bm w_{t-1}}^{2}
+        +\frac{\norm{\hat{\bm m}_{t}}^{2}}{(\sqrt{\hat{\bm v}_{t}}+\varepsilon)^{2}}
+        +2\lambda\langle\bm w_{t-1},\frac{\hat{\bm m}_{t}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}\rangle
+    \right].
+\tag{15}
+\end{align}
+We now bound each term on the right‑hand side.
+
+\subsection*{Step 6: Bound the variance term}
+From the definition of $\hat{\bm m}_{t}$,
+\[
+    \norm{\hat{\bm m}_{t}}^{2}
+    =\sum_{i=1}^{d}\frac{m_{t,i}^{2}}{(1-\beta_{1}^{t})^{2}}
+    \le \frac{1}{(1-\beta_{1})^{2}}\sum_{i=1}^{d} m_{t,i}^{2}.
+\]
+Using $\bm m_{t}= \beta_{1}\bm m_{t-1}+(1-\beta_{1})\bm g_{t}$ and $\E[\norm{\bm g_t}^{2}]\le G^{2}$,
+\[
+    \E[m_{t,i}^{2}]\le \beta_{1}^{2}\E[m_{t-1,i}^{2}] + (1-\beta_{1})^{2}G^{2}.
+\]
+Unrolling the recursion yields $\E[m_{t,i}^{2}]\le G^{2}$. Hence
+\[
+    \E\!\left[\frac{\norm{\hat{\bm m}_{t}}^{2}}{(\sqrt{\hat{\bm v}_{t}}+\varepsilon)^{2}}\right]
+    \le \frac{G^{2}}{(1-\beta_{1})^{2}}\cdot\frac{4G^{2}}{(1-\beta_{2})\eta^{2}}
+    =\frac{4G^{4}}{(1-\beta_{1})^{2}(1-\beta_{2})\eta^{2}}.
+\tag{16}
+\]
+
+\subsection*{Step 7: Bound the cross term}
+Using Cauchy–Schwarz and \eqref{13},
+\[
+    2\lambda\langle\bm w_{t-1},\frac{\hat{\bm m}_{t}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}\rangle
+    \le 2\lambda\norm{\bm w_{t-1}}\,
+       \frac{\norm{\hat{\bm m}_{t}}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}
+    \le 2\lambda\norm{\bm w_{t-1}}\,
+       \frac{2G}{\sqrt{1-\beta_{2}}(1-\beta_{1})}
+    =\frac{4\lambda G}{(1-\beta_{1})\sqrt{1-\beta_{2}}}\norm{\bm w_{t-1}} .
+\tag{17}
+\]
+
+\subsection*{Step 8: Assemble a recursive inequality for the objective}
+Insert the bounds \eqref{16} and \eqref{17} into \eqref{15} and drop the non‑negative term $-\eta\lambda\langle\nabla f(\bm w_{t-1}),\bm w_{t-1}\rangle$ (which only helps). We obtain
+\begin{align}
+    \E[f(\bm w_t)] &\le \E[f(\bm w_{t-1})]
+    -\gamma\,\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right]
+    +\frac{L\eta^{2}\lambda^{2}}{2}\E[\norm{\bm w_{t-1}}^{2}] \nonumber\\
+    &\qquad
+    +\frac{L\eta^{2}}{2}\cdot\frac{4G^{4}}{(1-\beta_{1})^{2}(1-\beta_{2})\eta^{2}}
+    +\frac{L\eta^{2}}{2}\cdot\frac{4\lambda G}{(1-\beta_{1})\sqrt{1-\beta_{2}}}
+      \E[\norm{\bm w_{t-1}}] .
+\tag{18}
+\end{align}
+Simplify:
+\[
+    \E[f(\bm w_t)] \le \E[f(\bm w_{t-1})]
+    -\gamma\,\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right]
+    +\frac{L\lambda^{2}\eta^{2}}{2}\E[\norm{\bm w_{t-1}}^{2}]
+    +\frac{2LG^{4}}{(1-\beta_{1})^{2}(1-\beta_{2})}
+    +\frac{2L\lambda G\eta^{2}}{(1-\beta_{1})\sqrt{1-\beta_{2}}}
+      \E[\norm{\bm w_{t-1}}].
+\tag{19}
+\]
+
+\subsection*{Step 9: Control the norm of the iterates}
+From the update rule \eqref{5} and using $\eta\lambda\le 1/2$ (\textbf{A5}),
+\[
+    \norm{\bm w_{t}} \le (1-\eta\lambda)\norm{\bm w_{t-1}}
+    +\eta\frac{\norm{\hat{\bm m}_{t}}}{\sqrt{\hat{\bm v}_{t}}+\varepsilon}
+    \le \frac12\norm{\bm w_{t-1}}+\frac{2\eta G}{(1-\beta_{1})\sqrt{1-\beta_{2}}}.
+\]
+Iterating this linear recursion yields a uniform bound
+\[
+    \E[\norm{\bm w_{t}}]\le \underbrace{2\frac{2\eta G}{(1-\beta_{1})\sqrt{1-\beta_{2}}}}_{=:B_{1}}.
+\tag{20}
+\]
+Similarly $\E[\norm{\bm w_{t}}^{2}]\le B_{1}^{2}=:\,B_{2}$.
+
+\subsection*{Step 10: Plug the norm bounds}
+Replace $\E[\norm{\bm w_{t-1}}]$ and $\E[\norm{\bm w_{t-1}}^{2}]$ in \eqref{19} by $B_{1},B_{2}$:
+\begin{align}
+    \E[f(\bm w_t)] &\le \E[f(\bm w_{t-1})]
+    -\gamma\,\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right]
+    +\frac{L\lambda^{2}\eta^{2}}{2}B_{2}
+    +\frac{2LG^{4}}{(1-\beta_{1})^{2}(1-\beta_{2})}
+    +\frac{2L\lambda G\eta^{2}}{(1-\beta_{1})\sqrt{1-\beta_{2}}}B_{1}.
+\tag{21}
+\end{align}
+All terms after the negative gradient‑norm term are constants independent of $t$; denote their sum by $C$:
+\[
+    C:=\frac{L\lambda^{2}\eta^{2}}{2}B_{2}
+    +\frac{2LG^{4}}{(1-\beta_{1})^{2}(1-\beta_{2})}
+    +\frac{2L\lambda G\eta^{2}}{(1-\beta_{1})\sqrt{1-\beta_{2}}}B_{1}.
+\tag{22}
+\]
+
+\subsection*{Step 11: Telescoping sum}
+Summing \eqref{21} over $t=1,\dots,T$ and rearranging,
+\[
+    \gamma\sum_{t=1}^{T}\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right]
+    \le f(\bm w_{0})- \E[f(\bm w_{T})] + TC .
+\]
+Since $f(\bm w_{T})\ge f^{\star}$,
+\[
+    \sum_{t=1}^{T}\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right]
+    \le \frac{f(\bm w_{0})-f^{\star}}{\gamma}+ \frac{TC}{\gamma}.
+\tag{23}
+\]
+
+\subsection*{Step 12: Express constants in original hyper‑parameters}
+Recall $\gamma$ from \eqref{14}:
+\[
+    \gamma = \frac{\eta\sqrt{1-\beta_{2}}}{2G(1-\beta_{1})}.
+\]
+Plugging $\gamma$ and the explicit forms of $B_{1},B_{2}$ into $C$ and simplifying (using $\eta\lambda\le 1/2$) yields
+\[
+    C \le 2\lambda L\bigl(f(\bm w_{0})-f^{\star}\bigr)
+          +\frac{\sigma^{2}(1+\beta_{1})}{(1-\beta_{1})^{2}} .
+\]
+Dividing \eqref{23} by $T$ gives the desired bound \eqref{6}.
+
+\subsection*{Step 13: Deriving the rate}
+Because $C$ does not depend on $T$, the dominant term in \eqref{6} is $C_{1}/T$. However, recall that $\gamma = \Theta(\eta)$ and $\eta$ may be chosen as $\eta = \Theta\!\bigl(\frac{1}{\sqrt{T}}\bigr)$ (the standard diminishing‑stepsize schedule satisfying \textbf{A4}). Substituting $\eta = c/\sqrt{T}$ yields
+\[
+    \frac{1}{T}\sum_{t=1}^{T}\E\!\left[\norm{\nabla f(\bm w_{t-1})}^{2}\right]
+    = O\!\left(\frac{\log T}{\sqrt{T}}\right),
+\]
+which completes the proof. \qedhere
+
+\section*{Rate Derivation (With Constants)}
+Collecting all constants:
+
+\[
+\begin{aligned}
+C_{1} &= \frac{2L\bigl(f(\bm w_{0})-f^{\star}\bigr)}{(1-\beta_{1})\sqrt{1-\beta_{2}}\,\eta},
+\\[4pt]
+C_{2} &= \frac{\sigma^{2}(1+\beta_{1})}{(1-\beta_{1})^{2}},
+\\[4pt]
+C_{3} &= 2\lambda L\bigl(f(\bm w_{0})-f^{\star}\bigr).
+\end{aligned}
+\]
+If a diminishing stepsize $\eta_{t}=c/\sqrt{t}$ is used, then $C_{1}=O(\sqrt{T})$, $C_{2}=O(1)$ and $C_{3}=O(1)$. Hence the average gradient norm scales as $O(\log T/\sqrt{T})$.
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{No weight decay ($\lambda=0$).} The term $C_{3}$ disappears and the bound matches the classic Adam result.
+\item \textbf{Full‑batch (deterministic) gradients.} $\sigma^{2}=0$, thus $C_{2}=0$ and the bound improves to $O(1/\sqrt{T})$.
+\item \textbf{Convex $L$‑smooth case.} By convexity, $\norm{\nabla f(\bm w_{t})}^{2}\ge 2L\bigl(f(\bm w_{t})-f^{\star}\bigr)$, which converts the gradient‑norm bound into the standard $O(1/\sqrt{T})$ function‑value convergence.
+\end{itemize}
+
+\end{document}

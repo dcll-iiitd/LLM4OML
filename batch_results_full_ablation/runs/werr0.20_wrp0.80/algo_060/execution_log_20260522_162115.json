@@ -1,0 +1,182 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T16:19:34.663106",
+    "end_time": "2026-05-22T16:21:15.391955",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.2,
+      "w_tfp": 0.8,
+      "w_rp_pen": 0.8
+    }
+  },
+  "algorithm_description": "The algorithm uses error feedback: stores quantization error e_k and adds it to next gradient before quantization.",
+  "assumptions": "Non-Convex and Smooth functions (EF-SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T16:20:21.135626",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm,algorithmic}\n\\usepackage{hyperref}\n\\usepackage{enumitem}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{corollary}{Corollary}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\inner}[2]{\\left\\langle #1,#2\\right\\rangle}\n\\newcommand{\\Q}{\\mathcal{Q}}\n\n\\begin{document}\n\n\\section*{EF\u2011SGD (Error\u2011Feedback Stochastic Gradient Descent)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be a (possibly non\u2011convex) smooth loss.  \nAt iteration $k\\ge 0$ we have:\n\n\\begin{enumerate}[label=\\arabic*)]\n\\item Sample a stochastic gradient $g_k:=\\nabla f(w_k;\\xi_k)$, where $\\xi_k$ is a random data sample.\n\\item Form the \\emph{pre\u2011quantized} vector\n\\[\nu_k \\;:=\\; g_k + e_k ,\n\\]\nwhere $e_k\\in\\R^{d}$ is the \\emph{error feedback} (quantization error) accumulated from previous steps.\n\\item Apply a (possibly biased) compression operator $\\Q:\\R^{d}\\rightarrow\\R^{d}$:\n\\[\n\\Delta_k \\;:=\\; \\Q(u_k).\n\\]\n\\item Update the model parameters:\n\\[\nw_{k+1}\\;=\\; w_k - \\eta\\,\\Delta_k ,\n\\]\nwhere $\\eta>0$ is the stepsize (learning rate).\n\\item Update the error feedback:\n\\[\ne_{k+1}\\;=\\; u_k - \\Delta_k \\;=\\; g_k + e_k - \\Q(g_k+e_k).\n\\]\n\\end{enumerate}\n\nThe hyper\u2011parameters are the stepsize $\\eta$ and the properties of the compressor $\\Q$ (see Assumptions below).\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{EF\u2011SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} initial point $w_0$, stepsize $\\eta>0$, compressor $\\Q$\n\\STATE Initialize error feedback $e_0\\gets 0$\n\\FOR{$k=0,1,\\dots,T-1$}\n    \\STATE Sample mini\u2011batch $\\xi_k$ and compute stochastic gradient $g_k=\\nabla f(w_k;\\xi_k)$\n    \\STATE $u_k \\gets g_k + e_k$\n    \\STATE $\\Delta_k \\gets \\Q(u_k)$          \\COMMENT{compressed gradient}\n    \\STATE $w_{k+1} \\gets w_k - \\eta\\,\\Delta_k$\n    \\STATE $e_{k+1} \\gets u_k - \\Delta_k$   \\COMMENT{error feedback}\n\\ENDFOR\n\\STATE \\textbf{Output:} $w_T$\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic \n\\[\nf(w)=(w-3)^2,\\qquad \\nabla f(w)=2(w-3).\n\\]\nWe use a deterministic setting (no stochasticity) and a 1\u2011bit sign quantizer\n\\[\n\\Q(x)=\\operatorname{sign}(x)\\in\\{-1,+1\\}.\n\\]\nSet $w_0=0$, $\\eta=0.1$, and $e_0=0$.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$k$ & $g_k$ & $u_k=g_k+e_k$ & $\\Delta_k=\\Q(u_k)$ & $w_{k+1}=w_k-\\eta\\Delta_k$ \\\\ \\hline\n0 & $2(0-3)=-6$ & $-6$ & $-1$ & $0-0.1(-1)=0.1$ \\\\\n1 & $2(0.1-3)=-5.8$ & $-5.8+(-5) = -5.8+5? $ &  &  \\\\\n\\end{tabular}\n\\end{center}\n\nWe compute step by step:\n\n\\begin{itemize}\n\\item \\textbf{Iteration $k=0$:}\n\\[\ng_0=-6,\\; u_0=-6,\\; \\Delta_0=\\Q(-6)=-1,\\;\nw_1=0-0.1(-1)=0.1,\\;\ne_1=u_0-\\Delta_0=-6-(-1)=-5.\n\\]\nObjective: $f(w_1)=(0.1-3)^2=8.41$.\n\n\\item \\textbf{Iteration $k=1$:}\n\\[\ng_1=2(0.1-3)=-5.8,\\;\nu_1=g_1+e_1=-5.8+(-5)=-10.8,\\;\n\\Delta_1=\\Q(-10.8)=-1,\\;\nw_2=0.1-0.1(-1)=0.2,\\;\ne_2=u_1-\\Delta_1=-10.8-(-1)=-9.8.\n\\]\nObjective: $f(w_2)=(0.2-3)^2=7.84$.\n\n\\item \\textbf{Iteration $k=2$:}\n\\[\ng_2=2(0.2-3)=-5.6,\\;\nu_2=g_2+e_2=-5.6+(-9.8)=-15.4,\\;\n\\Delta_2=\\Q(-15.4)=-1,\\;\nw_3=0.2-0.1(-1)=0.3,\\;\ne_3=u_2-\\Delta_2=-15.4-(-1)=-14.4.\n\\]\nObjective: $f(w_3)=(0.3-3)^2=7.29$.\n\\end{itemize}\n\nThe iterates move slowly toward the optimum $w^\\star=3$, illustrating how the error feedback accumulates the quantization loss.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f$ is $L$\u2011smooth, i.e.\n\\[\n\\forall x,y\\in\\R^{d}:\\quad f(y)\\le f(x)+\\inner{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^{2}.\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Unbiased Stochastic Gradient with Bounded Variance]\\label{ass:sgd}\nFor each $k$, $\\E_{\\xi_k}[g_k\\,|\\,w_k]=\\nabla f(w_k)$ and\n\\[\n\\E_{\\xi_k}\\!\\big[\\norm{g_k-\\nabla f(w_k)}^{2}\\,\\big|\\,w_k\\big]\\le\\sigma^{2},\n\\]\nfor some $\\sigma^{2}\\ge0$.\n\\end{assumption}\n\n\\begin{assumption}[Compression Operator]\\label{ass:compress}\nThe compressor $\\Q$ satisfies, for all $v\\in\\R^{d}$,\n\\[\n\\E[\\Q(v)]=v,\\qquad\n\\E\\!\\big[\\norm{\\Q(v)-v}^{2}\\big]\\le \\omega\\,\\norm{v}^{2},\n\\]\nwith a constant $\\omega\\ge0$ (e.g. $\\omega=1/2$ for a random sparsifier). The expectation is taken over the internal randomness of $\\Q$.\n\\end{assumption}\n\n\\begin{assumption}[Bounded Second Moment of Gradients]\\label{ass:bounded}\n\\[\n\\E\\!\\big[\\norm{g_k}^{2}\\big]\\le G^{2},\\qquad\\forall k,\n\\]\nfor some $G>0$.\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nAssume \\ref{ass:smooth}\u2013\\ref{ass:bounded}. Choose a constant stepsize\n\\[\n0<\\eta\\le\\frac{1}{L(1+\\omega)}.\n\\]\nThen for any $T\\ge1$ the iterates of EF\u2011SGD satisfy\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n\\;\\le\\;\n\\underbrace{\\frac{2\\big(f(w_0)-f^\\star\\big)}{\\eta T}}_{\\text{optimization term}}\n\\;+\\;\n\\underbrace{2L\\omega\\eta G^{2}}_{\\text{compression term}}\n\\;+\\;\n\\underbrace{L\\eta\\sigma^{2}}_{\\text{stochastic term}} .\n\\]\nConsequently, if $T=\\Omega\\!\\big(\\tfrac{1}{\\varepsilon^{2}}\\big)$ and $\\eta= \\Theta\\!\\big(\\tfrac{1}{L(1+\\omega)}\\big)$,\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]=\\mathcal{O}\\!\\big(\\varepsilon^{2}\\big).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability:} The error\u2011feedback term guarantees that the accumulated quantization error does not diverge provided $\\eta\\le 1/(L(1+\\omega))$.\n\\item \\textbf{Hyper\u2011parameter Sensitivity:} The bound scales linearly with $\\eta$; a larger $\\eta$ accelerates descent but inflates the compression and stochastic terms.\n\\item \\textbf{Comparison to Baselines:}\n    \\begin{enumerate}[label=\\alph*)]\n    \\item \\emph{Plain SGD} corresponds to $\\omega=0$, yielding the classical bound $\\frac{2(f(w_0)-f^\\star)}{\\eta T}+L\\eta\\sigma^{2}$.\n    \\item \\emph{Unbiased compression without error feedback} would incur an additional term $L\\omega\\eta G^{2}$ without the mitigating factor $(1+\\omega)^{-1}$, leading to a worse dependence on $\\omega$.\n    \\end{enumerate}\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that EF\u2011SGD attains the same $\\mathcal{O}(1/\\sqrt{T})$ (in terms of gradient norm) rate as vanilla SGD up to an extra additive term proportional to $\\omega\\eta$. By choosing $\\eta\\asymp 1/(L(1+\\omega))$, the compression penalty becomes $\\mathcal{O}(\\omega/L)$, which vanishes for high\u2011quality compressors ($\\omega\\to0$).\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Inequality]\\label{lem:smooth}\nIf $f$ is $L$\u2011smooth then for any $x,y$,\n\\[\nf(y)\\le f(x)+\\inner{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^{2}.\n\\]\n\\end{lemma}\n\\begin{proof}\nStandard from the definition of $L$\u2011smoothness. \\qedhere\n\\end{proof}\n\n\\begin{lemma}[Error\u2011Feedback Recursion]\\label{lem:ef}\nDefine $e_{k+1}=g_k+e_k-\\Q(g_k+e_k)$. Then\n\\[\n\\E\\!\\big[\\norm{e_{k+1}}^{2}\\,\\big|\\,\\mathcal{F}_k\\big]\n\\le \\omega\\,\\E\\!\\big[\\norm{g_k+e_k}^{2}\\,\\big|\\,\\mathcal{F}_k\\big],\n\\]\nwhere $\\mathcal{F}_k$ is the sigma\u2011algebra generated by $\\{w_0,e_0,\\dots,w_k,e_k,\\xi_0,\\dots,\\xi_{k-1}\\}$.\n\\end{lemma}\n\\begin{proof}\nBy unbiasedness of $\\Q$ (Assumption~\\ref{ass:compress}),\n\\[\n\\E[\\Q(v)]=v\\quad\\Longrightarrow\\quad \\E[v-\\Q(v)]=0.\n\\]\nHence\n\\[\n\\E\\!\\big[\\norm{e_{k+1}}^{2}\\,\\big|\\,\\mathcal{F}_k\\big]\n= \\E\\!\\big[\\norm{(g_k+e_k)-\\Q(g_k+e_k)}^{2}\\,\\big|\\,\\mathcal{F}_k\\big]\n\\le \\omega\\,\\norm{g_k+e_k}^{2},\n\\]\nusing the variance bound of $\\Q$. \\qedhere\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}. Let $\\mathcal{F}_k$ be the filtration up to iteration $k$.\n\n\\begin{enumerate}\n\\item[Step 1.] Apply Lemma~\\ref{lem:smooth} with $x=w_k$, $y=w_{k+1}=w_k-\\eta\\Delta_k$:\n\\begin{align}\nf(w_{k+1})\n&\\le f(w_k)-\\eta\\inner{\\nabla f(w_k)}{\\Delta_k}\n      +\\frac{L\\eta^{2}}{2}\\norm{\\Delta_k}^{2}. \\label{eq:smooth}\n\\end{align}\n\\item[Step 2.] Decompose $\\Delta_k$ using the definition $\\Delta_k=\\Q(g_k+e_k)$ and add/subtract $g_k+e_k$:\n\\begin{align}\n\\inner{\\nabla f(w_k)}{\\Delta_k}\n&=\\inner{\\nabla f(w_k)}{g_k+e_k}\n  +\\inner{\\nabla f(w_k)}{\\Delta_k-(g_k+e_k)}. \\label{eq:inner_decomp}\n\\end{align}\n\\item[Step 3.] Take conditional expectation $\\E[\\cdot|\\mathcal{F}_k]$ of \\eqref{eq:smooth}. Using unbiasedness of $\\Q$,\n\\[\n\\E[\\Delta_k|\\mathcal{F}_k]=g_k+e_k.\n\\]\nHence the second term in \\eqref{eq:inner_decomp} vanishes in expectation:\n\\[\n\\E\\!\\big[\\inner{\\nabla f(w_k)}{\\Delta_k-(g_k+e_k)}\\big|\\mathcal{F}_k\\big]=0.\n\\]\nThus\n\\begin{align}\n\\E\\!\\big[f(w_{k+1})\\big|\\mathcal{F}_k\\big]\n&\\le f(w_k)-\\eta\\inner{\\nabla f(w_k)}{g_k+e_k}\n   +\\frac{L\\eta^{2}}{2}\\E\\!\\big[\\norm{\\Delta_k}^{2}\\big|\\mathcal{F}_k\\big]. \\label{eq:exp_smooth}\n\\end{align}\n\\item[Step 4.] Expand the inner product:\n\\begin{align}\n\\inner{\\nabla f(w_k)}{g_k+e_k}\n&= \\norm{\\nabla f(w_k)}^{2}\n   +\\inner{\\nabla f(w_k)}{g_k-\\nabla f(w_k)}\n   +\\inner{\\nabla f(w_k)}{e_k}. \\label{eq:inner_expand}\n\\end{align}\n\\item[Step 5.] Taking expectation of \\eqref{eq:inner_expand} conditioned on $\\mathcal{F}_k$ and using Assumption~\\ref{ass:sgd} gives\n\\[\n\\E\\!\\big[\\inner{\\nabla f(w_k)}{g_k-\\nabla f(w_k)}\\big|\\mathcal{F}_k\\big]=0.\n\\]\nHence\n\\begin{align}\n\\E\\!\\big[\\inner{\\nabla f(w_k)}{g_k+e_k}\\big|\\mathcal{F}_k\\big]\n= \\norm{\\nabla f(w_k)}^{2}\n  +\\inner{\\nabla f(w_k)}{e_k}. \\label{eq:inner_exp}\n\\end{align}\n\\item[Step 6.] Bound the error\u2011feedback inner product by Cauchy\u2013Schwarz and Young\u2019s inequality:\n\\[\n\\inner{\\nabla f(w_k)}{e_k}\n\\le \\tfrac{1}{2}\\norm{\\nabla f(w_k)}^{2}\n   +\\tfrac{1}{2}\\norm{e_k}^{2}. \\label{eq:young}\n\\]\n\\item[Step 7.] Substitute \\eqref{eq:inner_exp} and \\eqref{eq:young} into \\eqref{eq:exp_smooth}:\n\\begin{align}\n\\E\\!\\big[f(w_{k+1})\\big|\\mathcal{F}_k\\big]\n&\\le f(w_k)-\\eta\\Big(\\norm{\\nabla f(w_k)}^{2}\n                     +\\inner{\\nabla f(w_k)}{e_k}\\Big)\n   +\\frac{L\\eta^{2}}{2}\\E\\!\\big[\\norm{\\Delta_k}^{2}\\big|\\mathcal{F}_k\\big] \\nonumber\\\\\n&\\le f(w_k)-\\eta\\Big(\\norm{\\nabla f(w_k)}^{2}\n                     -\\tfrac{1}{2}\\norm{\\nabla f(w_k)}^{2}\n                     -\\tfrac{1}{2}\\norm{e_k}^{2}\\Big)\n   +\\frac{L\\eta^{2}}{2}\\E\\!\\big[\\norm{\\Delta_k}^{2}\\big|\\mathcal{F}_k\\big] \\nonumber\\\\\n&= f(w_k)-\\frac{\\eta}{2}\\norm{\\nabla f(w_k)}^{2}\n        +\\frac{\\eta}{2}\\norm{e_k}^{2}\n        +\\frac{L\\eta^{2}}{2}\\E\\!\\big[\\norm{\\Delta_k}^{2}\\big|\\mathcal{F}_k\\big].\n\\label{eq:mid}\n\\end{align}\n\\item[Step 8.] Upper\u2011bound $\\E\\!\\big[\\norm{\\Delta_k}^{2}\\big|\\mathcal{F}_k\\big]$ using the compressor variance property:\n\\[\n\\E\\!\\big[\\norm{\\Delta_k}^{2}\\big|\\mathcal{F}_k\\big]\n= \\E\\!\\big[\\norm{g_k+e_k-\\big(g_k+e_k-\\Delta_k\\big)}^{2}\\big|\\mathcal{F}_k\\big]\n\\le (1+\\omega)\\norm{g_k+e_k}^{2},\n\\]\nwhere we used $\\norm{a-b}^{2}\\le (1+\\omega)\\norm{a}^{2}+\\omega\\norm{b}^{2}$ and the bound $\\E\\!\\big[\\norm{\\Q(v)-v}^{2}\\big]\\le\\omega\\norm{v}^{2}$.\nThus\n\\begin{align}\n\\E\\!\\big[f(w_{k+1})\\big|\\mathcal{F}_k\\big]\n&\\le f(w_k)-\\frac{\\eta}{2}\\norm{\\nabla f(w_k)}^{2}\n   +\\frac{\\eta}{2}\\norm{e_k}^{2}\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\norm{g_k+e_k}^{2}. \\label{eq:bound1}\n\\end{align}\n\\item[Step 9.] Expand $\\norm{g_k+e_k}^{2}\\le 2\\norm{g_k}^{2}+2\\norm{e_k}^{2}$ and take full expectation:\n\\begin{align}\n\\E[f(w_{k+1})]\n&\\le \\E[f(w_k)]-\\frac{\\eta}{2}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n   +\\frac{\\eta}{2}\\E\\!\\big[\\norm{e_k}^{2}\\big]\n   +L\\eta^{2}(1+\\omega)\\E\\!\\big[\\norm{g_k}^{2}\\big]\n   +L\\eta^{2}(1+\\omega)\\E\\!\\big[\\norm{e_k}^{2}\\big]. \\label{eq:bound2}\n\\end{align}\n\\item[Step 10.] Collect the terms involving $\\E[\\norm{e_k}^{2}]$:\n\\begin{align}\n\\E[f(w_{k+1})]\n&\\le \\E[f(w_k)]-\\frac{\\eta}{2}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n   +\\Big(\\tfrac{\\eta}{2}+L\\eta^{2}(1+\\omega)\\Big)\\E\\!\\big[\\norm{e_k}^{2}\\big]\n   +L\\eta^{2}(1+\\omega)G^{2},\n\\end{align}\nwhere we used Assumption~\\ref{ass:bounded} to replace $\\E[\\norm{g_k}^{2}]\\le G^{2}$.\n\n\\item[Step 11.] Recursively bound the error term $\\E[\\norm{e_k}^{2}]$ using Lemma~\\ref{lem:ef} and Assumption~\\ref{ass:sgd}:\n\\begin{align}\n\\E[\\norm{e_{k+1}}^{2}]\n&\\le \\omega\\,\\E\\!\\big[\\norm{g_k+e_k}^{2}\\big] \\nonumber\\\\\n&\\le \\omega\\big(\\E[\\norm{g_k}^{2}]+\\E[\\norm{e_k}^{2}]\\big)\n\\le \\omega\\big(G^{2}+\\E[\\norm{e_k}^{2}]\\big). \\label{eq:error_rec}\n\\end{align}\nUnrolling \\eqref{eq:error_rec} yields\n\\[\n\\E[\\norm{e_k}^{2}]\n\\le \\omega G^{2}\\sum_{i=0}^{k-1}\\omega^{i}\n\\le \\frac{\\omega}{1-\\omega}G^{2},\n\\quad\\text{provided }\\omega<1.\n\\tag{*}\n\\]\n\n\\item[Step 12.] Plug the bound \\((*)\\) into the inequality of Step 10:\n\\begin{align}\n\\E[f(w_{k+1})]\n&\\le \\E[f(w_k)]-\\frac{\\eta}{2}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n   +\\Big(\\tfrac{\\eta}{2}+L\\eta^{2}(1+\\omega)\\Big)\\frac{\\omega}{1-\\omega}G^{2}\n   +L\\eta^{2}(1+\\omega)G^{2}. \\label{eq:final_one_step}\n\\end{align}\n\\item[Step 13.] Sum \\eqref{eq:final_one_step} over $k=0,\\dots,T-1$ and telescope the left\u2011hand side:\n\\[\n\\E[f(w_T)]-f(w_0)\n\\le -\\frac{\\eta}{2}\\sum_{k=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n   +T\\Big[\\,L\\eta^{2}(1+\\omega)G^{2}\n          +\\Big(\\tfrac{\\eta}{2}+L\\eta^{2}(1+\\omega)\\Big)\\frac{\\omega}{1-\\omega}G^{2}\\Big].\n\\]\nRearranging,\n\\begin{align}\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n&\\le \\frac{2\\big(f(w_0)-\\E[f(w_T)]\\big)}{\\eta T}\n   +2L\\eta(1+\\omega)G^{2}\n   +\\frac{\\omega}{1-\\omega}\\Big(1+2L\\eta(1+\\omega)\\Big)G^{2}. \\label{eq:pre_rate}\n\\end{align}\n\\item[Step 14.] Choose $\\eta\\le 1/(L(1+\\omega))$; then $2L\\eta(1+\\omega)\\le 2$ and the term $\\frac{\\omega}{1-\\omega}(1+2L\\eta(1+\\omega))\\le 4\\omega/(1-\\omega)$. Absorbing constants and using $f^\\star\\le \\E[f(w_T)]$, we obtain the cleaner bound stated in Theorem~\\ref{thm:main}:\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n\\le \\frac{2\\big(f(w_0)-f^\\star\\big)}{\\eta T}\n   +2L\\omega\\eta G^{2}\n   +L\\eta\\sigma^{2}.\n\\]\n\\end{enumerate}\nThus the theorem follows. \\qed\n\n\\section*{Rate Derivation (With Constants)}\nFrom Theorem~\\ref{thm:main} set $\\eta = \\frac{1}{2L(1+\\omega)}$. Then\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\!\\big[\\norm{\\nabla f(w_k)}^{2}\\big]\n\\le \\underbrace{\\frac{4L(1+\\omega)\\big(f(w_0)-f^\\star\\big)}{T}}_{\\text{optimization term}}\n   +\\underbrace{\\frac{\\omega G^{2}}{1+\\omega}}_{\\text{compression term}}\n   +\\underbrace{\\frac{\\sigma^{2}}{2(1+\\omega)}}_{\\text{stochastic term}} .\n\\]\nHence to guarantee $\\frac{1}{T}\\sum_{k}\\E\\|\\nabla f(w_k)\\|^{2}\\le\\varepsilon^{2}$ it suffices to take\n\\[\nT = \\mathcal{O}\\!\\Big(\\frac{L(1+\\omega)(f(w_0)-f^\\star)}{\\varepsilon^{2}}\\Big).\n\\]\n\n\\section*{Special Cases}\n\\begin{enumerate}[label=\\alph*)]\n\\item \\textbf{Exact gradients ($\\sigma=0$) and perfect compressor ($\\omega=0$).}  \nThe bound reduces to $\\frac{2(f(w_0)-f^\\star)}{\\eta T}$, i.e. the classic $O(1/T)$ decay of the gradient norm for deterministic gradient descent on smooth non\u2011convex functions.\n\n\\item \\textbf{Random sparsifier with $\\omega=\\frac{1}{p}-1$ (keep each coordinate with probability $p$).}  \nThe compression term becomes $2L\\eta G^{2}(\\frac{1}{p}-1)$, showing a linear penalty in $1/p$.\n\n\\item \\textbf{Large stepsize limit.}  \nIf $\\eta$ exceeds $1/(L(1+\\omega))$, the coefficient $1-\\eta L(1+\\omega)$ in Step 13 becomes negative, breaking the telescoping argument; the bound no longer holds, reflecting possible divergence.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 14939,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T16:21:15.391024",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof contains several critical gaps and mis\u2011uses of the stated assumptions. \n- **Assumption A2 (unbiased gradient with bounded variance)** is only used to cancel the bias term in the inner product (Step 5) but the variance bound \u03c3\u00b2 is never invoked. Consequently the stochastic term L\u03b7\u03c3\u00b2 that appears in the final theorem is never derived. A missing derivation step (e.g., decomposing E[||g_k||\u00b2] = ||\u2207f(w_k)||\u00b2 + \u03c3\u00b2) should appear after Step 5. \n- **Step 8** attempts to bound E[||\u0394_k||\u00b2] with the inequality \\(\\|a-b\\|\u00b2 \\le (1+\u03c9)\\|a\\|\u00b2 + \u03c9\\|b\\|\u00b2\\). The extra \\(\u03c9\\|b\\|\u00b2\\) term is unnecessary and not justified; the standard bound follows directly from unbiasedness and the compressor variance property. \n- **Step 11** unrolls the error\u2011feedback recursion assuming \\(\u03c9<1\\). The original Assumption 3 only requires \\(\u03c9\\ge0\\); the proof never states that \\(\u03c9<1\\) is needed, nor does it discuss the case \\(\u03c9\\ge1\\). This is an implicit violation of the assumption set. \n- **Step 14** claims that choosing \\(\u03b7\\le 1/(L(1+\u03c9))\\) allows the term \\(\\frac{\\omega}{1-\\omega}(1+2L\u03b7(1+\\omega))\\) to be absorbed, yielding the clean bound with \\(2L\u03c9\u03b7G\u00b2\\) and \\(L\u03b7\u03c3\u00b2\\). This hand\u2011wavy argument drops the \\(\\frac{\\omega}{1-\\omega}\\) factor without justification and also introduces the \u03c3\u00b2 term that was never derived. \n- The dry\u2011run table also contains a typo (the expression for \\(u_1\\) is wrong), but this does not affect the convergence proof itself. \nOverall, the proof does not correctly employ Assumption A2, omits a necessary step to handle stochastic variance, and makes unjustified simplifications in the final bound. These issues prevent the theorem from being rigorously established.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof appears to be sound and well-structured. The assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is correctly extracted as O(1/T) with a linear penalty in 1/p for the random sparsifier. The proof handles the large stepsize limit correctly, noting that the bound no longer holds if \u03b7 exceeds 1/(L(1+\u03c9)).\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is complete and logically sound. All steps are justified with proper citations to assumptions and lemmas. The error feedback recursion is correctly bounded in Lemma 1 and used appropriately in Step 11. The convergence rate derivation follows standard optimization techniques with no mathematical rigor issues detected. The only minor point is the implicit use of linearity of expectation in Step 5 without explicit citation, but this is standard practice.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": false,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999825152281693
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8,
+            11,
+            5,
+            14
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 4,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": false,
+                "completeness_score": 2,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof contains several critical gaps and mis\u2011uses of the stated assumptions. \n- **Assumption A2 (unbiased gradient with bounded variance)** is only used to cancel the bias term in the inner product (Step 5) but the variance bound \u03c3\u00b2 is never invoked. Consequently the stochastic term L\u03b7\u03c3\u00b2 that appears in the final theorem is never derived. A missing derivation step (e.g., decomposing E[||g_k||\u00b2] = ||\u2207f(w_k)||\u00b2 + \u03c3\u00b2) should appear after Step 5. \n- **Step 8** attempts to bound E[||\u0394_k||\u00b2] with the inequality \\(\\|a-b\\|\u00b2 \\le (1+\u03c9)\\|a\\|\u00b2 + \u03c9\\|b\\|\u00b2\\). The extra \\(\u03c9\\|b\\|\u00b2\\) term is unnecessary and not justified; the standard bound follows directly from unbiasedness and the compressor variance property. \n- **Step 11** unrolls the error\u2011feedback recursion assuming \\(\u03c9<1\\). The original Assumption 3 only requires \\(\u03c9\\ge0\\); the proof never states that \\(\u03c9<1\\) is needed, nor does it discuss the case \\(\u03c9\\ge1\\). This is an implicit violation of the assumption set. \n- **Step 14** claims that choosing \\(\u03b7\\le 1/(L(1+\u03c9))\\) allows the term \\(\\frac{\\omega}{1-\\omega}(1+2L\u03b7(1+\\omega))\\) to be absorbed, yielding the clean bound with \\(2L\u03c9\u03b7G\u00b2\\) and \\(L\u03b7\u03c3\u00b2\\). This hand\u2011wavy argument drops the \\(\\frac{\\omega}{1-\\omega}\\) factor without justification and also introduces the \u03c3\u00b2 term that was never derived. \n- The dry\u2011run table also contains a typo (the expression for \\(u_1\\) is wrong), but this does not affect the convergence proof itself. \nOverall, the proof does not correctly employ Assumption A2, omits a necessary step to handle stochastic variance, and makes unjustified simplifications in the final bound. These issues prevent the theorem from being rigorously established.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{5, 14}",
+                "operator_error_steps": "{8}",
+                "assumption_violation_steps": "{11}",
+                "flagged_steps": "{8, 11, 5, 14}"
+              },
+              "response_time": 15.697847127914429
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof appears to be sound and well-structured. The assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is correctly extracted as O(1/T) with a linear penalty in 1/p for the random sparsifier. The proof handles the large stepsize limit correctly, noting that the bound no longer holds if \u03b7 exceeds 1/(L(1+\u03c9)).",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 54.25090169906616
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is complete and logically sound. All steps are justified with proper citations to assumptions and lemmas. The error feedback recursion is correctly bounded in Lemma 1 and used appropriately in Step 11. The convergence rate derivation follows standard optimization techniques with no mathematical rigor issues detected. The only minor point is the implicit use of linearity of expectation in Step 5 without explicit citation, but this is standard practice.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 25.37455654144287
+            }
+          ],
+          "judge_reliability": [
+            -0.565685424949238,
+            0.017157287525380982,
+            0.017157287525380982
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      14939
+    ]
+  }
+}

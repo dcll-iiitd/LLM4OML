@@ -1,0 +1,180 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T09:05:25.791793",
+    "end_time": "2026-05-22T09:06:45.362777",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.2,
+      "w_tfp": 0.8,
+      "w_rp_pen": 0.0
+    }
+  },
+  "algorithm_description": "The algorithm uses a quantized gradient operator Q(g) such that E[Q(g)] = g. Communicates Q(g) instead of g.",
+  "assumptions": "Non-Convex and Smooth functions (Quantized SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T09:06:07.537259",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage[noend]{algpseudocode}\n\\usepackage{bm}\n\\usepackage{hyperref}\n\\usepackage{enumitem}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\n\\begin{document}\n\n\\section*{Quantized Stochastic Gradient Descent (QSGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be a (possibly non\u2011convex) differentiable loss function.  \nAt iteration $t$ we have a parameter vector $w_{t}\\in\\R^{d}$.  \nA stochastic gradient $g_{t}$ is obtained by sampling a random mini\u2011batch\n$\\xi_{t}$:\n\\[\ng_{t}\\;:=\\;\\nabla f(w_{t};\\xi_{t}) .\n\\]\nInstead of transmitting $g_{t}$, each worker applies a (random) quantization\noperator $Q:\\R^{d}\\rightarrow\\R^{d}$ satisfying\n\n\\[\n\\boxed{\\E[Q(g_{t})\\mid w_{t}]=g_{t}},\\qquad \n\\boxed{\\E\\!\\big[\\|Q(g_{t})\\|^{2}\\mid w_{t}\\big]\\leq (1+\\omega)\\,\\|g_{t}\\|^{2}}\n\\tag{1}\n\\]\nfor some constant $\\omega\\ge 0$ that captures the quality of the quantizer.\n\nThe global learner updates the parameters with a (possibly time\u2011varying) step\nsize $\\eta_{t}>0$:\n\\[\n\\boxed{w_{t+1}=w_{t}-\\eta_{t}\\,Q(g_{t})}. \\tag{2}\n\\]\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Quantized Stochastic Gradient Descent}\n\\begin{algorithmic}[1]\n\\State \\textbf{Input:} initial point $w_{0}\\in\\R^{d}$, learning\u2011rate schedule\n$\\{\\eta_{t}\\}_{t\\ge0}$, number of iterations $T$.\n\\For{$t=0,\\dots,T-1$}\n    \\State Sample a mini\u2011batch $\\xi_{t}$ and compute stochastic gradient \n          $g_{t}= \\nabla f(w_{t};\\xi_{t})$.\n    \\State Quantize: $q_{t}=Q(g_{t})$   \\hfill\\Comment{unbiased, (1)}\n    \\State Update: $w_{t+1}= w_{t}-\\eta_{t}\\,q_{t}$   \\hfill\\Comment{(2)}\n\\EndFor\n\\State \\textbf{Return} $w_{T}$ (or optionally the averaged iterate\n$\\bar w_{T}= \\frac{1}{T}\\sum_{t=0}^{T-1} w_{t}$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the one\u2011dimensional quadratic $f(w)=(w-3)^{2}$, thus\n$\\nabla f(w)=2(w-3)$.  We use a deterministic ``quantizer'' $Q(g)=g$ (so\n$\\omega=0$) to keep the arithmetic simple.  Parameters:\n$w_{0}=0$, constant step size $\\eta=0.1$, $T=3$.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\n$t$ & $g_{t}= \\nabla f(w_{t})$ & $w_{t+1}=w_{t}-\\eta g_{t}$ & $f(w_{t+1})$ \\\\\n\\hline\n0 & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^{2}=5.76$ \\\\\n1 & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^{2}=3.6864$ \\\\\n2 & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^{2}=2.3645$ \\\\\n\\end{tabular}\n\\end{center}\nThe objective value decreases from $9$ to $2.36$ after three updates.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f$ is $L$\u2011smooth: for all $x,y\\in\\R^{d}$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^{2}.\n\\tag{3}\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded stochastic gradient variance]\\label{ass:var}\nFor every $t$,\n\\[\n\\E\\!\\big[\\|g_{t}-\\nabla f(w_{t})\\|^{2}\\mid w_{t}\\big]\\le\\sigma^{2}.\n\\tag{4}\n\\]\n\\end{assumption}\n\\begin{assumption}[Quantizer variance]\\label{ass:quant}\nThe quantizer $Q$ satisfies (1) with a constant $\\omega\\ge0$ that is\nindependent of $t$ and $w_{t}$.\n\\end{assumption}\n\\begin{assumption}[Step\u2011size]\\label{ass:stepsize}\nThe learning rates are constant, $\\eta_{t}\\equiv\\eta$, and satisfy\n\\[\n0<\\eta\\le\\frac{1}{L(1+\\omega)}.\n\\tag{5}\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nUnder Assumptions \\ref{ass:smooth}\u2013\\ref{ass:stepsize}, let the iterates\n$\\{w_{t}\\}$ be generated by QSGD (2).  For any integer $T\\ge1$,\nthe averaged iterate $\\bar w_{T}= \\frac{1}{T}\\sum_{t=0}^{T-1} w_{t}$ satisfies\n\\[\n\\boxed{\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\;\\le\\;\n\\frac{2\\big(f(w_{0})-f^{\\star}\\big)}{\\eta\\,T}\n\\;+\\;\n2L\\eta\\,(1+\\omega)\\,\\sigma^{2}\n},\n\\tag{6}\n\\]\nwhere $f^{\\star}\\!=\\!\\inf_{w} f(w)$.  Consequently, choosing\n$\\eta = \\Theta\\!\\big(\\frac{1}{\\sqrt{T}}\\big)$ yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n= O\\!\\big(\\tfrac{1}{\\sqrt{T}}\\big).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Stability.} The condition (5) guarantees that the\nquantized update does not diverge even though the gradient is distorted;\nthe factor $(1+\\omega)$ inflates the effective Lipschitz constant.\n\\item \\textbf{Hyper\u2011parameter sensitivity.}\nThe bound (6) shows a linear dependence on $\\eta$ in the variance term and an\ninverse dependence in the bias term.  The optimal $\\eta^{\\star}\n=\\sqrt{\\frac{2\\big(f(w_{0})-f^{\\star}\\big)}{L(1+\\omega)\\sigma^{2}}}\\,T^{-1/2}$\nbalances the two contributions.\n\\item \\textbf{Comparison to unquantized SGD.}\nWhen $\\omega=0$ (exact communication) the theorem reduces to the classic\nnon\u2011convex SGD rate $O(1/\\sqrt{T})$.  A larger $\\omega$ merely enlarges the\nconstant factor, confirming that quantization incurs only a mild penalty.\n\\end{itemize}\n\n\\section*{Discussion}\nThe result matches the best known rates for stochastic first\u2011order methods on\nsmooth non\u2011convex objectives.  The proof hinges on smoothness, unbiasedness of\n$Q$, and a simple variance bound (1).  Extensions to diminishing step sizes,\nbiased quantizers, or momentum are possible with minor modifications.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness inequality]\\label{lem:smooth}\nIf $f$ is $L$\u2011smooth (Assumption \\ref{ass:smooth}), then for any $x,y$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^{2}.\n\\]\n\\end{lemma}\n\\begin{lemma}[Unbiased quantization variance]\\label{lem:quant}\nFor any random vector $g$, the quantizer $Q$ satisfies\n\\[\n\\E\\!\\big[\\|Q(g)\\|^{2}\\big]\\le (1+\\omega)\\,\\E\\!\\big[\\|g\\|^{2}\\big].\n\\]\n\\end{lemma}\n\\begin{lemma}[Tower property]\\label{lem:tower}\nFor any random variables $X,Y$,\n\\[\n\\E[X]=\\E\\big[\\E[X\\mid Y]\\big].\n\\]\n\\end{lemma}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}.  Throughout the proof, expectations are taken\nwith respect to all randomness up to iteration $t$ unless otherwise noted.\n\n\\noindent\\textbf{Step 1 (Smoothness expansion).}  \nFrom Lemma \\ref{lem:smooth} with $x=w_{t}$ and $y=w_{t+1}=w_{t}-\\eta Q(g_{t})$,\n\\[\n\\begin{aligned}\nf(w_{t+1})\n&\\le f(w_{t})+\\langle\\nabla f(w_{t}),\\,w_{t+1}-w_{t}\\rangle\n   +\\frac{L}{2}\\|w_{t+1}-w_{t}\\|^{2} \\\\\n&= f(w_{t})-\\eta\\langle\\nabla f(w_{t}),\\,Q(g_{t})\\rangle\n   +\\frac{L\\eta^{2}}{2}\\|Q(g_{t})\\|^{2}. \\tag{7}\n\\end{aligned}\n\\]\n\n\\noindent\\textbf{Step 2 (Take conditional expectation).}  \nCondition on $w_{t}$ and use unbiasedness of $Q$ (Assumption \\ref{ass:quant}):\n\\[\n\\E\\!\\big[\\langle\\nabla f(w_{t}),Q(g_{t})\\rangle\\mid w_{t}\\big]\n   =\\langle\\nabla f(w_{t}),\\E[Q(g_{t})\\mid w_{t}]\\rangle\n   =\\langle\\nabla f(w_{t}),\\nabla f(w_{t})\\rangle\n   =\\|\\nabla f(w_{t})\\|^{2}. \\tag{8}\n\\]\n\n\\noindent\\textbf{Step 3 (Bound the second moment of $Q(g_{t})$).}  \nFrom Lemma \\ref{lem:quant} and the variance decomposition,\n\\[\n\\begin{aligned}\n\\E\\!\\big[\\|Q(g_{t})\\|^{2}\\mid w_{t}\\big]\n&= \\E\\!\\big[\\|Q(g_{t})-g_{t}+g_{t}\\|^{2}\\mid w_{t}\\big] \\\\\n&= \\E\\!\\big[\\|Q(g_{t})-g_{t}\\|^{2}\\mid w_{t}\\big]\n   +2\\langle g_{t},\\E[Q(g_{t})-g_{t}\\mid w_{t}]\\rangle\n   +\\|g_{t}\\|^{2} \\\\\n&= \\E\\!\\big[\\|Q(g_{t})-g_{t}\\|^{2}\\mid w_{t}\\big]+\\|g_{t}\\|^{2} \\\\\n&\\le \\omega\\|g_{t}\\|^{2}+\\|g_{t}\\|^{2}\n   =(1+\\omega)\\|g_{t}\\|^{2}. \\tag{9}\n\\end{aligned}\n\\]\n(Here we used $\\E[Q(g_{t})-g_{t}\\mid w_{t}]=0$ and the definition of $\\omega$\nin (1).)\n\n\\noindent\\textbf{Step 4 (Insert (8)\u2013(9) into (7) and take total expectation).}\n\\[\n\\begin{aligned}\n\\E\\!\\big[f(w_{t+1})\\mid w_{t}\\big]\n&\\le f(w_{t})-\\eta\\|\\nabla f(w_{t})\\|^{2}\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\,\\E\\!\\big[\\|g_{t}\\|^{2}\\mid w_{t}\\big]. \\tag{10}\n\\end{aligned}\n\\]\n\n\\noindent\\textbf{Step 5 (Decompose $\\|g_{t}\\|^{2}$).}  \nWrite $g_{t}= \\nabla f(w_{t}) + \\xi_{t}$ where\n$\\xi_{t}=g_{t}-\\nabla f(w_{t})$ satisfies $\\E[\\xi_{t}\\mid w_{t}]=0$ and\n$\\E[\\|\\xi_{t}\\|^{2}\\mid w_{t}]\\le\\sigma^{2}$ (Assumption \\ref{ass:var}). Then\n\\[\n\\begin{aligned}\n\\E\\!\\big[\\|g_{t}\\|^{2}\\mid w_{t}\\big]\n&= \\E\\!\\big[\\|\\nabla f(w_{t})+\\xi_{t}\\|^{2}\\mid w_{t}\\big] \\\\\n&= \\|\\nabla f(w_{t})\\|^{2}\n   +2\\langle\\nabla f(w_{t}),\\E[\\xi_{t}\\mid w_{t}]\\rangle\n   +\\E\\!\\big[\\|\\xi_{t}\\|^{2}\\mid w_{t}\\big] \\\\\n&= \\|\\nabla f(w_{t})\\|^{2} + \\E\\!\\big[\\|\\xi_{t}\\|^{2}\\mid w_{t}\\big] \\\\\n&\\le \\|\\nabla f(w_{t})\\|^{2} + \\sigma^{2}. \\tag{11}\n\\end{aligned}\n\\]\n\n\\noindent\\textbf{Step 6 (Plug (11) into (10)).}\n\\[\n\\begin{aligned}\n\\E\\!\\big[f(w_{t+1})\\mid w_{t}\\big]\n&\\le f(w_{t})-\\eta\\|\\nabla f(w_{t})\\|^{2}\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\n      \\big(\\|\\nabla f(w_{t})\\|^{2}+\\sigma^{2}\\big) \\\\\n&= f(w_{t})\n   -\\underbrace{\\Big(\\eta-\\frac{L\\eta^{2}}{2}(1+\\omega)\\Big)}_{\\displaystyle\n      \\alpha}\\|\\nabla f(w_{t})\\|^{2}\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\sigma^{2}. \\tag{12}\n\\end{aligned}\n\\]\n\n\\noindent\\textbf{Step 7 (Choose $\\eta$ so that $\\alpha\\ge\\frac{\\eta}{2}$).}  \nAssumption \\ref{ass:stepsize} guarantees $0<\\eta\\le\\frac{1}{L(1+\\omega)}$,\nhence $L\\eta(1+\\omega)\\le1$ and\n\\[\n\\eta-\\frac{L\\eta^{2}}{2}(1+\\omega)\n   \\ge \\eta-\\frac{\\eta}{2}= \\frac{\\eta}{2}. \\tag{13}\n\\]\nThus $\\alpha\\ge \\eta/2$.\n\n\\noindent\\textbf{Step 8 (Take full expectation and sum).}  \nApplying the tower property (Lemma \\ref{lem:tower}) to (12) and using (13):\n\\[\n\\E[f(w_{t+1})]\\le \\E[f(w_{t})]\n   -\\frac{\\eta}{2}\\,\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\sigma^{2}. \\tag{14}\n\\]\nRearrange (14):\n\\[\n\\frac{\\eta}{2}\\,\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le \\E[f(w_{t})]-\\E[f(w_{t+1})]\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\sigma^{2}. \\tag{15}\n\\]\n\n\\noindent\\textbf{Step 9 (Sum over $t=0,\\dots,T-1$).}\n\\[\n\\begin{aligned}\n\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n&\\le \\sum_{t=0}^{T-1}\\big(\\E[f(w_{t})]-\\E[f(w_{t+1})]\\big)\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\sigma^{2} T \\\\\n&= \\E[f(w_{0})]-\\E[f(w_{T})]\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\sigma^{2} T. \\tag{16}\n\\end{aligned}\n\\]\n\n\\noindent\\textbf{Step 10 (Lower bound $f(w_{T})\\ge f^{\\star}$).}\nSince $f^{\\star}\\le f(w_{T})$, (16) yields\n\\[\n\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le f(w_{0})-f^{\\star}\n   +\\frac{L\\eta^{2}}{2}(1+\\omega)\\sigma^{2} T. \\tag{17}\n\\]\n\n\\noindent\\textbf{Step 11 (Divide by $\\eta T$).}\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le \\frac{2\\big(f(w_{0})-f^{\\star}\\big)}{\\eta\\,T}\n   + L\\eta\\,(1+\\omega)\\sigma^{2}. \\tag{18}\n\\]\n\n\\noindent\\textbf{Step 12 (Conclusion).}  \nInequality (18) is exactly the bound (6) stated in Theorem\n\\ref{thm:main}.  Choosing $\\eta = \\sqrt{\\frac{2\\big(f(w_{0})-f^{\\star}\\big)}\n{L(1+\\omega)\\sigma^{2}}}\\,T^{-1/2}$ (which respects (5) for sufficiently large\n$T$) gives the $O(1/\\sqrt{T})$ rate.\n\n\\hfill $\\square$\n\n\\section*{Rate Derivation (With Constants)}\nFrom (18) we define\n\\[\nC_{1}=2\\big(f(w_{0})-f^{\\star}\\big),\\qquad\nC_{2}=L(1+\\omega)\\sigma^{2}.\n\\]\nThen for any constant step size $\\eta$,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le \\frac{C_{1}}{\\eta T}+C_{2}\\eta .\n\\]\nOptimizing the RHS over $\\eta>0$ gives $\\eta^{\\star}= \\sqrt{C_{1}/(C_{2}T)}$,\nleading to\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le 2\\sqrt{C_{1}C_{2}}\\;T^{-1/2}\n= O\\!\\big(T^{-1/2}\\big).\n\\]\n\n\\section*{Special Cases}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Exact communication ($\\omega=0$).}  \nThe bound collapses to the classic SGD result with constant $C_{2}=L\\sigma^{2}$.\n\\item \\textbf{Deterministic gradients ($\\sigma^{2}=0$).}  \nIf the stochastic gradient is exact, (18) reduces to\n$\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le \\frac{2\\big(f(w_{0})-f^{\\star}\\big)}{\\eta T}$,\ni.e. a $O(1/T)$ decay of the gradient norm.\n\\item \\textbf{Diminishing step size $\\eta_{t}= \\frac{c}{\\sqrt{t+1}}$.}  \nRepeating the analysis with $\\eta_{t}$ yields the same $O(1/\\sqrt{T})$ rate\nwithout the need to tune $c$, provided $c\\le 1/(L\\sqrt{1+\\omega})$.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 11852,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T09:06:45.361822",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof correctly derives the classic O(1/\u221aT) rate for QSGD on smooth non\u2011convex objectives.  Smoothness (Assumption A1) is invoked in Step\u202f1, stochastic gradient variance (A2) in Step\u202f5, unbiasedness of the quantizer (A3) in Step\u202f2, and the step\u2011size bound (A4) in Step\u202f7.  All assumptions are otherwise used appropriately.  However, **Step\u202f3** incorrectly assumes a *variance* bound of the form E[\u2016Q(g)\u2011g\u2016\u00b2|w] \u2264 \u03c9\u2016g\u2016\u00b2, which is not part of the stated quantizer property (1).  The given property only bounds the second moment, not the variance, so the inequality \u201c\u2264 \u03c9\u2016g_t\u2016\u00b2+\u2016g_t\u2016\u00b2\u201d is unjustified.  The proof could simply use (1) directly to obtain (9) without the decomposition, eliminating the need for the unavailable variance bound.  This mis\u2011statement is the sole assumption\u2011related violation.\n\n  In **Step\u202f12** the argument \u201cchoosing \u03b7 = \u2026 respects (5) for sufficiently large T\u201d is informal; a brief quantitative condition (e.g., T \u2265 2L(1+\u03c9)\u00b2\u03b7\u2080\u00b2) would make it rigorous, but the hand\u2011wavy phrasing does not affect the asymptotic result.\n\n  Aside from the above, the logical flow is sound: each inequality follows from the previous one, expectations are handled correctly via the tower property, and the telescoping sum is performed properly.  The final bound matches the statement of Theorem\u202f1, and the rate extraction (O(1/\u221aT)) is explicit.\n\n  **Recommendations**: replace the decomposition in Step\u202f3 with a direct application of (1) or explicitly add the variance bound to the quantizer assumptions.  Tighten the wording in Step\u202f12 regarding the step\u2011size condition.\n\n  **Extracted convergence rate**: O(1/\u221aT).\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and easy to follow. The final convergence guarantee is clearly stated and matches the expected rate for stochastic gradient descent with quantization.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound and mathematically rigorous. All assumptions are properly applied. The convergence rate derivation follows standard SGD analysis with quantization. Key steps: Smoothness expansion (Step 1), unbiasedness (Step 2), variance decomposition (Step 3), expectation calculations (Steps 4-6), step-size balancing (Step 7), tower property application (Step 8), and final averaging (Steps 9-12). No critical errors detected.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": false,
+            "OP": false,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.999994171742723
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            3,
+            12
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 2,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 4,
+                "assumption_use_score": 4,
+                "overall_verdict": "PASS_MINOR",
+                "detailed_feedback": "The proof correctly derives the classic O(1/\u221aT) rate for QSGD on smooth non\u2011convex objectives.  Smoothness (Assumption A1) is invoked in Step\u202f1, stochastic gradient variance (A2) in Step\u202f5, unbiasedness of the quantizer (A3) in Step\u202f2, and the step\u2011size bound (A4) in Step\u202f7.  All assumptions are otherwise used appropriately.  However, **Step\u202f3** incorrectly assumes a *variance* bound of the form E[\u2016Q(g)\u2011g\u2016\u00b2|w] \u2264 \u03c9\u2016g\u2016\u00b2, which is not part of the stated quantizer property (1).  The given property only bounds the second moment, not the variance, so the inequality \u201c\u2264 \u03c9\u2016g_t\u2016\u00b2+\u2016g_t\u2016\u00b2\u201d is unjustified.  The proof could simply use (1) directly to obtain (9) without the decomposition, eliminating the need for the unavailable variance bound.  This mis\u2011statement is the sole assumption\u2011related violation.\n\n  In **Step\u202f12** the argument \u201cchoosing \u03b7 = \u2026 respects (5) for sufficiently large T\u201d is informal; a brief quantitative condition (e.g., T \u2265 2L(1+\u03c9)\u00b2\u03b7\u2080\u00b2) would make it rigorous, but the hand\u2011wavy phrasing does not affect the asymptotic result.\n\n  Aside from the above, the logical flow is sound: each inequality follows from the previous one, expectations are handled correctly via the tower property, and the telescoping sum is performed properly.  The final bound matches the statement of Theorem\u202f1, and the rate extraction (O(1/\u221aT)) is explicit.\n\n  **Recommendations**: replace the decomposition in Step\u202f3 with a direct application of (1) or explicitly add the variance bound to the quantizer assumptions.  Tighten the wording in Step\u202f12 regarding the step\u2011size condition.\n\n  **Extracted convergence rate**: O(1/\u221aT).",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "{3}",
+                "flagged_steps": "{3, 12}"
+              },
+              "response_time": 13.855563402175903
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and easy to follow. The final convergence guarantee is clearly stated and matches the expected rate for stochastic gradient descent with quantization.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 17.357365131378174
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound and mathematically rigorous. All assumptions are properly applied. The convergence rate derivation follows standard SGD analysis with quantization. Key steps: Smoothness expansion (Step 1), unbiasedness (Step 2), variance decomposition (Step 3), expectation calculations (Steps 4-6), step-size balancing (Step 7), tower property application (Step 8), and final averaging (Steps 9-12). No critical errors detected.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 37.818588972091675
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492382,
+            0.017157287525381204,
+            0.017157287525381204
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": false,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      11852
+    ]
+  }
+}

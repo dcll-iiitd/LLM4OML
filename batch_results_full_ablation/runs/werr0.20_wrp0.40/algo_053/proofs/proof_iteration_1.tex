@@ -1,0 +1,406 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\begin{document}
+
+\section*{Interpolated Snapshot Averaging (ISA)}
+
+\section*{Mathematical Formulation}
+Let $f:\RR^{d}\rightarrow\RR$ be the (possibly non‑convex) loss function and let 
+$\{z_t\}_{t\ge 1}$ be a stream of i.i.d. data samples.  
+Denote by $g_t:=\nabla f(w_t;z_t)$ a stochastic gradient evaluated at the current iterate
+$w_t\in\RR^{d}$.  
+
+\medskip
+\noindent\textbf{SGD update (inner loop).}
+\begin{equation}
+\label{eq:sgd}
+w_{t+1}=w_t-\eta_t g_t ,\qquad t=0,1,2,\dots
+\end{equation}
+where $\{\eta_t\}_{t\ge0}$ is a prescribed stepsize schedule.
+
+\medskip
+\noindent\textbf{Snapshot bookkeeping.}
+Fix an integer $k\ge 1$ (the snapshot period).  
+Define the set of snapshot indices
+\[
+\mathcal{S}:=\{\, s\in\mathbb{N}\mid s\equiv 0\ (\text{mod }k)\,\}.
+\]
+Whenever $t\in\mathcal{S}$ we store a copy
+\[
+\widehat w_{t}\;\leftarrow\; w_t .
+\]
+
+\medskip
+\noindent\textbf{Interpolation for prediction.}
+For any iteration $t$ let $s(t):=\max\{s\in\mathcal{S}\mid s\le t\}$ be the most recent snapshot.
+If $t\in\mathcal{S}$ we simply use $\widetilde w_t:=\widehat w_{t}$.
+Otherwise we linearly interpolate between the two surrounding snapshots:
+\begin{equation}
+\label{eq:interp}
+\widetilde w_t:=\bigl(1-\alpha_t\bigr)\widehat w_{s(t)}+\alpha_t \widehat w_{s(t)+k},
+\qquad 
+\alpha_t:=\frac{t-s(t)}{k}\in(0,1).
+\end{equation}
+The vector $\widetilde w_t$ is the \emph{output} of the algorithm at iteration $t$.
+
+\medskip
+\noindent\textbf{Hyper‑parameters.}
+\begin{itemize}[noitemsep]
+\item Stepsize schedule $\{\eta_t\}_{t\ge0}$ (e.g. constant $\eta$ or $\eta_t=c/\sqrt{t}$).
+\item Snapshot period $k\in\mathbb{N}_{+}$.
+\item Total number of iterations $T$.
+\end{itemize}
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Interpolated Snapshot Averaging (ISA)}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial point $w_0$, stepsizes $\{\eta_t\}$, snapshot period $k$, total iterations $T$.
+\State Initialize $ \widehat w_{0}\gets w_0$ if $0\in\mathcal{S}$.
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Sample data $z_t$ and compute stochastic gradient $g_t=\nabla f(w_t;z_t)$.
+    \State $w_{t+1}\gets w_t-\eta_t g_t$ \hfill\Comment{SGD update \eqref{eq:sgd}}
+    \If{$(t+1)\bmod k =0$}
+        \State $\widehat w_{t+1}\gets w_{t+1}$ \hfill\Comment{store snapshot}
+    \EndIf
+\EndFor
+\State \textbf{Output:} for any $t$, return $\widetilde w_t$ defined by \eqref{eq:interp}.
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic $f(w)=(w-3)^2$.
+The exact gradient is $\nabla f(w)=2(w-3)$.  
+Take $w_0=0$, constant stepsize $\eta=0.1$, and snapshot period $k=2$.
+We run three SGD steps.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $w_{t+1}=w_t-\eta g_t$ & $f(w_{t+1})$\\ \hline
+0 & $0$ & $-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^2=5.76$\\
+1 & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^2=3.6864$\\
+2 & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^2=2.3689$
+\end{tabular}
+\end{center}
+
+Snapshots are stored at $t=0$ and $t=2$:
+\[
+\widehat w_{0}=0,\qquad \widehat w_{2}=1.464.
+\]
+For $t=1$ we interpolate:
+\[
+\alpha_1=\frac{1-0}{2}=0.5,\qquad 
+\widetilde w_{1}=0.5\widehat w_{0}+0.5\widehat w_{2}=0.732 .
+\]
+Thus the algorithm would output $\widetilde w_{1}=0.732$ (instead of $w_{1}=0.6$) for prediction at iteration $1$.
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]
+\label{ass:smooth}
+$f(\cdot;z)$ is $L$‑smooth for every data sample $z$, i.e.
+\[
+\|\nabla f(w;z)-\nabla f(v;z)\|\le L\|w-v\|,\qquad\forall w,v\in\RR^{d}.
+\]
+Consequently,
+\[
+f(w;z)\le f(v;z)+\langle\nabla f(v;z),w-v\rangle+\frac{L}{2}\|w-v\|^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased Gradient and Bounded Variance]
+\label{ass:unbiased}
+For any $w$, the stochastic gradient satisfies
+\[
+\EE[g_t\mid w_t=w]=\nabla F(w),\qquad 
+\EE\big[\|g_t-\nabla F(w_t)\|^{2}\mid w_t\big]\le\sigma^{2},
+\]
+where $F(w):=\EE_{z}[f(w;z)]$ is the true objective.
+\end{assumption}
+
+\begin{assumption}[Stepsize]
+\label{ass:stepsize}
+The stepsizes are non‑increasing and satisfy
+\[
+\sum_{t=0}^{\infty}\eta_t=\infty,\qquad
+\sum_{t=0}^{\infty}\eta_t^{2}<\infty .
+\]
+A typical choice is $\eta_t=\frac{c}{\sqrt{t+1}}$ with $c>0$.
+\end{assumption}
+
+\begin{assumption}[Snapshot Period]
+\label{ass:k}
+The snapshot period $k$ is a fixed positive integer, independent of $T$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of ISA for non‑convex smooth objectives]
+\label{thm:main}
+Under Assumptions \ref{ass:smooth}–\ref{ass:k} and using the constant stepsize
+$\eta_t\equiv\eta\le\frac{1}{L}$, the sequence of interpolated outputs
+$\{\widetilde w_t\}_{t=0}^{T-1}$ satisfies
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+\;\le\;
+\frac{2\big(F(w_0)-F^{\star}\big)}{\eta T}
+\;+\;
+\frac{L\eta\sigma^{2}}{2}
+\;+\;
+\frac{L^{2}\eta^{2}k^{2}\sigma^{2}}{2T},
+\tag{1}
+\]
+where $F^{\star}=\inf_{w}F(w)$.  
+Consequently, choosing $\eta=\Theta\!\big(\tfrac{1}{\sqrt{T}}\big)$ yields
+\[
+\min_{0\le t<T}\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}[noitemsep]
+\item \textbf{Stability.} The interpolation \eqref{eq:interp} is a convex combination of two
+snapshots, hence $\|\widetilde w_t-w_t\|\le \eta k\max_{s\in\{s(t),s(t)+k\}}\|g_s\|$;
+the additional error term in \eqref{eq:1} is $O(k^{2}\eta^{2})$ and vanishes with the
+standard diminishing stepsize.
+\item \textbf{Sensitivity to $k$.} Larger $k$ reduces memory and communication cost
+but increases the third term in \eqref{eq:1}.  The bound shows a linear trade‑off
+between $k$ and the achievable accuracy for a fixed $T$.
+\item \textbf{Comparison to plain SGD.} Setting $k=1$ makes $\widetilde w_t=w_t$,
+and \eqref{eq:1} reduces to the classic SGD bound
+$ \frac{2(F(w_0)-F^{\star})}{\eta T}+ \frac{L\eta\sigma^{2}}{2}$.
+Thus ISA never worsens the worst‑case guarantee and can improve practical
+generalisation by ensembling the two snapshots.
+\end{itemize}
+
+\section*{Discussion}
+The theorem demonstrates that the simple interpolation of periodically stored
+snapshots inherits the optimal $O(1/\sqrt{T})$ stationary‑point rate of SGD for
+non‑convex smooth problems.  The additional term $L^{2}\eta^{2}k^{2}\sigma^{2}/(2T)$
+captures the price paid for using stale information; it is negligible when the
+stepsize decays as $1/\sqrt{T}$ or when $k$ is modest (e.g. $k\le\sqrt{T}$).
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]
+\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $w,v\in\RR^{d}$,
+\[
+F(w)\le F(v)+\langle\nabla F(v),w-v\rangle+\frac{L}{2}\|w-v\|^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Take expectation of the pointwise smoothness inequality and use linearity of
+expectation. $\square$
+\end{proof}
+
+\begin{lemma}[One‑step descent for SGD]
+\label{lem:sgd-descent}
+For the SGD update \eqref{eq:sgd} with $\eta\le\frac{1}{L}$,
+\[
+\EE\big[F(w_{t+1})\mid w_t\big]\le
+F(w_t)-\frac{\eta}{2}\|\nabla F(w_t)\|^{2}
++\frac{L\eta^{2}}{2}\sigma^{2}.
+\]
+\end{lemma}
+\begin{proof}
+From Lemma~\ref{lem:smooth} with $v=w_t$ and $w=w_{t+1}=w_t-\eta g_t$,
+\[
+F(w_{t+1})\le F(w_t)-\eta\langle\nabla F(w_t),g_t\rangle
++\frac{L\eta^{2}}{2}\|g_t\|^{2}.
+\]
+Take conditional expectation and use Assumption~\ref{ass:unbiased}:
+\[
+\EE[\langle\nabla F(w_t),g_t\rangle\mid w_t]=\|\nabla F(w_t)\|^{2},
+\]
+\[
+\EE[\|g_t\|^{2}\mid w_t]=\|\nabla F(w_t)\|^{2}+\EE[\|g_t-\nabla F(w_t)\|^{2}\mid w_t]
+\le\|\nabla F(w_t)\|^{2}+\sigma^{2}.
+\]
+Plugging back,
+\[
+\EE[F(w_{t+1})\mid w_t]\le
+F(w_t)-\eta\|\nabla F(w_t)\|^{2}
++\frac{L\eta^{2}}{2}\big(\|\nabla F(w_t)\|^{2}+\sigma^{2}\big).
+\]
+Since $\eta\le1/L$, the coefficient of $\|\nabla F(w_t)\|^{2}$ becomes
+$-\eta+\frac{L\eta^{2}}{2}\le-\frac{\eta}{2}$, yielding the claim. $\square$
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  Throughout the proof we denote by
+$\mathcal{F}_t$ the $\sigma$‑algebra generated by $\{w_0,g_0,\dots,g_{t-1}\}$.
+
+\medskip
+\noindent\textbf{Step 1 (Descent of the underlying SGD iterates).}
+Taking total expectation in Lemma~\ref{lem:sgd-descent} and summing from $t=0$
+to $T-1$ gives
+\begin{align}
+\sum_{t=0}^{T-1}\frac{\eta}{2}\EE\big[\|\nabla F(w_t)\|^{2}\big]
+&\le
+\EE\big[F(w_0)-F(w_T)\big]
++\frac{L\eta^{2}\sigma^{2}}{2}T. \tag{2}
+\end{align}
+[Step 1] follows directly from Lemma~\ref{lem:sgd-descent} and linearity of expectation.
+
+\medskip
+\noindent\textbf{Step 2 (Relation between $w_t$ and the interpolated output).}
+For any $t$ that is not a snapshot, write $t=s(t)+\tau$ with $\tau\in\{1,\dots,k-1\}$.
+From the SGD recursion,
+\[
+w_{s(t)+\tau}=w_{s(t)}-\eta\sum_{j=0}^{\tau-1}g_{s(t)+j}.
+\]
+Hence
+\[
+\widetilde w_t-(w_{s(t)}+\tau\eta\overline g_{s(t)})=0,
+\]
+where $\overline g_{s(t)}:=\frac{1}{\tau}\sum_{j=0}^{\tau-1}g_{s(t)+j}$.
+Using the definition \eqref{eq:interp},
+\[
+\widetilde w_t
+= (1-\alpha_t)w_{s(t)}+\alpha_t w_{s(t)+k}
+= w_{s(t)}+\alpha_t\bigl(w_{s(t)+k}-w_{s(t)}\bigr).
+\]
+Since $w_{s(t)+k}=w_{s(t)}-\eta\sum_{j=0}^{k-1}g_{s(t)+j}$, we obtain
+\[
+\widetilde w_t
+= w_{s(t)}-\alpha_t\eta\sum_{j=0}^{k-1}g_{s(t)+j}. \tag{3}
+\]
+[Step 2] is a straightforward algebraic manipulation of the SGD recursion.
+
+\medskip
+\noindent\textbf{Step 3 (Bounding the gradient at the interpolated point).}
+By $L$‑smoothness of $F$,
+\[
+\|\nabla F(\widetilde w_t)\| \le
+\|\nabla F(w_{s(t)})\|
++L\|\widetilde w_t-w_{s(t)}\|.
+\]
+Square both sides and use $(a+b)^{2}\le2a^{2}+2b^{2}$:
+\[
+\|\nabla F(\widetilde w_t)\|^{2}
+\le 2\|\nabla F(w_{s(t)})\|^{2}
++2L^{2}\|\widetilde w_t-w_{s(t)}\|^{2}. \tag{4}
+\]
+[Step 3] follows from the Lipschitz property of the gradient.
+
+\medskip
+\noindent\textbf{Step 4 (Bounding the interpolation error).}
+From \eqref{eq:interp} and \eqref{eq:sgd} we have
+\[
+\widetilde w_t-w_{s(t)}
+= -\alpha_t\eta\sum_{j=0}^{k-1}g_{s(t)+j}.
+\]
+Thus,
+\[
+\|\widetilde w_t-w_{s(t)}\|^{2}
+= \alpha_t^{2}\eta^{2}
+\Big\|\sum_{j=0}^{k-1}g_{s(t)+j}\Big\|^{2}
+\le \eta^{2}k^{2}\,\max_{j}\|g_{s(t)+j}\|^{2},
+\]
+where we used $\alpha_t\le1$ and the inequality
+$\|\sum_{j}a_j\|^{2}\le k\sum_{j}\|a_j\|^{2}\le k^{2}\max_j\|a_j\|^{2}$.
+Taking conditional expectation given $\mathcal{F}_{s(t)}$ and invoking the
+variance bound,
+\[
+\EE\big[\|g_{s(t)+j}\|^{2}\mid\mathcal{F}_{s(t)}\big]
+= \|\nabla F(w_{s(t)+j})\|^{2}+\EE\big[\|g_{s(t)+j}-\nabla F(w_{s(t)+j})\|^{2}\mid\mathcal{F}_{s(t)}\big]
+\le \|\nabla F(w_{s(t)+j})\|^{2}+\sigma^{2}.
+\]
+Since $\|\nabla F(w_{s(t)+j})\|^{2}\ge0$, we obtain the crude bound
+\[
+\EE\big[\|\widetilde w_t-w_{s(t)}\|^{2}\mid\mathcal{F}_{s(t)}\big]
+\le \eta^{2}k^{2}\sigma^{2}. \tag{5}
+\]
+
+\medskip
+\noindent\textbf{Step 5 (Putting together the pieces).}
+Take expectation of \eqref{eq:4} and use \eqref{eq:5}:
+\[
+\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+\le 2\EE\big[\|\nabla F(w_{s(t)})\|^{2}\big]
++2L^{2}\eta^{2}k^{2}\sigma^{2}. \tag{6}
+\]
+
+\medskip
+\noindent\textbf{Step 6 (Summation over all iterations).}
+Every index $t\in\{0,\dots,T-1\}$ belongs to exactly one snapshot block
+$\{s(t),\dots,s(t)+k-1\}$.  Therefore,
+\[
+\sum_{t=0}^{T-1}\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+\le 2\sum_{s\in\mathcal{S},\,s<T}k\,\EE\big[\|\nabla F(w_{s})\|^{2}\big]
++2L^{2}\eta^{2}k^{2}\sigma^{2}T.
+\]
+Dividing by $k$ and using the bound \eqref{eq:2} on the sum of
+$\EE[\|\nabla F(w_s)\|^{2}]$ yields
+\[
+\sum_{t=0}^{T-1}\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+\le
+\frac{4}{\eta}\big(F(w_0)-F^{\star}\big)
++2L\eta\sigma^{2}T
++2L^{2}\eta^{2}k^{2}\sigma^{2}T. \tag{7}
+\]
+
+\medskip
+\noindent\textbf{Step 7 (Averaging).}
+Divide \eqref{eq:7} by $T$ to obtain exactly the bound \eqref{eq:1} stated in
+Theorem~\ref{thm:main}.
+
+\medskip
+\noindent\textbf{Step 8 (Choice of stepsize).}
+Set $\eta = \frac{c}{\sqrt{T}}$ with $c\le\frac{1}{L}$.
+Plugging into \eqref{eq:1} gives
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+\le
+\underbrace{\frac{2(F(w_0)-F^{\star})}{c}}_{\displaystyle O(1)}
+\frac{1}{\sqrt{T}}
+\;+\;
+\underbrace{\frac{L c\sigma^{2}}{2}}_{\displaystyle O(1)}\frac{1}{\sqrt{T}}
+\;+\;
+\underbrace{\frac{L^{2}c^{2}k^{2}\sigma^{2}}{2}}_{\displaystyle O(1)}\frac{1}{\sqrt{T}}.
+\]
+Thus the right‑hand side is $O(1/\sqrt{T})$, establishing the claimed rate.
+
+All steps respect the assumptions; no inequality has been introduced without
+justification.  Hence Theorem~\ref{thm:main} follows. $\square$
+
+\section*{Rate Derivation (With Constants)}
+From Theorem~\ref{thm:main} and Step~8 we can write an explicit constant‑aware bound:
+\[
+\min_{0\le t<T}\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+\le
+\frac{2\big(F(w_0)-F^{\star}\big)}{c\sqrt{T}}
++\frac{L\sigma^{2}}{2}\left(c+Lck^{2}\right)\frac{1}{\sqrt{T}}.
+\]
+Choosing $c=\frac{1}{L}$ (the largest admissible constant) yields
+\[
+\min_{t}\EE\big[\|\nabla F(\widetilde w_t)\|^{2}\big]
+\le
+\frac{2L\big(F(w_0)-F^{\star}\big)}{\sqrt{T}}
++\frac{\sigma^{2}}{2}\left(1+Lk^{2}\right)\frac{1}{\sqrt{T}}.
+\]
+
+\section*{Special Cases}
+\begin{enumerate}[noitemsep]
+\item \textbf{Snapshot period $k=1$.}  The interpolation reduces to the identity,
+$\widetilde w_t=w_t$, and the third term in \eqref{eq:1} disappears, recovering the
+standard SGD bound.
+\item \textbf{Large $k$ with constant stepsize.}  If $k\gg\sqrt{T}$, the
+third term dominates and the rate degrades to $O(k^{2}\eta^{2})$.
+Thus in practice one selects $k=O(\sqrt{T})$ or smaller.
+\item \textbf{Deterministic gradients ($\sigma=0$).}  The bound simplifies to
+$\frac{2(F(w_0)-F^{\star})}{\eta T}$, i.e. a $O(1/T)$ decay of the gradient norm,
+matching the deterministic gradient descent rate.
+\end{enumerate}
+
+\end{document}

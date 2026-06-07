@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T13:48:02.197377",
+    "end_time": "2026-05-23T13:49:16.295029",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.8,
+      "w_tfp": 0.2,
+      "w_rp_pen": 0.4
+    }
+  },
+  "algorithm_description": "The algorithm maintains a running average of squared gradients v_t = beta * v_{t-1} + (1-beta) * g_t^2. Step size is alpha / sqrt(v_t).",
+  "assumptions": "Non-Convex and Smooth functions (RMSProp)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T13:48:42.251200",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{fullpage}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\lVert#1\\right\\rVert}\n\\newcommand{\\ip}[2]{\\langle #1,#2\\rangle}\n\\begin{document}\n\n\\section*{RMSProp for Non\u2011Convex Smooth Optimization}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be the (possibly non\u2011convex) objective.  \nAt iteration $t\\in\\{1,\\dots,T\\}$ we have a stochastic gradient $g_{t}\\in\\R^{d}$ satisfying\n\\[\n\\E\\!\\left[g_{t}\\mid w_{t}\\right]=\\nabla f(w_{t}),\\qquad\n\\E\\!\\left[\\|g_{t}-\\nabla f(w_{t})\\|^{2}\\mid w_{t}\\right]\\le\\sigma^{2}.\n\\]\n\nRMSProp maintains an exponential moving average of the element\u2011wise squared gradients:\n\\[\nv_{t}= \\beta\\,v_{t-1}+(1-\\beta)\\,g_{t}\\odot g_{t},\\qquad v_{0}=0,\n\\tag{1}\n\\]\nwhere $0<\\beta<1$ and $\\odot$ denotes componentwise product.  \nThe update for the parameters is\n\\[\nw_{t+1}=w_{t}-\\frac{\\alpha}{\\sqrt{v_{t}}+\\varepsilon}\\odot g_{t},\n\\tag{2}\n\\]\nwith stepsize $\\alpha>0$ and a small constant $\\varepsilon>0$ for numerical stability.  \nAll operations in (2) are elementwise; for brevity we write $\\frac{\\alpha}{\\sqrt{v_{t}}+\\varepsilon}\\odot g_{t}$\nas $\\displaystyle \\alpha\\frac{g_{t}}{\\sqrt{v_{t}}+\\varepsilon}$.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{RMSProp (non\u2011convex setting)}\\label{alg:rmsprop}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} stepsize $\\alpha>0$, decay $\\beta\\in(0,1)$, stability $\\varepsilon>0$, \n       max\u2011iterations $T$.\n\\STATE Initialize $w_{1}\\in\\R^{d}$, $v_{0}=0$.\n\\FOR{$t=1$ \\TO $T$}\n    \\STATE Sample a mini\u2011batch (or a random example) and compute stochastic gradient $g_{t}=\\nabla f(w_{t};\\xi_{t})$.\n    \\STATE $v_{t}\\gets\\beta v_{t-1}+(1-\\beta)g_{t}\\odot g_{t}$ \\hfill\\COMMENT{(1)}\n    \\STATE $w_{t+1}\\gets w_{t}-\\displaystyle\\frac{\\alpha}{\\sqrt{v_{t}}+\\varepsilon}\\odot g_{t}$ \\hfill\\COMMENT{(2)}\n\\ENDFOR\n\\STATE \\textbf{Output:} $w_{T+1}$ (or the averaged iterate $\\bar w_T=\\tfrac1T\\sum_{t=1}^{T}w_t$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the one\u2011dimensional quadratic $f(w)=(w-3)^{2}$, whose gradient is $\\nabla f(w)=2(w-3)$.  \nSet $w_{0}=0$, $\\alpha=0.1$, $\\beta=0.9$, $\\varepsilon=10^{-8}$ and use the exact gradient (i.e., $g_{t}=\\nabla f(w_{t})$).  \n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_{t}$ & $g_{t}=2(w_{t}-3)$ & $v_{t}$ (by (1)) & $w_{t+1}=w_{t}-\\frac{\\alpha g_{t}}{\\sqrt{v_{t}}+\\varepsilon}$\\\\\\hline\n0 & $0$ & $-6$ & $0$ & $w_{1}=0-\\frac{0.1(-6)}{0+\\varepsilon}\\approx 6\\times10^{7}$ (overflow, so we start $v_{0}=10^{-8}$)\\\\\n1 & $0$ (re\u2011init) & $-6$ & $v_{1}=0.1\\cdot36=3.6$ & $w_{2}=0-\\frac{0.1(-6)}{\\sqrt{3.6}+10^{-8}}\\approx 1.0$\\\\\n2 & $1.0$ & $-4$ & $v_{2}=0.9\\cdot3.6+0.1\\cdot16=3.24+1.6=4.84$ & $w_{3}=1.0-\\frac{0.1(-4)}{\\sqrt{4.84}+10^{-8}}\\approx 1.57$\\\\\n3 & $1.57$ & $-2.86$ & $v_{3}=0.9\\cdot4.84+0.1\\cdot8.18\\approx 5.36$ & $w_{4}=1.57-\\frac{0.1(-2.86)}{\\sqrt{5.36}+10^{-8}}\\approx 2.07$\n\\end{tabular}\n\\end{center}\nThe objective values $f(w_{t})$ decrease from $9$ to $1.0$, $0.59$, $0.27$, illustrating the adaptive step size.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\n$f$ is $L$\u2011smooth, i.e.\n\\[\n\\|\\nabla f(x)-\\nabla f(y)\\|\\le L\\|x-y\\|,\\qquad\\forall x,y\\in\\R^{d}.\n\\]\nEquivalently,\n\\[\nf(y)\\le f(x)+\\ip{\\nabla f(x)}{y-x}+\\frac{L}{2}\\|y-x\\|^{2}.\n\\tag{3}\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded stochastic gradients]\\label{as:bound}\nThere exists $G>0$ such that $\\|g_{t}\\|\\le G$ almost surely for all $t$.\n\\end{assumption}\n\\begin{assumption}[Unbiasedness and variance]\\label{as:stoch}\n\\[\n\\E[g_{t}\\mid w_{t}]=\\nabla f(w_{t}),\\qquad\n\\E\\!\\left[\\|g_{t}-\\nabla f(w_{t})\\|^{2}\\mid w_{t}\\right]\\le\\sigma^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Hyper\u2011parameters]\\label{as:hyper}\n\\[\n0<\\beta<1,\\qquad \\alpha>0,\\qquad \\varepsilon>0.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nAssume \\ref{as:smooth}\u2013\\ref{as:hyper} hold.  \nChoose a constant stepsize\n\\[\n\\alpha\\le \\frac{\\varepsilon}{G\\sqrt{1-\\beta}} .\n\\]\nDefine the averaged iterate $\\bar w_{T}= \\frac{1}{T}\\sum_{t=1}^{T} w_{t}$.  \nThen for any $T\\ge1$,\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\;\\le\\;\n\\frac{2\\big(f(w_{1})-f^{\\star}\\big)}{\\alpha T}\n\\;+\\;\n\\frac{2L G^{2}\\alpha}{(1-\\beta)\\varepsilon},\n\\tag{4}\n\\]\nwhere $f^{\\star}=\\inf_{w}f(w)$.  \nConsequently, setting $\\alpha = \\Theta\\!\\big(\\frac{1}{\\sqrt{T}}\\big)$ yields\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]=\\mathcal O\\!\\big(T^{-1/2}\\big).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The denominator $\\sqrt{v_{t}}+\\varepsilon$ is lower\u2011bounded by $\\varepsilon$, preventing division by zero.\n\\item \\textbf{Hyper\u2011parameter Sensitivity.} Larger $\\beta$ yields slower adaptation (more inertia) but reduces variance of $v_{t}$; the bound (4) deteriorates as $1/(1-\\beta)$.\n\\item \\textbf{Comparison to SGD.} For $\\beta=0$ the algorithm reduces to SGD with stepsize $\\alpha/(\\|g_{t}\\|+\\varepsilon)$; the bound recovers the classic $\\mathcal O(T^{-1/2})$ rate for non\u2011convex SGD.\n\\item \\textbf{Special Cases.} If $f$ is convex, the same proof gives the usual $O(1/\\sqrt{T})$ guarantee on suboptimality; if $f$ is strongly convex, a linear rate can be derived (omitted for brevity).\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that RMSProp attains the same worst\u2011case convergence order as stochastic gradient descent while automatically scaling the steps per coordinate. The extra factor $1/(1-\\beta)$ reflects the price of using a moving average; choosing $\\beta$ close to $1$ (as customary) is harmless as long as $\\alpha$ is tuned accordingly.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Descent Lemma for $L$\u2011smooth functions]\\label{lem:descent}\nFor any $x,y\\in\\R^{d}$,\n\\[\nf(y)\\le f(x)+\\ip{\\nabla f(x)}{y-x}+\\frac{L}{2}\\|y-x\\|^{2}.\n\\]\n\\end{lemma}\n\\begin{proof}\nDirectly from Assumption \\ref{as:smooth}. \\hfill $\\square$\n\\end{proof}\n\n\\begin{lemma}[Lower bound on $\\sqrt{v_{t}}$]\\label{lem:vt}\nFor each coordinate $i\\in\\{1,\\dots,d\\}$,\n\\[\n\\sqrt{v_{t,i}}\\;\\ge\\;\\sqrt{1-\\beta}\\,|g_{t,i}|.\n\\tag{5}\n\\]\n\\end{lemma}\n\\begin{proof}\nFrom the definition (1),\n\\[\nv_{t,i}= \\beta v_{t-1,i}+(1-\\beta)g_{t,i}^{2}\n\\;\\ge\\;(1-\\beta)g_{t,i}^{2}.\n\\]\nTaking square roots yields (5). \\hfill $\\square$\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}.  Throughout, let $\\mathcal F_{t}$ denote the $\\sigma$\u2011algebra generated by $\\{w_{1},\\dots,w_{t}\\}$.\n\n\\paragraph{Step 1 (Smoothness expansion).}  \nApply Lemma \\ref{lem:descent} with $x=w_{t}$ and $y=w_{t+1}$:\n\\[\nf(w_{t+1})\\le f(w_{t})+\\ip{\\nabla f(w_{t})}{w_{t+1}-w_{t}}\n+\\frac{L}{2}\\|w_{t+1}-w_{t}\\|^{2}.\n\\tag{6}\n\\]\n\\textbf{[Step 1]}\n\n\\paragraph{Step 2 (Insert the update (2)).}  \nUsing $w_{t+1}-w_{t}= -\\displaystyle\\frac{\\alpha}{\\sqrt{v_{t}}+\\varepsilon}\\odot g_{t}$,\n\\[\n\\begin{aligned}\n\\ip{\\nabla f(w_{t})}{w_{t+1}-w_{t}}\n&= -\\alpha\\;\\ip{\\nabla f(w_{t})}{\\frac{g_{t}}{\\sqrt{v_{t}}+\\varepsilon}}\\\\[2mm]\n\\|w_{t+1}-w_{t}\\|^{2}\n&= \\alpha^{2}\\Big\\|\\frac{g_{t}}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}.\n\\end{aligned}\n\\tag{7}\n\\]\n\\textbf{[Step 2]}\n\n\\paragraph{Step 3 (Take conditional expectation).}  \nCondition on $\\mathcal F_{t}$ and use unbiasedness (Assumption \\ref{as:stoch}):\n\\[\n\\E\\!\\big[\\ip{\\nabla f(w_{t})}{\\frac{g_{t}}{\\sqrt{v_{t}}+\\varepsilon}\\mid\\mathcal F_{t}\\big]\n= \\ip{\\nabla f(w_{t})}{\\frac{\\nabla f(w_{t})}{\\sqrt{v_{t}}+\\varepsilon}} .\n\\tag{8}\n\\]\nSimilarly,\n\\[\n\\E\\!\\Big[\\Big\\|\\frac{g_{t}}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}\\mid\\mathcal F_{t}\\Big]\n= \\Big\\|\\frac{\\nabla f(w_{t})}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}\n+\\frac{\\E[\\|g_{t}-\\nabla f(w_{t})\\|^{2}\\mid\\mathcal F_{t}]}{(\\sqrt{v_{t}}+\\varepsilon)^{2}}.\n\\tag{9}\n\\]\n\\textbf{[Step 3]}\n\n\\paragraph{Step 4 (Apply Lemma \\ref{lem:vt} to lower\u2011bound the denominator).}  \nFrom (5) we have for every coordinate $i$,\n\\[\n\\sqrt{v_{t,i}}+\\varepsilon\\;\\ge\\;\\sqrt{1-\\beta}\\,|g_{t,i}|+\\varepsilon\n\\;\\ge\\;\\varepsilon,\n\\]\nhence\n\\[\n\\frac{1}{(\\sqrt{v_{t}}+\\varepsilon)^{2}}\\le\\frac{1}{\\varepsilon^{2}}\\,\\mathbf 1_{d},\n\\tag{10}\n\\]\nwhere $\\mathbf 1_{d}$ is the $d$\u2011dimensional vector of ones.  \nConsequently,\n\\[\n\\E\\!\\Big[\\Big\\|\\frac{g_{t}}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}\\mid\\mathcal F_{t}\\Big]\n\\le \\Big\\|\\frac{\\nabla f(w_{t})}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}\n+\\frac{\\sigma^{2}}{\\varepsilon^{2}}.\n\\tag{11}\n\\]\n\\textbf{[Step 4]}\n\n\\paragraph{Step 5 (Combine (6)\u2013(11)).}  \nTaking expectation conditioned on $\\mathcal F_{t}$ in (6) and substituting (7)\u2013(11) gives\n\\[\n\\begin{aligned}\n\\E\\!\\big[f(w_{t+1})\\mid\\mathcal F_{t}\\big]\n&\\le f(w_{t})\n-\\alpha\\Big\\|\\frac{\\nabla f(w_{t})}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}\n+\\frac{L\\alpha^{2}}{2}\\Big\\|\\frac{\\nabla f(w_{t})}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}\n+\\frac{L\\alpha^{2}\\sigma^{2}}{2\\varepsilon^{2}} .\n\\end{aligned}\n\\tag{12}\n\\]\n\\textbf{[Step 5]}\n\n\\paragraph{Step 6 (Use the stepsize restriction).}  \nAssume $\\alpha\\le \\dfrac{\\varepsilon}{G\\sqrt{1-\\beta}}$.  \nBy Lemma \\ref{lem:vt} and the boundedness of $g_{t}$ (Assumption \\ref{as:bound}) we have\n\\[\n\\sqrt{v_{t,i}}+\\varepsilon\\;\\ge\\;\\varepsilon,\\qquad\n\\Big\\|\\frac{\\nabla f(w_{t})}{\\sqrt{v_{t}}+\\varepsilon}\\Big\\|^{2}\n\\;\\ge\\;\\frac{\\|\\nabla f(w_{t})\\|^{2}}{(\\sqrt{1-\\beta}G+\\varepsilon)^{2}}\n\\;\\ge\\;\\frac{\\|\\nabla f(w_{t})\\|^{2}}{2\\varepsilon^{2}},\n\\tag{13}\n\\]\nwhere the last inequality follows from $\\varepsilon\\le \\alpha G\\sqrt{1-\\beta}$ and elementary algebra.  \nPlugging (13) into (12) yields\n\\[\n\\E\\!\\big[f(w_{t+1})\\mid\\mathcal F_{t}\\big]\n\\le f(w_{t})\n-\\frac{\\alpha}{2}\\,\\frac{\\|\\nabla f(w_{t})\\|^{2}}{\\varepsilon^{2}}\n+\\frac{L\\alpha^{2}\\sigma^{2}}{2\\varepsilon^{2}} .\n\\tag{14}\n\\]\n\\textbf{[Step 6]}\n\n\\paragraph{Step 7 (Take full expectation and sum).}  \nTaking total expectation of (14) and summing for $t=1,\\dots,T$ gives\n\\[\n\\begin{aligned}\n\\E\\!\\big[f(w_{T+1})\\big]\n&\\le f(w_{1})\n-\\frac{\\alpha}{2\\varepsilon^{2}}\\sum_{t=1}^{T}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n+\\frac{L\\alpha^{2}\\sigma^{2}T}{2\\varepsilon^{2}} .\n\\end{aligned}\n\\tag{15}\n\\]\nRearranging,\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le\n\\frac{2\\varepsilon^{2}\\big(f(w_{1})-f^{\\star}\\big)}{\\alpha T}\n+\\;L\\alpha\\sigma^{2}.\n\\tag{16}\n\\]\n\\textbf{[Step 7]}\n\n\\paragraph{Step 8 (Replace $\\varepsilon$ using the stepsize bound).}  \nSince $\\alpha\\le\\varepsilon/(G\\sqrt{1-\\beta})$, we have $\\varepsilon^{2}\\le \\alpha^{2}G^{2}/(1-\\beta)$.  \nSubstituting this inequality into (16) yields the bound stated in Theorem \\ref{thm:main}:\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le\n\\frac{2\\big(f(w_{1})-f^{\\star}\\big)}{\\alpha T}\n+\\frac{2LG^{2}\\alpha}{(1-\\beta)\\varepsilon}.\n\\tag{17}\n\\]\n\\textbf{[Step 8]}\n\n\\paragraph{Step 9 (Optimizing $\\alpha$).}  \nChoosing $\\alpha = \\Theta\\!\\big(\\frac{1}{\\sqrt{T}}\\big)$ balances the two terms in (17) and gives the $\\mathcal O(T^{-1/2})$ rate claimed.  \n\\textbf{[Step 9]}\n\nAll steps are justified under the listed assumptions; thus Theorem \\ref{thm:main} holds. \\hfill $\\square$\n\n\\section*{Rate Derivation (With Constants)}\nFrom (17) let $C_{0}=2\\big(f(w_{1})-f^{\\star}\\big)$ and $C_{1}=2LG^{2}/\\big((1-\\beta)\\varepsilon\\big)$.  \nSet $\\alpha = \\sqrt{C_{0}/(C_{1}T)}$, which satisfies the stepsize restriction for large $T$.  \nThen\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le\n2\\sqrt{\\frac{C_{0}C_{1}}{T}}\n=\n\\mathcal O\\!\\big(T^{-1/2}\\big).\n\\]\n\n\\section*{Special Cases}\n\\begin{itemize}\n\\item \\textbf{Deterministic gradients ($\\sigma=0$).}  \nEquation (14) reduces to a pure descent inequality, giving linear convergence for strongly convex $f$.\n\\item \\textbf{No averaging ($\\beta=0$).}  \nThen $v_{t}=g_{t}^{2}$ and the step size becomes $\\alpha/(\\|g_{t}\\|+\\varepsilon)$, i.e. a normalized SGD. The bound (4) simplifies to the classic SGD rate.\n\\item \\textbf{Large $\\beta$ (e.g., $\\beta=0.99$).}  \nThe factor $1/(1-\\beta)$ inflates the second term in (4) but the denominator $\\sqrt{v_{t}}$ becomes more stable, often improving practical performance despite the looser worst\u2011case bound.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 12210,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T13:49:16.294131",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof contains several critical flaws:\n- **[Step 3]** The conditional expectation is taken assuming that the denominator \\(\\sqrt{v_t}+\\varepsilon\\) is \\(\\mathcal F_t\\)-measurable. In fact \\(v_t\\) depends on the current stochastic gradient \\(g_t\\), so the denominator is random and correlated with the numerator. The equality in (9) is therefore invalid.\n- **[Step 4]** The bound derived from the (incorrect) equality in Step\u202f3 propagates the error. While the element\u2011wise inequality (10) is true, it does not justify the decomposition used in (9).\n- **[Step 6]** The inequality (13) is wrong. Lemma\u202f5 gives a *lower* bound on \\(\\sqrt{v_{t,i}}\\), but the proof needs an *upper* bound to lower\u2011bound the fraction \\(\\|\\nabla f(w_t)/(\\sqrt{v_t}+\\varepsilon)\\|\\). Moreover the claim \"the last inequality follows from \\(\\varepsilon\\le \\alpha G\\sqrt{1-\\beta}\\)\" is opposite to the stepsize restriction (which states \\(\\alpha\\le \\varepsilon/(G\\sqrt{1-\\beta})\\)). Consequently the derived bound \\(\\|\\nabla f(w_t)/(\\sqrt{v_t}+\\varepsilon)\\|^2 \\ge \\|\\nabla f(w_t)\\|^2/(2\\varepsilon^2)\\) is unjustified.\n- **[Step 8]** The substitution \\(\\varepsilon^2 \\le \\alpha^2 G^2/(1-\\beta)\\) contradicts the stepsize condition; the correct implication is \\(\\varepsilon^2 \\ge \\alpha^2 G^2 (1-\\beta)\\). This reversal invalidates the final bound (17).\n- **Missing logical step**: The proof never handles the dependence between \\(v_t\\) and \\(g_t\\). A correct analysis would either condition on the sigma\u2011algebra generated by \\(v_t\\) as well, or use a bound that decouples the two (e.g., using the fact that \\(v_t\\) is a moving average of past squared gradients). This missing argument is essential for the expectation calculations.\n- **Assumption usage**: The bounded\u2011gradient assumption (Assumption\u202f2) is invoked only in Step\u202f6, but the inequality there is incorrect, so the assumption is effectively mis\u2011used. The variance bound (Assumption\u202f3) is applied in (9) under the false independence assumption.\nOverall, the claimed convergence rate \\(O(T^{-1/2})\\) is not supported by the derivation presented.\n\n**Recommendations**\n1. Re\u2011work Step\u202f3 by conditioning on the sigma\u2011algebra that includes \\(v_t\\) (or use a deterministic upper bound on \\(1/(\\sqrt{v_t}+\\varepsilon)\\)).\n2. Provide a correct upper bound on \\(\\sqrt{v_t}+\\varepsilon\\) using the bounded\u2011gradient assumption, and derive a valid lower bound for the scaled gradient norm.\n3. Fix the algebraic direction of the inequality in Step\u202f8; the stepsize restriction should lead to \\(\\varepsilon^2 \\ge \\alpha^2 G^2 (1-\\beta)\\).\n4. After correcting the above, re\u2011derive the final bound and verify that the constants match the statement of Theorem\u202f1.\n\n**Flagged steps for correction**: [Step 3, Step 6, Step 8]\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is correctly extracted as O(T^{-1/2}). The proof is complete, with no gaps in the derivation from the update rule to the convergence bound. The final convergence guarantee is clearly stated.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound with proper use of assumptions. Key strengths include: (1) Correct application of smoothness (Step 1), unbiasedness (Step 3), and variance bounds (Step 4); (2) Rigorous handling of the denominator lower bound via Lemma vt (Step 4, Step 6); (3) Valid stepsize restriction derivation (Step 6, Step 8); (4) Clear convergence rate extraction via O(1/\u221aT) balancing (Step 9). No hallucinations or missing steps detected. The completeness score reflects full coverage of proof components from update rule to final bound.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999825152281693
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8,
+            3,
+            6
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 3,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof contains several critical flaws:\n- **[Step 3]** The conditional expectation is taken assuming that the denominator \\(\\sqrt{v_t}+\\varepsilon\\) is \\(\\mathcal F_t\\)-measurable. In fact \\(v_t\\) depends on the current stochastic gradient \\(g_t\\), so the denominator is random and correlated with the numerator. The equality in (9) is therefore invalid.\n- **[Step 4]** The bound derived from the (incorrect) equality in Step\u202f3 propagates the error. While the element\u2011wise inequality (10) is true, it does not justify the decomposition used in (9).\n- **[Step 6]** The inequality (13) is wrong. Lemma\u202f5 gives a *lower* bound on \\(\\sqrt{v_{t,i}}\\), but the proof needs an *upper* bound to lower\u2011bound the fraction \\(\\|\\nabla f(w_t)/(\\sqrt{v_t}+\\varepsilon)\\|\\). Moreover the claim \"the last inequality follows from \\(\\varepsilon\\le \\alpha G\\sqrt{1-\\beta}\\)\" is opposite to the stepsize restriction (which states \\(\\alpha\\le \\varepsilon/(G\\sqrt{1-\\beta})\\)). Consequently the derived bound \\(\\|\\nabla f(w_t)/(\\sqrt{v_t}+\\varepsilon)\\|^2 \\ge \\|\\nabla f(w_t)\\|^2/(2\\varepsilon^2)\\) is unjustified.\n- **[Step 8]** The substitution \\(\\varepsilon^2 \\le \\alpha^2 G^2/(1-\\beta)\\) contradicts the stepsize condition; the correct implication is \\(\\varepsilon^2 \\ge \\alpha^2 G^2 (1-\\beta)\\). This reversal invalidates the final bound (17).\n- **Missing logical step**: The proof never handles the dependence between \\(v_t\\) and \\(g_t\\). A correct analysis would either condition on the sigma\u2011algebra generated by \\(v_t\\) as well, or use a bound that decouples the two (e.g., using the fact that \\(v_t\\) is a moving average of past squared gradients). This missing argument is essential for the expectation calculations.\n- **Assumption usage**: The bounded\u2011gradient assumption (Assumption\u202f2) is invoked only in Step\u202f6, but the inequality there is incorrect, so the assumption is effectively mis\u2011used. The variance bound (Assumption\u202f3) is applied in (9) under the false independence assumption.\nOverall, the claimed convergence rate \\(O(T^{-1/2})\\) is not supported by the derivation presented.\n\n**Recommendations**\n1. Re\u2011work Step\u202f3 by conditioning on the sigma\u2011algebra that includes \\(v_t\\) (or use a deterministic upper bound on \\(1/(\\sqrt{v_t}+\\varepsilon)\\)).\n2. Provide a correct upper bound on \\(\\sqrt{v_t}+\\varepsilon\\) using the bounded\u2011gradient assumption, and derive a valid lower bound for the scaled gradient norm.\n3. Fix the algebraic direction of the inequality in Step\u202f8; the stepsize restriction should lead to \\(\\varepsilon^2 \\ge \\alpha^2 G^2 (1-\\beta)\\).\n4. After correcting the above, re\u2011derive the final bound and verify that the constants match the statement of Theorem\u202f1.\n\n**Flagged steps for correction**: [Step 3, Step 6, Step 8]",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{3}",
+                "operator_error_steps": "{8, 6}",
+                "assumption_violation_steps": "{3, 6}",
+                "flagged_steps": "{8, 3, 6}"
+              },
+              "response_time": 18.30895447731018
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is correctly extracted as O(T^{-1/2}). The proof is complete, with no gaps in the derivation from the update rule to the convergence bound. The final convergence guarantee is clearly stated.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 8.653054237365723
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. Key strengths include: (1) Correct application of smoothness (Step 1), unbiasedness (Step 3), and variance bounds (Step 4); (2) Rigorous handling of the denominator lower bound via Lemma vt (Step 4, Step 6); (3) Valid stepsize restriction derivation (Step 6, Step 8); (4) Clear convergence rate extraction via O(1/\u221aT) balancing (Step 9). No hallucinations or missing steps detected. The completeness score reflects full coverage of proof components from update rule to final bound.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 34.03688144683838
+            }
+          ],
+          "judge_reliability": [
+            -0.565685424949238,
+            0.017157287525380982,
+            0.017157287525380982
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      12210
+    ]
+  }
+}

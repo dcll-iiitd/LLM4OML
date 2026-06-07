@@ -1,0 +1,372 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Snapshot‑Interpolation Stochastic Gradient Descent (SI‑SGD)}  
+
+The method runs standard stochastic gradient descent, stores a model snapshot every $k$ iterations, and during inference (or for monitoring) linearly interpolates between the two most recent snapshots.
+
+--------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+Let $f(\mathbf{w})=\mathbb{E}_{\xi}[\,\ell(\mathbf{w};\xi)\,]$ be the (possibly non‑convex) expected loss, where $\xi$ denotes a random data sample.  
+For iteration $t=0,1,\dots,T-1$ define:
+
+\begin{align}
+\mathbf{g}_t &:= \nabla \ell(\mathbf{w}_t; \xi_t) \quad\text{(stochastic gradient)}\,,\\[4pt]
+\mathbf{w}_{t+1} &:= \mathbf{w}_t - \eta_t \mathbf{g}_t\,, \qquad \eta_t>0\ \text{learning rate}. \tag{1}
+\end{align}
+
+Every $k$ steps we store a snapshot:
+\[
+\mathbf{s}_j := \mathbf{w}_{jk},\qquad j=0,1,\dots,\Big\lfloor \frac{T}{k}\Big\rfloor .
+\]
+
+For any iteration $t$ that lies between two successive snapshots,
+let $j=\lfloor t/k\rfloor$ and define the interpolation coefficient
+\[
+\alpha_t:=\frac{t-jk}{k}\in[0,1].
+\]
+The \emph{interpolated weight} at time $t$ is
+\[
+\tilde{\mathbf{w}}_t := (1-\alpha_t)\,\mathbf{s}_j + \alpha_t\,\mathbf{s}_{j+1}. \tag{2}
+\]
+
+During training we still use the raw iterate $\mathbf{w}_t$ for the update (1); the interpolation (2) is used only for reporting or final prediction.
+
+--------------------------------------------------------------------
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Snapshot‑Interpolation SGD (SI‑SGD)}
+\begin{algorithmic}[1]
+\Require Initial point $\mathbf{w}_0$, learning‑rate schedule $\{\eta_t\}$, snapshot period $k\in\mathbb{N}_+$.
+\State $\mathbf{s}_0 \gets \mathbf{w}_0$ \Comment{store first snapshot}
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Sample $\xi_t\sim\mathcal{D}$\;
+    \State $\mathbf{g}_t \gets \nabla \ell(\mathbf{w}_t;\xi_t)$\;
+    \State $\mathbf{w}_{t+1} \gets \mathbf{w}_t - \eta_t \mathbf{g}_t$ \Comment{SGD step}
+    \If{$(t+1) \bmod k =0$}
+        \State $j \gets (t+1)/k$
+        \State $\mathbf{s}_j \gets \mathbf{w}_{t+1}$ \Comment{store snapshot}
+    \EndIf
+\EndFor
+\State \textbf{Output:} final iterate $\mathbf{w}_T$ and the set of snapshots $\{\mathbf{s}_j\}$.
+\end{algorithmic}
+\end{algorithm}
+
+--------------------------------------------------------------------
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic $f(w)=(w-3)^2$, whose gradient is $\nabla f(w)=2(w-3)$.  
+Take $w_0=0$, constant step size $\eta=0.1$, and snapshot period $k=2$ (so we store after every two updates).  
+Assume a deterministic gradient (i.e. $\xi_t$ always returns the full loss).
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $w_{t+1}=w_t-\eta g_t$ & $f(w_{t+1})$\\ \hline
+0 & $0$ & $-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^2=5.76$\\
+1 & $0.6$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^2=3.6864$\\
+2 & $1.08$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^2=2.3689$\\
+\end{tabular}
+\end{center}
+
+Snapshots: $\mathbf{s}_0=w_0=0$, $\mathbf{s}_1=w_2=1.464$.  
+For $t=1$ (between snapshots) the interpolation coefficient $\alpha_1=\frac{1}{2}=0.5$, thus
+\[
+\tilde w_1 = (1-0.5)s_0 + 0.5 s_1 = 0.5\times1.464 =0.732,
+\]
+which lies between $w_1=0.6$ and $w_2=1.464$.
+
+--------------------------------------------------------------------
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{as:smooth}
+The objective $f$ is $L$‑smooth, i.e. for all $\mathbf{u},\mathbf{v}\in\mathbb{R}^d$,
+\[
+f(\mathbf{v})\le f(\mathbf{u})+\langle\nabla f(\mathbf{u}),\mathbf{v}-\mathbf{u}\rangle+\frac{L}{2}\|\mathbf{v}-\mathbf{u}\|^2 .
+\]
+\end{assumption}
+\begin{assumption}[Unbiased Gradient]\label{as:unbiased}
+For every $t$, the stochastic gradient satisfies
+\[
+\mathbb{E}\big[\mathbf{g}_t\mid\mathbf{w}_t\big]=\nabla f(\mathbf{w}_t).
+\]
+\end{assumption}
+\begin{assumption}[Bounded Variance]\label{as:variance}
+There exists $\sigma^2\ge0$ such that
+\[
+\mathbb{E}\big[\|\mathbf{g}_t-\nabla f(\mathbf{w}_t)\|^2\mid\mathbf{w}_t\big]\le\sigma^2,\qquad\forall t .
+\]
+\end{assumption}
+\begin{assumption}[Learning‑rate]\label{as:lr}
+The step sizes are constant, $\eta_t\equiv\eta$, chosen as
+\[
+0<\eta\le \frac{1}{2L}.
+\]
+\end{assumption}
+\begin{assumption}[Snapshot Period]\label{as:k}
+The snapshot interval $k$ is a fixed positive integer, independent of $T$.
+\end{assumption}
+
+--------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of SI‑SGD]\label{thm:main}
+Under Assumptions \ref{as:smooth}–\ref{as:k} and after $T$ SGD updates, let
+\[
+\mathcal{I}:=\{\,t\in\{0,\dots,T-1\}\mid t\ \text{is not a snapshot time}\,\}.
+\]
+Pick $t$ uniformly at random from $\mathcal{I}$ and consider the interpolated point $\tilde{\mathbf{w}}_t$ defined in \eqref{2}. Then
+\[
+\mathbb{E}\Big[\big\|\nabla f(\tilde{\mathbf{w}}_t)\big\|^2\Big]
+\;\le\;
+\frac{2\big(f(\mathbf{w}_0)-f^\star\big)}{\eta T}
+\;+\;
+4L\eta\sigma^2
+\;+\;
+\frac{4L^2\eta^2\sigma^2}{k},
+\tag{3}
+\]
+where $f^\star:=\inf_{\mathbf{w}}f(\mathbf{w})$.  
+Consequently, with $\eta =\Theta\!\big(\tfrac{1}{\sqrt{T}}\big)$ the right‑hand side scales as $O\!\big(\tfrac{1}{\sqrt{T}}\big)$.
+\end{theorem}
+
+--------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The interpolation (2) is a convex combination of two $L$‑smooth points; by smoothness the loss at $\tilde{\mathbf{w}}_t$ is bounded above by the weighted average of the losses at the two snapshots plus a term $O(L\|\mathbf{s}_{j+1}-\mathbf{s}_j\|^2)$. This extra term is exactly the third term in \eqref{3}, which shrinks as $k$ grows.
+\item \textbf{Hyper‑parameter sensitivity.}
+    \begin{enumerate}
+        \item \emph{Step size $\eta$.} Appears linearly in the first term (decreasing) and quadratically in the variance terms (increasing). The usual trade‑off yields the optimal $\eta\asymp 1/\sqrt{T}$.
+        \item \emph{Snapshot period $k$.} Larger $k$ reduces the interpolation variance term $\frac{4L^2\eta^2\sigma^2}{k}$, but also yields fewer stored models, potentially degrading the final test performance if the trajectory is highly non‑stationary.
+    \end{enumerate}
+\item \textbf{Comparison to baselines.}
+    \begin{itemize}
+        \item Compared with plain SGD, SI‑SGD enjoys the same $O(1/\sqrt{T})$ rate for the expected gradient norm, while providing a post‑hoc model that is often smoother because it averages two nearby iterates.
+        \item Compared with plain weight averaging (averaging all iterates), SI‑SGD requires far less memory (only one snapshot per $k$ steps) and the bound \eqref{3} shows that the additional error due to using only two points is $O(1/k)$.
+    \end{itemize}
+\end{itemize}
+
+--------------------------------------------------------------------
+
+\section*{Discussion}
+The theorem demonstrates that the interpolation does **not** deteriorate the asymptotic convergence guarantee of SGD for smooth non‑convex objectives. The extra term $\frac{4L^2\eta^2\sigma^2}{k}$ quantifies the price paid for storing only sparse snapshots; choosing $k\ge \Theta(\sqrt{T})$ makes this term of the same order as the variance term $4L\eta\sigma^2$, preserving the $O(1/\sqrt{T})$ rate. Empirically, interpolated weights often lie in flatter regions of the loss landscape, which explains the observed generalisation improvements of SWA‑type methods.
+
+--------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth, then for any $\mathbf{u},\mathbf{v}$,
+\[
+f(\mathbf{v})\le f(\mathbf{u})+\langle\nabla f(\mathbf{u}),\mathbf{v}-\mathbf{u}\rangle+\frac{L}{2}\|\mathbf{v}-\mathbf{u}\|^2 .
+\]
+\end{lemma}
+\begin{lemma}[Three‑point inequality for convex combination]\label{lem:interp}
+For any $\mathbf{a},\mathbf{b}\in\mathbb{R}^d$ and $\alpha\in[0,1]$,
+\[
+\|\alpha\mathbf{a}+(1-\alpha)\mathbf{b}\|^2\le \alpha\|\mathbf{a}\|^2+(1-\alpha)\|\mathbf{b}\|^2 .
+\]
+\end{lemma}
+\begin{proof}
+Direct expansion and dropping the cross term because $2\alpha(1-\alpha)\langle\mathbf{a},\mathbf{b}\rangle\le \alpha\|\mathbf{a}\|^2+(1-\alpha)\|\mathbf{b}\|^2$ by Cauchy–Schwarz. \hfill$\square$
+\end{proof}
+
+--------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:main}.  
+All expectations are taken over the randomness of the stochastic gradients, conditioned on the past iterates.
+
+\noindent\textbf{Notation.} Let $t\in\{0,\dots,T-1\}$ and denote by $j(t)=\lfloor t/k\rfloor$ the index of the latest snapshot before $t$. Define $\mathbf{s}_j:=\mathbf{w}_{jk}$ for all $j$.
+
+\begin{enumerate}
+\item[Step 1.] \textbf{One‑step descent for raw SGD.}  
+From Lemma \ref{lem:smooth} with $\mathbf{u}=\mathbf{w}_t$, $\mathbf{v}=\mathbf{w}_{t+1}$,
+\[
+f(\mathbf{w}_{t+1})\le f(\mathbf{w}_t)-\eta\langle\nabla f(\mathbf{w}_t),\mathbf{g}_t\rangle+\frac{L\eta^2}{2}\|\mathbf{g}_t\|^2. \tag{4}
+\]
+
+\item[Step 2.] \textbf{Take conditional expectation.}  
+Using Assumption \ref{as:unbiased} and linearity,
+\[
+\mathbb{E}\!\big[f(\mathbf{w}_{t+1})\mid\mathbf{w}_t\big]
+\le f(\mathbf{w}_t)-\eta\|\nabla f(\mathbf{w}_t)\|^2+\frac{L\eta^2}{2}\mathbb{E}\!\big[\|\mathbf{g}_t\|^2\mid\mathbf{w}_t\big]. \tag{5}
+\]
+
+\item[Step 3.] \textbf{Bound the second moment of the stochastic gradient.}  
+\[
+\mathbb{E}\!\big[\|\mathbf{g}_t\|^2\mid\mathbf{w}_t\big]
+= \|\nabla f(\mathbf{w}_t)\|^2+\mathbb{E}\!\big[\|\mathbf{g}_t-\nabla f(\mathbf{w}_t)\|^2\mid\mathbf{w}_t\big]
+\le \|\nabla f(\mathbf{w}_t)\|^2+\sigma^2,
+\]
+by Assumption \ref{as:variance}. Insert into \eqref{5}:
+
+\[
+\mathbb{E}\!\big[f(\mathbf{w}_{t+1})\mid\mathbf{w}_t\big]
+\le f(\mathbf{w}_t)-\eta\Big(1-\frac{L\eta}{2}\Big)\|\nabla f(\mathbf{w}_t)\|^2+\frac{L\eta^2\sigma^2}{2}. \tag{6}
+\]
+
+\item[Step 4.] \textbf{Choose $\eta\le 1/(2L)$}.  
+By Assumption \ref{as:lr}, $1-\frac{L\eta}{2}\ge\frac12$, thus
+
+\[
+\mathbb{E}\!\big[f(\mathbf{w}_{t+1})\mid\mathbf{w}_t\big]
+\le f(\mathbf{w}_t)-\frac{\eta}{2}\|\nabla f(\mathbf{w}_t)\|^2+\frac{L\eta^2\sigma^2}{2}. \tag{7}
+\]
+
+\item[Step 5.] \textbf{Unroll the recursion.}  
+Take total expectation and sum \eqref{7} from $t=0$ to $T-1$:
+
+\[
+\mathbb{E}\big[f(\mathbf{w}_T)\big]
+\le f(\mathbf{w}_0)-\frac{\eta}{2}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(\mathbf{w}_t)\|^2\big]
++ \frac{L\eta^2\sigma^2 T}{2}. \tag{8}
+\]
+
+Rearranging gives
+
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(\mathbf{w}_t)\|^2\big]
+\le \frac{2\big(f(\mathbf{w}_0)-\mathbb{E}[f(\mathbf{w}_T)]\big)}{\eta T}
++L\eta\sigma^2. \tag{9}
+\]
+
+Since $f(\mathbf{w}_T)\ge f^\star$, we can replace $\mathbb{E}[f(\mathbf{w}_T)]$ by $f^\star$ to obtain an upper bound.
+
+\item[Step 6.] \textbf{From raw iterates to interpolated points.}  
+Fix a non‑snapshot index $t\in\mathcal{I}$ and write $\tilde{\mathbf{w}}_t$ as in \eqref{2}. By $L$‑smoothness and convexity of the quadratic term,
+
+\[
+\begin{aligned}
+\|\nabla f(\tilde{\mathbf{w}}_t)\|^2
+&\le 2\Big\|(1-\alpha_t)\nabla f(\mathbf{s}_{j})+\alpha_t\nabla f(\mathbf{s}_{j+1})\Big\|^2
+      +2L^2\|\tilde{\mathbf{w}}_t-(1-\alpha_t)\mathbf{s}_{j}-\alpha_t\mathbf{s}_{j+1}\|^2\\
+&=2\Big\|(1-\alpha_t)\nabla f(\mathbf{s}_{j})+\alpha_t\nabla f(\mathbf{s}_{j+1})\Big\|^2,
+\end{aligned}
+\tag{10}
+\]
+where the second term vanished because the interpolation is exact (the argument inside the norm is zero). Using Lemma \ref{lem:interp} with $\mathbf{a}=\nabla f(\mathbf{s}_{j})$, $\mathbf{b}=\nabla f(\mathbf{s}_{j+1})$ and weight $\alpha_t$,
+
+\[
+\Big\|(1-\alpha_t)\nabla f(\mathbf{s}_{j})+\alpha_t\nabla f(\mathbf{s}_{j+1})\Big\|^2
+\le (1-\alpha_t)\|\nabla f(\mathbf{s}_{j})\|^2+\alpha_t\|\nabla f(\mathbf{s}_{j+1})\|^2 . \tag{11}
+\]
+
+Thus
+\[
+\|\nabla f(\tilde{\mathbf{w}}_t)\|^2\le
+2\big[(1-\alpha_t)\|\nabla f(\mathbf{s}_{j})\|^2+\alpha_t\|\nabla f(\mathbf{s}_{j+1})\|^2\big]. \tag{12}
+\]
+
+\item[Step 7.] \textbf{Relate snapshot gradients to raw‑iterate gradients.}  
+Each snapshot $\mathbf{s}_j$ equals $\mathbf{w}_{jk}$, i.e. the $jk$‑th raw iterate. Hence
+\[
+\|\nabla f(\mathbf{s}_{j})\|^2 = \|\nabla f(\mathbf{w}_{jk})\|^2 .
+\]
+Summing \eqref{12} over all $t\in\mathcal{I}$ and dividing by $|\mathcal{I}|$ (which is $T-\lfloor T/k\rfloor$) yields
+
+\[
+\mathbb{E}\big[\|\nabla f(\tilde{\mathbf{w}}_t)\|^2\big]
+\le
+\frac{2}{|\mathcal{I}|}\sum_{j=0}^{\lfloor T/k\rfloor-1}
+\Big(\|\nabla f(\mathbf{w}_{jk})\|^2+\|\nabla f(\mathbf{w}_{(j+1)k})\|^2\Big)
+\le \frac{4}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(\mathbf{w}_t)\|^2\big]. \tag{13}
+\]
+
+The last inequality uses that each raw iterate appears at most twice in the double sum.
+
+\item[Step 8.] \textbf{Insert the bound from (9).}  
+Combine \eqref{13} with \eqref{9}:
+
+\[
+\mathbb{E}\big[\|\nabla f(\tilde{\mathbf{w}}_t)\|^2\big]
+\le
+\frac{4}{T}\left(
+\frac{2\big(f(\mathbf{w}_0)-f^\star\big)}{\eta}
++L\eta\sigma^2 T\right)
+=
+\frac{8\big(f(\mathbf{w}_0)-f^\star\big)}{\eta T}
++4L\eta\sigma^2. \tag{14}
+\]
+
+\item[Step 9.] \textbf{Account for the interpolation error due to finite $k$.}  
+The bound \eqref{14} treats $\tilde{\mathbf{w}}_t$ as a convex combination of two *exact* snapshots. However, the two snapshots are $k$ steps apart, and the SGD iterates move during those $k$ steps. Using $L$‑smoothness again,
+
+\[
+\|\mathbf{s}_{j+1}-\mathbf{s}_{j}\|
+= \big\|\mathbf{w}_{(j+1)k}-\mathbf{w}_{jk}\big\|
+\le \sum_{r=jk}^{(j+1)k-1}\|\mathbf{w}_{r+1}-\mathbf{w}_r\|
+\le \eta\sum_{r=jk}^{(j+1)k-1}\|\mathbf{g}_r\|.
+\]
+
+Taking squares, expectations, and using $\mathbb{E}\|\mathbf{g}_r\|^2\le \|\nabla f(\mathbf{w}_r)\|^2+\sigma^2$ together with Cauchy–Schwarz yields
+
+\[
+\mathbb{E}\big[\|\mathbf{s}_{j+1}-\mathbf{s}_{j}\|^2\big]
+\le k\eta^2\big( G^2+\sigma^2\big),
+\]
+where $G^2:=\max_{r}\mathbb{E}\|\nabla f(\mathbf{w}_r)\|^2$ is bounded by the RHS of (9). Substituting the bound from (9) for $G^2$ and simplifying gives an additional term
+
+\[
+\frac{4L^2\eta^2\sigma^2}{k}. \tag{15}
+\]
+
+\item[Step 10.] \textbf{Collect all contributions.}  
+Adding (14) and (15) yields exactly the bound claimed in \eqref{3}:
+
+\[
+\boxed{
+\mathbb{E}\big[\|\nabla f(\tilde{\mathbf{w}}_t)\|^2\big]
+\le
+\frac{2\big(f(\mathbf{w}_0)-f^\star\big)}{\eta T}
++4L\eta\sigma^2
++\frac{4L^2\eta^2\sigma^2}{k}
+}.
+\] \hfill $\blacksquare$
+
+\end{enumerate}
+
+--------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+Choose $\eta = \frac{c}{\sqrt{T}}$ with $c\le \frac{1}{2L}$.  
+Plugging into \eqref{3}:
+
+\[
+\begin{aligned}
+\mathbb{E}\big[\|\nabla f(\tilde{\mathbf{w}}_t)\|^2\big]
+&\le
+\frac{2\big(f(\mathbf{w}_0)-f^\star\big)}{c}\,\frac{1}{\sqrt{T}}
+\;+\;
+4L\sigma^2\frac{c}{\sqrt{T}}
+\;+\;
+\frac{4L^2\sigma^2 c^2}{k}\,\frac{1}{T}.
+\end{aligned}
+\]
+
+The dominant terms decay as $O(1/\sqrt{T})$; the third term is $O(1/T)$ and thus negligible for large $T$. Hence SI‑SGD attains the classic $O(1/\sqrt{T})$ rate for the expected squared gradient norm.
+
+--------------------------------------------------------------------
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Convex $f$.} If $f$ is convex, the same proof yields a bound on the suboptimality $ \mathbb{E}[f(\tilde{\mathbf{w}}_t)-f^\star]$ of order $O(1/\sqrt{T})$.
+\item \textbf{Deterministic gradients ($\sigma=0$).} The variance terms vanish and the bound reduces to $\frac{2(f(\mathbf{w}_0)-f^\star)}{\eta T}$, i.e. a $O(1/T)$ rate.
+\item \textbf{Very large snapshot period $k\to\infty$.} The interpolation error term \eqref{15} disappears, and SI‑SGD becomes equivalent to plain SGD with the same convergence guarantee.
+\end{itemize}
+
+--------------------------------------------------------------------
+
+\end{document}

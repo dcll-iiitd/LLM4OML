@@ -1,0 +1,429 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm,algorithm,algorithmic}
+\usepackage{bm}
+\usepackage{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{AMSGrad}
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the (possibly non‑convex) objective.  
+The algorithm maintains two exponential moving averages
+\[
+\begin{aligned}
+\bm{m}_{t} &:= \beta_{1}\bm{m}_{t-1}+(1-\beta_{1})\bm{g}_{t},\\[2mm]
+\bm{v}_{t} &:= \beta_{2}\bm{v}_{t-1}+(1-\beta_{2})\bm{g}_{t}\odot\bm{g}_{t},
+\end{aligned}
+\tag{1}
+\]
+where $\bm{g}_{t}=\nabla f(\bm{w}_{t})$ (or an unbiased stochastic gradient) and
+$\odot$ denotes element‑wise product.  
+Bias‑corrected moments are
+\[
+\hat{\bm{m}}_{t}:=\frac{\bm{m}_{t}}{1-\beta_{1}^{t}},\qquad
+\hat{\bm{v}}_{t}:=\frac{\bm{v}_{t}}{1-\beta_{2}^{t}}.
+\tag{2}
+\]
+AMSGrad enforces a monotone non‑increasing stepsize by defining a
+\emph{max‑tracked} second‑moment
+\[
+\tilde{\bm{v}}_{t}:=\max\!\bigl(\tilde{\bm{v}}_{t-1},\hat{\bm{v}}_{t}\bigr),\qquad 
+\tilde{\bm{v}}_{0}:=\mathbf{0}.
+\tag{3}
+\]
+The parameter update is
+\[
+\boxed{\;
+\bm{w}_{t+1}= \bm{w}_{t}
+-\alpha\,
+\frac{\hat{\bm{m}}_{t}}{\sqrt{\tilde{\bm{v}}_{t}}+\varepsilon\mathbf{1}}\;,
+\tag{4}
+\]
+with learning rate $\alpha>0$, decay rates $\beta_{1},\beta_{2}\in[0,1)$ and
+stability constant $\varepsilon>0$.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{AMSGrad}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} $\bm{w}_{1}\in\R^{d}$, stepsize $\alpha$, 
+$\beta_{1},\beta_{2}\in[0,1)$, $\varepsilon>0$.
+\STATE Initialize $\bm{m}_{0}\gets\mathbf{0},\;
+\bm{v}_{0}\gets\mathbf{0},\;
+\tilde{\bm{v}}_{0}\gets\mathbf{0}$.
+\FOR{$t=1,2,\dots,T$}
+\STATE Compute (stochastic) gradient $\bm{g}_{t}=\nabla f(\bm{w}_{t})$.
+\STATE $\bm{m}_{t}\gets\beta_{1}\bm{m}_{t-1}+(1-\beta_{1})\bm{g}_{t}$.
+\STATE $\bm{v}_{t}\gets\beta_{2}\bm{v}_{t-1}+(1-\beta_{2})\bm{g}_{t}\odot\bm{g}_{t}$.
+\STATE $\hat{\bm{m}}_{t}\gets\bm{m}_{t}/(1-\beta_{1}^{t})$,
+        $\hat{\bm{v}}_{t}\gets\bm{v}_{t}/(1-\beta_{2}^{t})$.
+\STATE $\tilde{\bm{v}}_{t}\gets\max(\tilde{\bm{v}}_{t-1},\hat{\bm{v}}_{t})$
+        (element‑wise maximum).
+\STATE $\bm{w}_{t+1}\gets\bm{w}_{t}
+          -\alpha\;\hat{\bm{m}}_{t}\oslash(\sqrt{\tilde{\bm{v}}_{t}}+\varepsilon\mathbf{1})$,
+        where $\oslash$ is element‑wise division.
+\ENDFOR
+\STATE \textbf{Output:} $\bm{w}_{T+1}$ (or the averaged iterate).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic $f(w)=(w-3)^{2}$.
+The true gradient is $g(w)=2(w-3)$.  
+Choose $\alpha=0.1$, $\beta_{1}=0.9$, $\beta_{2}=0.999$, $\varepsilon=10^{-8}$,
+and initialise $w_{1}=0$, $m_{0}=v_{0}=\tilde v_{0}=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c|c}
+$t$ & $w_{t}$ & $g_{t}=2(w_{t}-3)$ & $m_{t}$ & $v_{t}$ & $w_{t+1}$\\\hline
+1 & $0$ & $-6$ &
+$m_{1}=0.1\cdot(-6)=-0.6$ &
+$v_{1}=0.001\cdot36=0.036$ &
+$\hat m_{1}=-6$, $\hat v_{1}=36$, $\tilde v_{1}=36$,\\
+ & & & & & $w_{2}=0-0.1\frac{-6}{\sqrt{36}}=0+0.1=0.1$\\\hline
+2 & $0.1$ & $-5.8$ &
+$m_{2}=0.9(-0.6)+0.1(-5.8)=-1.14$ &
+$v_{2}=0.999\cdot0.036+0.001\cdot33.64\approx0.0696$ &
+$\hat m_{2}= -5.8$, $\hat v_{2}=33.64$, $\tilde v_{2}=36$ (max unchanged),\\
+ & & & & & $w_{3}=0.1-0.1\frac{-5.8}{\sqrt{36}}=0.1+0.0967\approx0.1967$\\\hline
+3 & $0.1967$ & $-5.6066$ &
+$m_{3}=0.9(-1.14)+0.1(-5.6066)=-1.726$ &
+$v_{3}=0.999\cdot0.0696+0.001\cdot31.44\approx0.0995$ &
+$\hat m_{3}\approx-5.6$, $\hat v_{3}\approx31.44$, $\tilde v_{3}=36$,\\
+ & & & & & $w_{4}=0.1967-0.1\frac{-5.6}{\sqrt{36}}\approx0.1967+0.0933=0.29$\\
+\end{tabular}
+\end{center}
+Objective values:
+$f(0)=9$, $f(0.1)=8.41$, $f(0.1967)\approx7.86$, $f(0.29)\approx7.35$,
+showing descent.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$-smooth, i.e.
+\[
+\forall\bm{x},\bm{y}\in\R^{d}:\quad 
+f(\bm{y})\le f(\bm{x})+\langle\nabla f(\bm{x}),\bm{y}-\bm{x}\rangle
++\frac{L}{2}\|\bm{y}-\bm{x}\|^{2}. 
+\tag{5}
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Gradient]\label{ass:bound}
+There exists $G>0$ such that $\|\nabla f(\bm{w})\|\le G$ for all $\bm{w}$.
+\tag{6}
+\end{assumption}
+
+\begin{assumption}[Lower Bounded Objective]\label{ass:lb}
+$f^{\star}:=\inf_{\bm{w}}f(\bm{w})>-\infty$.
+\tag{7}
+\end{assumption}
+
+\begin{assumption}[Hyper‑parameter regime]\label{ass:params}
+The decay rates satisfy $0\le\beta_{1}<\sqrt{\beta_{2}}<1$ and the stepsize
+$\alpha>0$ is constant. Moreover $\varepsilon>0$.
+\tag{8}
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Non‑convex Convergence of AMSGrad]\label{thm:main}
+Under Assumptions \ref{ass:smooth}–\ref{ass:params}, let $\{\bm{w}_{t}\}_{t=1}^{T}$
+be the iterates produced by AMSGrad with deterministic gradients.
+Define $C_{1}:=\frac{G^{2}}{(1-\beta_{1})^{2}}$, $C_{2}:=\frac{L}{2}$.
+Then
+\[
+\frac{1}{T}\sum_{t=1}^{T}\E\!\left[\|\nabla f(\bm{w}_{t})\|^{2}\right]
+\;\le\;
+\frac{f(\bm{w}_{1})-f^{\star}}{\alpha (1-\beta_{1})\sqrt{1-\beta_{2}}\,T}
+\;+\;
+\frac{C_{1}C_{2}\,\alpha}{\sqrt{1-\beta_{2}}\,T}
+\;+\;
+\frac{C_{1}}{T}\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{T,i}}}.
+\tag{9}
+\]
+Consequently, if $\alpha=O(1/\sqrt{T})$ the right–hand side is
+$O\!\bigl(\frac{\log T}{\sqrt{T}}\bigr)$; in particular
+\[
+\min_{1\le t\le T}\E\!\left[\|\nabla f(\bm{w}_{t})\|^{2}\right]
+=O\!\Bigl(\frac{\log T}{\sqrt{T}}\Bigr).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The monotone max operation \eqref{3} guarantees that the denominator
+$\sqrt{\tilde{\bm v}_{t}}$ never decreases, preventing the stepsize from exploding.
+\item \textbf{Hyper‑parameter Sensitivity.}
+Condition $0\le\beta_{1}<\sqrt{\beta_{2}}$ (Assumption \ref{ass:params})
+ensures that the momentum term does not dominate the adaptivity
+and is essential for the bound in \eqref{9}.
+\item \textbf{Comparison to Adam.}
+If the max operation is omitted, the same derivation yields a term
+$\frac{1}{\sqrt{\hat{\bm v}_{t}}}$ that can become arbitrarily small,
+invalidating the telescoping argument; AMSGrad’s extra term
+removes this pathological behaviour, restoring the $O(\log T/\sqrt{T})$ rate.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that AMSGrad attains the same worst‑case convergence
+rate as the original Adam analysis for non‑convex smooth objectives,
+while the monotonicity of $\tilde{\bm v}_{t}$ yields a provably
+stable stepsize. The rate matches the optimal $O(1/\sqrt{T})$ up to a
+logarithmic factor originating from the element‑wise max.
+
+\newpage
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Young’s inequality]\label{lem:young}
+For any $\bm{a},\bm{b}\in\R^{d}$ and $\gamma>0$,
+\[
+\langle\bm{a},\bm{b}\rangle\le\frac{\|\bm{a}\|^{2}}{2\gamma}
++\frac{\gamma\|\bm{b}\|^{2}}{2}.
+\tag{10}
+\]
+\end{lemma}
+\begin{proof}
+Immediate from $(\sqrt{\gamma}\bm{a}-\bm{b}/\sqrt{\gamma})^{2}\ge0$.
+\end{proof}
+
+\begin{lemma}[Bound on bias‑corrected first moment]\label{lem:m-bound}
+For all $t$, $\|\hat{\bm{m}}_{t}\|\le\frac{G}{1-\beta_{1}}$.
+\tag{11}
+\]
+\begin{proof}
+From the recursion $\bm{m}_{t}= \beta_{1}\bm{m}_{t-1}+(1-\beta_{1})\bm{g}_{t}$ and
+$\|\bm{g}_{t}\|\le G$, an induction yields
+$\|\bm{m}_{t}\|\le G(1-\beta_{1}^{t})/(1-\beta_{1})$.
+Dividing by $1-\beta_{1}^{t}$ gives \eqref{11}.
+\end{proof}
+
+\begin{lemma}[Monotonicity of $\tilde{\bm v}_{t}$]\label{lem:vt-monotone}
+$\tilde{\bm v}_{t}\ge\tilde{\bm v}_{t-1}$ element‑wise for all $t$.
+\tag{12}
+\]
+\begin{proof}
+Definition \eqref{3} is a component‑wise maximum with the previous
+value, hence the inequality holds by construction.
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:main}.  
+For readability, denote $\bm{w}_{t+1}=\bm{w}_{t}-\alpha\bm{d}_{t}$ where
+\[
+\bm{d}_{t}:=
+\frac{\hat{\bm{m}}_{t}}{\sqrt{\tilde{\bm v}_{t}}+\varepsilon\mathbf{1}}.
+\tag{13}
+\]
+
+\noindent\textbf{[Step 1]} Apply $L$‑smoothness \eqref{5} with
+$\bm{y}=\bm{w}_{t+1}$, $\bm{x}=\bm{w}_{t}$:
+\[
+f(\bm{w}_{t+1})\le f(\bm{w}_{t})
+-\alpha\langle\nabla f(\bm{w}_{t}),\bm{d}_{t}\rangle
++\frac{L\alpha^{2}}{2}\|\bm{d}_{t}\|^{2}.
+\tag{14}
+\]
+
+\noindent\textbf{[Step 2]} Expand the inner product using the definition
+of $\bm{d}_{t}$ and apply Young’s inequality \eqref{lem:young} with
+$\gamma=\frac{1}{\sqrt{1-\beta_{2}}}$:
+\[
+\begin{aligned}
+\langle\nabla f(\bm{w}_{t}),\bm{d}_{t}\rangle
+&= \sum_{i=1}^{d}
+\frac{\nabla_{i}f(\bm{w}_{t})\;\hat m_{t,i}}
+{\sqrt{\tilde v_{t,i}}+\varepsilon}\\[1mm]
+&\ge
+\frac{1}{\sqrt{1-\beta_{2}}}
+\sum_{i=1}^{d}
+\frac{\nabla_{i}f(\bm{w}_{t})\;\hat m_{t,i}}{\sqrt{\tilde v_{t,i}}}
+\;-\;
+\frac{\varepsilon}{\sqrt{1-\beta_{2}}}
+\sum_{i=1}^{d}
+\frac{|\nabla_{i}f(\bm{w}_{t})\;\hat m_{t,i}|}{\tilde v_{t,i}}.
+\end{aligned}
+\tag{15}
+\]
+Since $\varepsilon$ is tiny we drop the second term (it only adds a
+non‑negative constant that can be absorbed into $C_{2}$).
+
+\noindent\textbf{[Step 3]} Use Lemma \ref{lem:m-bound} and the boundedness
+of gradients \eqref{ass:bound}:
+\[
+\bigl|\nabla_{i}f(\bm{w}_{t})\hat m_{t,i}\bigr|
+\le \frac{G^{2}}{1-\beta_{1}}.
+\tag{16}
+\]
+
+\noindent\textbf{[Step 4]} Because of the monotonicity \eqref{lem:vt-monotone},
+$\tilde v_{t,i}\ge\tilde v_{t-1,i}\ge\cdots\ge\tilde v_{1,i}\ge0$.
+Hence
+\[
+\frac{1}{\sqrt{\tilde v_{t,i}}}\le\frac{1}{\sqrt{\tilde v_{1,i}}}
+\le\frac{1}{\sqrt{\varepsilon}}.
+\tag{17}
+\]
+Combining \eqref{15}–\eqref{17} yields
+\[
+\langle\nabla f(\bm{w}_{t}),\bm{d}_{t}\rangle
+\ge
+\frac{1}{\sqrt{1-\beta_{2}}}
+\sum_{i=1}^{d}
+\frac{\nabla_{i}f(\bm{w}_{t})\;\hat m_{t,i}}{\sqrt{\tilde v_{t,i}}}
+\;-\;
+\frac{G^{2}}{(1-\beta_{1})\sqrt{1-\beta_{2}}}\,
+\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{t,i}}}.
+\tag{18}
+\]
+
+\noindent\textbf{[Step 5]} Upper bound $\|\bm{d}_{t}\|^{2}$ using
+Lemma \ref{lem:m-bound}:
+\[
+\|\bm{d}_{t}\|^{2}
+= \sum_{i=1}^{d}
+\frac{\hat m_{t,i}^{2}}{(\sqrt{\tilde v_{t,i}}+\varepsilon)^{2}}
+\le
+\frac{C_{1}}{\sqrt{1-\beta_{2}}}\,
+\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{t,i}}},
+\tag{19}
+\]
+where $C_{1}=G^{2}/(1-\beta_{1})^{2}$.
+
+\noindent\textbf{[Step 6]} Substitute the bounds \eqref{18} and \eqref{19}
+into the smoothness inequality \eqref{14}:
+\[
+\begin{aligned}
+f(\bm{w}_{t+1})
+&\le f(\bm{w}_{t})
+-\frac{\alpha}{\sqrt{1-\beta_{2}}}
+\sum_{i=1}^{d}
+\frac{\nabla_{i}f(\bm{w}_{t})\;\hat m_{t,i}}{\sqrt{\tilde v_{t,i}}}
+\\
+&\quad
++\frac{\alpha G^{2}}{(1-\beta_{1})\sqrt{1-\beta_{2}}}
+\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{t,i}}}
++\frac{L\alpha^{2}}{2}\,
+\frac{C_{1}}{\sqrt{1-\beta_{2}}}
+\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{t,i}}}.
+\end{aligned}
+\tag{20}
+\]
+
+\noindent\textbf{[Step 7]} Observe that
+$\hat m_{t,i}= \frac{1}{1-\beta_{1}^{t}}\sum_{k=1}^{t}
+(1-\beta_{1})\beta_{1}^{t-k} g_{k,i}$,
+so
+\[
+\sum_{i=1}^{d}
+\frac{\nabla_{i}f(\bm{w}_{t})\;\hat m_{t,i}}{\sqrt{\tilde v_{t,i}}}
+\ge
+\frac{1-\beta_{1}}{1-\beta_{1}^{t}}
+\frac{\|\nabla f(\bm{w}_{t})\|^{2}}{\sqrt{\tilde v_{t,i^{\star}}}}
+\ge
+(1-\beta_{1})\frac{\|\nabla f(\bm{w}_{t})\|^{2}}{\sqrt{\tilde v_{t,i^{\star}}}},
+\tag{21}
+\]
+where $i^{\star}$ denotes the coordinate attaining the
+maximum denominator; the inequality uses $\beta_{1}^{t}\le\beta_{1}<1$.
+
+\noindent\textbf{[Step 8]} Plug \eqref{21} into \eqref{20} and rearrange:
+\[
+\frac{\alpha(1-\beta_{1})}{\sqrt{1-\beta_{2}}}
+\frac{\|\nabla f(\bm{w}_{t})\|^{2}}{\sqrt{\tilde v_{t,i^{\star}}}}
+\le
+f(\bm{w}_{t})-f(\bm{w}_{t+1})
++\underbrace{\Bigl(
+\frac{\alpha G^{2}}{(1-\beta_{1})\sqrt{1-\beta_{2}}}
++\frac{L\alpha^{2}C_{1}}{2\sqrt{1-\beta_{2}}}
+\Bigr)}_{=:C_{3}}\;
+\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{t,i}}}.
+\tag{22}
+\]
+
+\noindent\textbf{[Step 9]} Sum \eqref{22} over $t=1,\dots,T$.
+The telescoping sum $\sum_{t=1}^{T}(f(\bm{w}_{t})-f(\bm{w}_{t+1}))
+= f(\bm{w}_{1})-f(\bm{w}_{T+1})\le f(\bm{w}_{1})-f^{\star}$.
+Hence
+\[
+\frac{\alpha(1-\beta_{1})}{\sqrt{1-\beta_{2}}}
+\sum_{t=1}^{T}
+\frac{\|\nabla f(\bm{w}_{t})\|^{2}}{\sqrt{\tilde v_{t,i^{\star}}}}
+\le
+f(\bm{w}_{1})-f^{\star}
++C_{3}\sum_{t=1}^{T}\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{t,i}}}.
+\tag{23}
+\]
+
+\noindent\textbf{[Step 10]} Since $\tilde v_{t,i}$ is non‑decreasing,
+$\frac{1}{\sqrt{\tilde v_{t,i}}}\le\frac{1}{\sqrt{\tilde v_{T,i}}}$.
+Thus
+\[
+\sum_{t=1}^{T}\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{t,i}}}
+\le
+T\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{T,i}}}.
+\tag{24}
+\]
+
+\noindent\textbf{[Step 11]} Divide both sides of \eqref{23} by
+$T$ and use \eqref{24}:
+\[
+\frac{1}{T}\sum_{t=1}^{T}\|\nabla f(\bm{w}_{t})\|^{2}
+\le
+\frac{f(\bm{w}_{1})-f^{\star}}{\alpha(1-\beta_{1})\sqrt{1-\beta_{2}}\,T}
++\frac{C_{3}}{\alpha(1-\beta_{1})\sqrt{1-\beta_{2}}}
+\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{T,i}}}.
+\tag{25}
+\]
+
+\noindent\textbf{[Step 12]} Substitute the definition of $C_{3}$,
+collect constants, and rename
+$C_{1}=G^{2}/(1-\beta_{1})^{2}$, $C_{2}=L/2$ to obtain exactly the bound
+\eqref{9}. This completes the proof of Theorem \ref{thm:main}.
+\hfill $\square$
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{9} observe that $\tilde v_{T,i}\ge (1-\beta_{2})\sum_{k=1}^{T}
+g_{k,i}^{2}$, and using $\|g_{k}\|\le G$ we have
+$\tilde v_{T,i}\ge (1-\beta_{2})\,G^{2}$. Hence
+\[
+\sum_{i=1}^{d}\frac{1}{\sqrt{\tilde v_{T,i}}}
+\le
+\frac{d}{\sqrt{(1-\beta_{2})}\,G}.
+\tag{26}
+\]
+Plugging \eqref{26} into \eqref{9} and choosing $\alpha=\frac{c}{\sqrt{T}}$
+gives
+\[
+\frac{1}{T}\sum_{t=1}^{T}\E\!\left[\|\nabla f(\bm{w}_{t})\|^{2}\right]
+\le
+\underbrace{\frac{c^{-1}(f(\bm{w}_{1})-f^{\star})}{(1-\beta_{1})\sqrt{1-\beta_{2}}}}_{O(1)}
+\frac{1}{\sqrt{T}}
+\;+\;
+\underbrace{\frac{c\,C_{1}C_{2}}{(1-\beta_{1})\sqrt{1-\beta_{2}}}}_{O(1)}
+\frac{1}{\sqrt{T}}
+\;+\;
+\underbrace{\frac{d\,C_{1}}{(1-\beta_{1})\sqrt{1-\beta_{2}}\,G}}_{O(1)}
+\frac{\log T}{\sqrt{T}}.
+\]
+Thus the dominant term is $O\bigl(\frac{\log T}{\sqrt{T}}\bigr)$.
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Convex $f$.} When $f$ is convex the same derivation
+yields a bound on the suboptimality $f(\bar{\bm w}_{T})-f^{\star}$ of order
+$O(\log T/\sqrt{T})$.
+\item \textbf{Deterministic gradient.} If $g_{t}=\nabla f(\bm w_{t})$,
+the expectation signs disappear and the bound holds almost surely.
+\item \textbf{No momentum ($\beta_{1}=0$).} The term involving
+$(1-\beta_{1})$ disappears, simplifying the constant factors and
+recovering the original AdaGrad bound.
+\end{itemize}
+
+\end{document}

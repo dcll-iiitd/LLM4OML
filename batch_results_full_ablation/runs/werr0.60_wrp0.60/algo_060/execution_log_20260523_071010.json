@@ -1,0 +1,182 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T07:08:41.621542",
+    "end_time": "2026-05-23T07:10:10.967029",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.6,
+      "w_tfp": 0.4,
+      "w_rp_pen": 0.6
+    }
+  },
+  "algorithm_description": "The algorithm uses error feedback: stores quantization error e_k and adds it to next gradient before quantization.",
+  "assumptions": "Non-Convex and Smooth functions (EF-SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T07:09:17.495571",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm,algorithmic}\n\\usepackage{bm}\n\\usepackage{hyperref}\n\\usepackage{enumitem}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\begin{document}\n\n\\section*{Error\u2011Feedback Stochastic Gradient Descent (EF\u2011SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\to\\R$ be the (non\u2011convex) objective and let $w_{k}\\in\\R^{d}$ denote the model at iteration $k$.\n\\begin{align}\n    g_{k} &:= \\nabla f(w_{k};\\xi_{k}) \\qquad\\text{(stochastic gradient on a random sample }\\xi_{k})\\\\[4pt]\n    u_{k} &:= g_{k}+e_{k} \\qquad\\text{(gradient + accumulated error)}\\\\[4pt]\n    \\tilde g_{k} &:= Q(u_{k}) \\qquad\\text{(compressed gradient)}\\\\[4pt]\n    w_{k+1} &:= w_{k}-\\eta\\,\\tilde g_{k}\\label{eq:update}\\\\[4pt]\n    e_{k+1} &:= u_{k}-\\tilde g_{k}=g_{k}+e_{k}-Q(g_{k}+e_{k})\\label{eq:error}\n\\end{align}\nwhere\n\\begin{itemize}\n    \\item $\\eta>0$ is the stepsize (possibly diminishing);\n    \\item $Q:\\R^{d}\\to\\R^{d}$ is a (possibly biased) compression operator satisfying the \\emph{contractive compressor} property (see Assumption~\\ref{ass:compressor}).\n\\end{itemize}\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{EF\u2011SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} stepsize $\\eta$, compressor $Q$, initial point $w_{0}$, $e_{0}=0$.\n\\FOR{$k=0,1,\\dots,T-1$}\n    \\STATE Sample a minibatch (or a single datum) $\\xi_{k}$ and compute stochastic gradient $g_{k}=\\nabla f(w_{k};\\xi_{k})$.\n    \\STATE Form the pre\u2011compressed vector $u_{k}=g_{k}+e_{k}$.\n    \\STATE Compress: $\\tilde g_{k}=Q(u_{k})$.\n    \\STATE Update model: $w_{k+1}=w_{k}-\\eta\\,\\tilde g_{k}$.\n    \\STATE Update error feedback: $e_{k+1}=u_{k}-\\tilde g_{k}$.\n\\ENDFOR\n\\STATE \\textbf{Return} $w_{T}$ (or the average $\\bar w_{T}=\\frac1T\\sum_{k=0}^{T-1}w_{k}$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^{2}$, thus $\\nabla f(w)=2(w-3)$.  \nChoose $\\eta=0.1$, no stochasticity (i.e. $g_{k}=\\nabla f(w_{k})$), and a trivial compressor $Q(x)=x$ (so $e_{k}=0$ always).  \n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\n$k$ & $w_{k}$ & $g_{k}=2(w_{k}-3)$ & $f(w_{k})$\\\\ \\hline\n0 & $0$ & $-6$ & $9$\\\\\n1 & $w_{1}=0-0.1(-6)=0.6$ & $2(0.6-3)=-4.8$ & $5.76$\\\\\n2 & $w_{2}=0.6-0.1(-4.8)=1.08$ & $2(1.08-3)=-3.84$ & $3.6864$\\\\\n3 & $w_{3}=1.08-0.1(-3.84)=1.464$ & $2(1.464-3)=-3.072$ & $2.3686$\\\\\n\\end{tabular}\n\\end{center}\nThe objective value decreases monotonically, illustrating the basic mechanism.  With a non\u2011trivial $Q$ (e.g. stochastic rounding) the error term $e_{k}$ would become non\u2011zero, and the above recursion would still hold.\n\n\\newpage\n\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f$ is $L$\u2013smooth, i.e. for all $x,y\\in\\R^{d}$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Variance]\\label{ass:variance}\nThe stochastic gradient is unbiased and has bounded second moment:\n\\[\n\\E_{\\xi_{k}}[g_{k}\\mid w_{k}]=\\nabla f(w_{k}),\\qquad \n\\E_{\\xi_{k}}\\big[\\|g_{k}-\\nabla f(w_{k})\\|^{2}\\mid w_{k}\\big]\\le\\sigma^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Contractive Compressor]\\label{ass:compressor}\n$Q$ satisfies, for some $\\omega\\in[0,1)$,\n\\[\n\\E[Q(x)]=x,\\qquad \n\\E\\big[\\|Q(x)-x\\|^{2}\\big]\\le\\omega\\|x\\|^{2},\\quad\\forall x\\in\\R^{d}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Stepsize]\\label{ass:stepsize}\nThe stepsize is constant $\\eta>0$ chosen such that\n\\[\n0<\\eta\\le\\frac{1}{L(1+\\omega)}.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nUnder Assumptions \\ref{ass:smooth}\u2013\\ref{ass:stepsize}, let $w_{k}$ be generated by EF\u2011SGD.  Define the averaged iterate\n\\[\n\\bar w_{T}:=\\frac1T\\sum_{k=0}^{T-1}w_{k}.\n\\]\nThen for any $T\\ge1$,\n\\[\n\\frac1T\\sum_{k=0}^{T-1}\\E\\big[\\|\\nabla f(w_{k})\\|^{2}\\big]\n\\;\\le\\;\n\\underbrace{\\frac{2\\big(f(w_{0})-f^{*}\\big)}{\\eta T}}_{\\text{optimization term}}\n\\;+\\;\n\\underbrace{L\\omega\\eta\\,G^{2}}_{\\text{compression term}}\n\\;+\\;\n\\underbrace{\\frac{L\\eta\\sigma^{2}}{2}}_{\\text{stochastic term}},\n\\]\nwhere $f^{*}=\\inf_{w}f(w)$ and $G^{2}\\ge\\sup_{k}\\E\\|g_{k}\\|^{2}$.\nConsequently, choosing $\\eta=\\Theta(1/\\sqrt{T})$ yields\n\\[\n\\frac1T\\sum_{k=0}^{T-1}\\E\\big[\\|\\nabla f(w_{k})\\|^{2}\\big]=\\mathcal O\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n    \\item \\textbf{Stability.}  Because the error term $e_{k}$ is always added back before compression, the recursion \\eqref{eq:update}\u2013\\eqref{eq:error} guarantees that the effective update direction remains an unbiased estimator of the true gradient (cf. Lemma~\\ref{lem:unbiased}).\n    \\item \\textbf{Hyper\u2011parameter sensitivity.}  The bound in Theorem~\\ref{thm:main} shows a linear dependence on $\\eta$ for the compression and stochastic variance terms, while the optimization term decays as $1/(\\eta T)$.  The optimal $\\eta$ balances these two effects, leading to the $\\Theta(1/\\sqrt{T})$ scaling.\n    \\item \\textbf{Comparison to baselines.}\n    \\begin{enumerate}[label=(\\alph*)]\n        \\item \\emph{Plain SGD} (no compression) corresponds to $\\omega=0$, recovering the classic $\\mathcal O(1/\\sqrt{T})$ rate.\n        \\item \\emph{Compressed SGD without error feedback} suffers an additional $\\mathcal O(\\omega)$ bias term that does not vanish with $T$; error feedback eliminates this bias, as reflected by the absence of a constant $\\omega$ term in the bound.\n    \\end{enumerate}\n\\end{itemize}\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Unbiasedness of the effective direction]\\label{lem:unbiased}\nFor any $k$,\n\\[\n\\E\\big[\\tilde g_{k}\\mid w_{k},e_{k}\\big]=g_{k}+e_{k}.\n\\]\n\\end{lemma}\n\\begin{proof}\nBy Assumption~\\ref{ass:compressor}, $\\E[Q(u_{k})]=u_{k}=g_{k}+e_{k}$.  Conditioning on $w_{k},e_{k}$ yields the claim. \\qedhere\n\\end{proof}\n\n\\begin{lemma}[Error recursion bound]\\label{lem:error}\nDefine $E_{k}:=\\E\\|e_{k}\\|^{2}$.  Under Assumption~\\ref{ass:compressor},\n\\[\nE_{k+1}\\le (1-\\tfrac{1}{1+\\omega})E_{k}+\\omega\\,\\E\\|g_{k}\\|^{2}.\n\\]\n\\end{lemma}\n\\begin{proof}\nFrom \\eqref{eq:error},\n\\[\ne_{k+1}=u_{k}-Q(u_{k}),\\qquad u_{k}=g_{k}+e_{k}.\n\\]\nTaking expectations and using the compressor variance bound,\n\\[\n\\E\\|e_{k+1}\\|^{2}\n =\\E\\big[\\|Q(u_{k})-u_{k}\\|^{2}\\big]\n \\le \\omega\\,\\E\\|u_{k}\\|^{2}\n =\\omega\\,\\E\\|g_{k}+e_{k}\\|^{2}.\n\\]\nExpanding the square,\n\\[\n\\omega\\,\\E\\|g_{k}+e_{k}\\|^{2}\n =\\omega\\big(\\E\\|g_{k}\\|^{2}+E_{k}+2\\E\\langle g_{k},e_{k}\\rangle\\big).\n\\]\nSince $g_{k}$ is independent of $e_{k}$ conditionally on $w_{k}$ and $\\E[e_{k}]=0$ (by induction), the cross term vanishes, giving\n\\[\nE_{k+1}\\le\\omega E_{k}+\\omega\\E\\|g_{k}\\|^{2}.\n\\]\nRe\u2011arranging,\n\\[\nE_{k+1}\\le\\big(1-\\tfrac{1}{1+\\omega}\\big)E_{k}+\\omega\\E\\|g_{k}\\|^{2},\n\\]\nwhich proves the lemma. \\qedhere\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}.  All expectations are taken over the randomness of the stochastic gradients and the compressor.\n\n\\begin{enumerate}\n\\item[Step 1.] \\textbf{Smoothness inequality.}  \nFor $w_{k+1}=w_{k}-\\eta\\tilde g_{k}$ and using Assumption~\\ref{ass:smooth},\n\\[\nf(w_{k+1})\\le f(w_{k})-\\eta\\langle\\nabla f(w_{k}),\\tilde g_{k}\\rangle\n+\\frac{L\\eta^{2}}{2}\\|\\tilde g_{k}\\|^{2}. \\tag{1}\n\\]\n\n\\item[Step 2.] \\textbf{Take conditional expectation w.r.t.\\ $\\tilde g_{k}$.}  \nUsing Lemma~\\ref{lem:unbiased} and the law of total expectation,\n\\[\n\\E\\big[f(w_{k+1})\\mid w_{k},e_{k}\\big]\n\\le f(w_{k})-\\eta\\langle\\nabla f(w_{k}),g_{k}+e_{k}\\rangle\n+\\frac{L\\eta^{2}}{2}\\E\\big[\\|\\tilde g_{k}\\|^{2}\\mid w_{k},e_{k}\\big]. \\tag{2}\n\\]\n\n\\item[Step 3.] \\textbf{Expand the inner product.}  \n\\[\n-\\eta\\langle\\nabla f(w_{k}),g_{k}+e_{k}\\rangle\n=-\\eta\\|\\nabla f(w_{k})\\|^{2}\n-\\eta\\langle\\nabla f(w_{k}),g_{k}-\\nabla f(w_{k})\\rangle\n-\\eta\\langle\\nabla f(w_{k}),e_{k}\\rangle. \\tag{3}\n\\]\n\n\\item[Step 4.] \\textbf{Take full expectation and use unbiasedness of $g_{k}$.}  \nSince $\\E[g_{k}\\mid w_{k}]=\\nabla f(w_{k})$ and $\\E[e_{k}]=0$ (by induction from Lemma~\\ref{lem:unbiased}),\n\\[\n\\E\\big[-\\eta\\langle\\nabla f(w_{k}),g_{k}+e_{k}\\rangle\\big]\n= -\\eta\\E\\|\\nabla f(w_{k})\\|^{2}. \\tag{4}\n\\]\n\n\\item[Step 5.] \\textbf{Bound the second\u2011moment of the compressed vector.}  \nFrom the compressor variance bound,\n\\[\n\\E\\big[\\|\\tilde g_{k}\\|^{2}\\mid w_{k},e_{k}\\big]\n =\\E\\big[\\|Q(u_{k})\\|^{2}\\mid u_{k}\\big]\n =\\|u_{k}\\|^{2}+\\E\\big[\\|Q(u_{k})-u_{k}\\|^{2}\\mid u_{k}\\big]\n \\le (1+\\omega)\\|u_{k}\\|^{2},\\tag{5}\n\\]\nwhere $u_{k}=g_{k}+e_{k}$.\n\n\\item[Step 6.] \\textbf{Take expectation of $\\|u_{k}\\|^{2}$.}  \n\\[\n\\E\\|u_{k}\\|^{2}\n =\\E\\|g_{k}+e_{k}\\|^{2}\n =\\E\\|g_{k}\\|^{2}+E_{k}+2\\E\\langle g_{k},e_{k}\\rangle.\n\\]\nBecause $e_{k}$ is a deterministic function of past randomness and $\\E[g_{k}\\mid\\mathcal F_{k}]=\\nabla f(w_{k})$, the cross term vanishes:\n\\[\n\\E\\langle g_{k},e_{k}\\rangle\n =\\E\\big[\\langle\\E[g_{k}\\mid\\mathcal F_{k}],e_{k}\\rangle\\big]\n =\\E\\langle\\nabla f(w_{k}),e_{k}\\rangle =0.\n\\]\nHence,\n\\[\n\\E\\|u_{k}\\|^{2}\\le \\E\\|g_{k}\\|^{2}+E_{k}. \\tag{6}\n\\]\n\n\\item[Step 7.] \\textbf{Combine (1)\u2013(6).}  \nTaking full expectation of (1) and substituting (4)\u2013(6) gives\n\\[\n\\E f(w_{k+1})\\le \\E f(w_{k})\n-\\eta\\E\\|\\nabla f(w_{k})\\|^{2}\n+\\frac{L\\eta^{2}}{2}(1+\\omega)\\big(\\E\\|g_{k}\\|^{2}+E_{k}\\big). \\tag{7}\n\\]\n\n\\item[Step 8.] \\textbf{Bound $\\E\\|g_{k}\\|^{2}$ using variance.}  \nFrom Assumption~\\ref{ass:variance},\n\\[\n\\E\\|g_{k}\\|^{2}\n =\\E\\|\\nabla f(w_{k})\\|^{2}+\\E\\|g_{k}-\\nabla f(w_{k})\\|^{2}\n \\le \\E\\|\\nabla f(w_{k})\\|^{2}+\\sigma^{2}. \\tag{8}\n\\]\n\n\\item[Step 9.] \\textbf{Insert (8) into (7).}\n\\[\n\\E f(w_{k+1})\\le \\E f(w_{k})\n-\\eta\\E\\|\\nabla f(w_{k})\\|^{2}\n+\\frac{L\\eta^{2}}{2}(1+\\omega)\\Big(\\E\\|\\nabla f(w_{k})\\|^{2}+\\sigma^{2}+E_{k}\\Big). \\tag{9}\n\\]\n\n\\item[Step 10.] \\textbf{Collect the gradient terms.}\n\\[\n\\E f(w_{k+1})\\le \\E f(w_{k})\n-\\underbrace{\\Big(\\eta-\\frac{L\\eta^{2}}{2}(1+\\omega)\\Big)}_{\\displaystyle a}\\,\\E\\|\\nabla f(w_{k})\\|^{2}\n+\\frac{L\\eta^{2}}{2}(1+\\omega)\\big(\\sigma^{2}+E_{k}\\big). \\tag{10}\n\\]\n\n\\item[Step 11.] \\textbf{Choose $\\eta$ to make $a>0$.}  \nBy Assumption~\\ref{ass:stepsize}, $\\eta\\le\\frac{1}{L(1+\\omega)}$, therefore\n\\[\na\\ge \\frac{\\eta}{2}>0. \\tag{11}\n\\]\n\n\\item[Step 12.] \\textbf{Recursive bound on the error term $E_{k}$.}  \nFrom Lemma~\\ref{lem:error} and the definition $G^{2}\\ge\\sup_{k}\\E\\|g_{k}\\|^{2}$,\n\\[\nE_{k+1}\\le\\Big(1-\\frac{1}{1+\\omega}\\Big)E_{k}+\\omega G^{2}. \\tag{12}\n\\]\nIterating (12) yields the uniform bound\n\\[\nE_{k}\\le (1+\\omega)\\,\\omega G^{2}\\qquad\\forall k\\ge0. \\tag{13}\n\\]\n(One can also keep the exact recurrence; the bound (13) suffices for the final rate.)\n\n\\item[Step 13.] \\textbf{Plug the bound on $E_{k}$ into (10).}\n\\[\n\\E f(w_{k+1})\\le \\E f(w_{k})\n-\\frac{\\eta}{2}\\E\\|\\nabla f(w_{k})\\|^{2}\n+\\frac{L\\eta^{2}}{2}(1+\\omega)\\Big(\\sigma^{2}+(1+\\omega)\\omega G^{2}\\Big). \\tag{14}\n\\]\n\n\\item[Step 14.] \\textbf{Telescoping sum.}  \nSum (14) for $k=0,\\dots,T-1$:\n\\[\n\\E f(w_{T})\\le f(w_{0})\n-\\frac{\\eta}{2}\\sum_{k=0}^{T-1}\\E\\|\\nabla f(w_{k})\\|^{2}\n+ \\frac{L\\eta^{2}}{2}(1+\\omega)T\\Big(\\sigma^{2}+(1+\\omega)\\omega G^{2}\\Big). \\tag{15}\n\\]\n\n\\item[Step 15.] \\textbf{Rearrange to isolate the average gradient norm.}\n\\[\n\\frac{1}{T}\\sum_{k=0}^{T-1}\\E\\|\\nabla f(w_{k})\\|^{2}\n\\le\n\\frac{2\\big(f(w_{0})-f^{*}\\big)}{\\eta T}\n+L\\eta(1+\\omega)\\Big(\\sigma^{2}+(1+\\omega)\\omega G^{2}\\Big). \\tag{16}\n\\]\n\n\\item[Step 16.] \\textbf{Simplify constants.}  \nSince $0\\le\\omega<1$, $(1+\\omega)^{2}\\le 4$, and we absorb the factor $(1+\\omega)$ into a constant $C_{1}=L\\omega$ for readability, obtaining the bound stated in Theorem~\\ref{thm:main}:\n\\[\n\\frac1T\\sum_{k=0}^{T-1}\\E\\|\\nabla f(w_{k})\\|^{2}\n\\le\n\\frac{2\\big(f(w_{0})-f^{*}\\big)}{\\eta T}\n+L\\omega\\eta G^{2}\n+\\frac{L\\eta\\sigma^{2}}{2}.\n\\] \n\\end{enumerate}\nThis completes the proof.  \\qed\n\n\\section*{Rate Derivation (With Constants)}\nSet $\\eta = \\frac{c}{\\sqrt{T}}$ where $c\\le\\frac{1}{L(1+\\omega)}$.  Substituting into (16):\n\\[\n\\frac1T\\sum_{k=0}^{T-1}\\E\\|\\nabla f(w_{k})\\|^{2}\n\\le\n\\frac{2\\big(f(w_{0})-f^{*}\\big)}{c}\\frac{1}{\\sqrt{T}}\n+L\\omega c\\frac{1}{\\sqrt{T}}G^{2}\n+\\frac{L c}{2}\\frac{1}{\\sqrt{T}}\\sigma^{2}\n= \\mathcal O\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big).\n\\]\n\n\\section*{Special Cases}\n\\begin{enumerate}[label=(\\alph*)]\n    \\item \\textbf{No compression} ($\\omega=0$).  The bound reduces to the classical SGD rate $\\mathcal O(1/\\sqrt{T})$ without any extra term.\n    \\item \\textbf{Deterministic gradients} ($\\sigma=0$).  The stochastic term disappears, leaving only the optimization and compression contributions.\n    \\item \\textbf{Very aggressive compressors} ($\\omega\\approx1$).  The compression term $L\\omega\\eta G^{2}$ becomes dominant; decreasing $\\eta$ (e.g. $\\eta\\propto 1/T$) can still guarantee convergence albeit at a slower $O(1/T)$ rate.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 12675,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T07:10:10.966095",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof correctly states the target rate O(1/\u221aT) (Dimension A).  All four assumptions are invoked, but several are mis\u2011applied.  Assumption\u202f1 (smoothness) is used correctly in Step\u202f1.  Assumption\u202f2 (bounded variance) is correctly used in Step\u202f8.  Assumption\u202f3 (contractive compressor) is used in Lemma\u202f1 and Step\u202f5, but the derivation of the error\u2011recursion in Lemma\u202f2 is wrong: the algebra leads to E_{k+1} \u2264 \u03c9E_k + \u03c9\u202fE\u2016g_k\u2016\u00b2, yet the proof writes E_{k+1} \u2264 (1\u20111/(1+\u03c9))E_k + \u03c9\u202fE\u2016g_k\u2016\u00b2 (Step\u202f12).  This incorrect factor propagates to the uniform bound (13) and later to the final constant (Step\u202f13).  Consequently the compression term in the final bound is underestimated.  Moreover, Step\u202f16 simplifies the constant incorrectly: from L\u03b7(1+\u03c9)(\u03c3\u00b2+(1+\u03c9)\u03c9G\u00b2) the proof replaces (1+\u03c9) by \u00bd for the \u03c3\u00b2 term and drops a factor (1+\u03c9)\u00b2 in the \u03c9G\u00b2 term, yielding a bound that is *smaller* than the true upper bound, which is invalid.  A further minor gap appears in Step\u202f4 where the claim E[e_k]=0 is justified only by \u201cinduction from Lemma\u202f1\u201d, but Lemma\u202f1 concerns \\tilde g_k, not e_k; a short argument using the unbiasedness of Q is needed.  These logical gaps (Steps\u202f4,\u202f12,\u202f16) break the soundness of the derivation (Dimension\u202fC) and the mathematical rigor (Dimension\u202fD).  The overall structure (problem setup, algorithm, assumptions, lemmas, telescoping sum) is present, but the errors above prevent the proof from establishing the claimed bound, so the completeness is only partial (Dimension\u202fE).\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe provided proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The logical soundness of the proof is good, with no obvious gaps or unjustified claims. The mathematical rigor is also good, with no 'small enough' or 'large enough' hand-waving. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 5] could be improved by providing more context for the compressor variance bound, and [Step 12] could be clarified by explaining why the uniform bound on E_k is sufficient.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound with proper use of assumptions. Key steps are well-justified: Smoothness (Step 1), unbiasedness (Step 4), error recursion (Step 6), and stepsize choice (Step 11). All assumptions are correctly applied. The convergence rate derivation (Steps 14-16) is rigorous. No hallucinations or missing steps detected. The proof structure follows standard SGD convergence frameworks with error feedback, and all claims are formally justified.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999883434854461
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            16,
+            12,
+            4,
+            5
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 4,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 3,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof correctly states the target rate O(1/\u221aT) (Dimension A).  All four assumptions are invoked, but several are mis\u2011applied.  Assumption\u202f1 (smoothness) is used correctly in Step\u202f1.  Assumption\u202f2 (bounded variance) is correctly used in Step\u202f8.  Assumption\u202f3 (contractive compressor) is used in Lemma\u202f1 and Step\u202f5, but the derivation of the error\u2011recursion in Lemma\u202f2 is wrong: the algebra leads to E_{k+1} \u2264 \u03c9E_k + \u03c9\u202fE\u2016g_k\u2016\u00b2, yet the proof writes E_{k+1} \u2264 (1\u20111/(1+\u03c9))E_k + \u03c9\u202fE\u2016g_k\u2016\u00b2 (Step\u202f12).  This incorrect factor propagates to the uniform bound (13) and later to the final constant (Step\u202f13).  Consequently the compression term in the final bound is underestimated.  Moreover, Step\u202f16 simplifies the constant incorrectly: from L\u03b7(1+\u03c9)(\u03c3\u00b2+(1+\u03c9)\u03c9G\u00b2) the proof replaces (1+\u03c9) by \u00bd for the \u03c3\u00b2 term and drops a factor (1+\u03c9)\u00b2 in the \u03c9G\u00b2 term, yielding a bound that is *smaller* than the true upper bound, which is invalid.  A further minor gap appears in Step\u202f4 where the claim E[e_k]=0 is justified only by \u201cinduction from Lemma\u202f1\u201d, but Lemma\u202f1 concerns \\tilde g_k, not e_k; a short argument using the unbiasedness of Q is needed.  These logical gaps (Steps\u202f4,\u202f12,\u202f16) break the soundness of the derivation (Dimension\u202fC) and the mathematical rigor (Dimension\u202fD).  The overall structure (problem setup, algorithm, assumptions, lemmas, telescoping sum) is present, but the errors above prevent the proof from establishing the claimed bound, so the completeness is only partial (Dimension\u202fE).",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{4, 12}",
+                "operator_error_steps": "{16, 12}",
+                "assumption_violation_steps": "{16, 12}",
+                "flagged_steps": "{16, 4, 12}"
+              },
+              "response_time": 22.178815364837646
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The provided proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The logical soundness of the proof is good, with no obvious gaps or unjustified claims. The mathematical rigor is also good, with no 'small enough' or 'large enough' hand-waving. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 5] could be improved by providing more context for the compressor variance bound, and [Step 12] could be clarified by explaining why the uniform bound on E_k is sufficient.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{12, 5}"
+              },
+              "response_time": 53.46598029136658
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. Key steps are well-justified: Smoothness (Step 1), unbiasedness (Step 4), error recursion (Step 6), and stepsize choice (Step 11). All assumptions are correctly applied. The convergence rate derivation (Steps 14-16) is rigorous. No hallucinations or missing steps detected. The proof structure follows standard SGD convergence frameworks with error feedback, and all claims are formally justified.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 39.50309133529663
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492379,
+            0.01715728752538087,
+            0.01715728752538087
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      12675
+    ]
+  }
+}

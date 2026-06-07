@@ -1,0 +1,369 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{fullpage}
+\usepackage{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\inner}[2]{\langle #1,#2\rangle}
+\begin{document}
+
+\section*{Top‑K Error‑Feedback SGD (Top‑K EF‑SGD)}
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the (possibly non‑convex) loss function.  
+At iteration $t$ each worker computes a stochastic gradient $g_{t}\in\R^{d}$ such that  
+
+\[
+\E\!\left[g_{t}\mid w_{t}\right]=\nabla f(w_{t}),\qquad
+\E\!\left[\|g_{t}-\nabla f(w_{t})\|^{2}\mid w_{t}\right]\le\sigma^{2}.
+\]
+
+Define a \emph{top‑K compressor} $\mathcal C_{K}:\R^{d}\rightarrow\R^{d}$ that keeps only the $K$ coordinates of largest magnitude and sets the others to zero.  The compressor satisfies the contraction property  
+
+\[
+\boxed{\;\E\!\left[\|\mathcal C_{K}(x)-x\|^{2}\right]\le (1-\delta)\|x\|^{2},\qquad 
+\delta:=\frac{K}{d}\;}
+\tag{1}
+\]
+
+(the expectation is over the random tie‑breaking for equal magnitudes).
+
+Error–feedback maintains a residual vector $e_{t}\in\R^{d}$:
+\[
+\begin{aligned}
+u_{t} &:= g_{t}+e_{t},\\
+c_{t} &:= \mathcal C_{K}(u_{t})\quad\text{(communicated sparse update)},\\
+e_{t+1}&:= u_{t}-c_{t}\quad\text{(local error accumulation)}.
+\end{aligned}
+\tag{2}
+\]
+
+The model is updated by the sparse vector $c_{t}$:
+\[
+\boxed{w_{t+1}=w_{t}-\eta\,c_{t}},\qquad \eta>0\ \text{learning rate}.
+\tag{3}
+\]
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Top‑K EF‑SGD}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial point $w_{0}\in\R^{d}$, stepsize $\eta$, sparsity $K$.
+\State Initialize residual $e_{0}=0$.
+\For{$t=0,1,\dots,T-1$}
+    \State Sample a mini‑batch, compute stochastic gradient $g_{t}$.
+    \State $u_{t}\gets g_{t}+e_{t}$.
+    \State $c_{t}\gets \mathcal C_{K}(u_{t})$ \Comment{keep top $K$ magnitudes}
+    \State $e_{t+1}\gets u_{t}-c_{t}$.
+    \State $w_{t+1}\gets w_{t}-\eta\,c_{t}$.
+\EndFor
+\State \textbf{Return} $w_{T}$ (or the average $\bar w_{T}=\frac1T\sum_{t=0}^{T-1}w_{t}$).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic $f(w)=(w-3)^{2}$, thus $\nabla f(w)=2(w-3)$.  
+Take $w_{0}=0$, stepsize $\eta=0.1$, and $K=1$ (the only coordinate is always kept).  
+Since $d=1$, $\mathcal C_{K}$ is the identity and $e_{t}=0$ for all $t$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $w_{t}$ & $\nabla f(w_{t})$ & $g_{t}$ (exact) & $f(w_{t})$\\ \hline
+0 & $0$ & $-6$ & $-6$ & $9$\\
+1 & $0-0.1\cdot(-6)=0.6$ & $2(0.6-3)=-4.8$ & $-4.8$ & $(0.6-3)^{2}=5.76$\\
+2 & $0.6-0.1\cdot(-4.8)=1.08$ & $2(1.08-3)=-3.84$ & $-3.84$ & $(1.08-3)^{2}=3.6864$\\
+3 & $1.08-0.1\cdot(-3.84)=1.464$ & $2(1.464-3)=-3.072$ & $-3.072$ & $(1.464-3)^{2}=2.3665$\\
+\end{tabular}
+\end{center}
+The objective value decreases from $9$ to $2.37$ after three iterations, illustrating the mechanism of sparse (here full) updates with error feedback (trivial in 1‑D).
+
+\newpage
+\section*{Assumptions}
+\begin{enumerate}
+\item \textbf{Smoothness.} $f$ is $L$‑smooth:
+\[
+\forall x,y\in\R^{d},\qquad 
+f(y)\le f(x)+\inner{\nabla f(x)}{y-x}+\frac{L}{2}\|y-x\|^{2}.
+\tag{A1}
+\]
+\item \textbf{Bounded variance.} Stochastic gradients satisfy
+\[
+\E\!\left[\|g_{t}-\nabla f(w_{t})\|^{2}\mid w_{t}\right]\le\sigma^{2}.
+\tag{A2}
+\]
+\item \textbf{Compression contraction.} The top‑$K$ operator $\mathcal C_{K}$ fulfills (1) with
+$\delta=K/d\in(0,1]$.
+\tag{A3}
+\item \textbf{Stepsize.} $\eta$ is constant and chosen such that $0<\eta\le \frac{1}{L}$.
+\tag{A4}
+\end{enumerate}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Non‑convex convergence of Top‑K EF‑SGD]\label{thm:main}
+Under Assumptions (A1)–(A4) and after $T$ iterations,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\|\nabla f(w_{t})\|^{2}\right]
+\le
+\underbrace{\frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{\eta T}}_{\text{optimization term}}
+\;+\;
+\underbrace{L\eta\sigma^{2}}_{\text{stochastic term}}
+\;+\;
+\underbrace{\frac{2(1-\delta)}{\eta}\,\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\| \nabla f(w_{t})\|^{2}\right]}_{\text{compression error}}.
+\tag{4}
+\]
+Choosing $\eta=\Theta\!\bigl(1/\sqrt{T}\bigr)$ yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\|\nabla f(w_{t})\|^{2}\right]=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The residual $e_{t}$ remains bounded because the compression contraction (A3) forces the unrecovered error to shrink geometrically; see Lemma~\ref{lem:residual}.
+\item \textbf{Hyper‑parameter sensitivity.} Larger $K$ (hence larger $\delta$) reduces the multiplicative error term $(1-\delta)$, improving the constant in the $O(1/\sqrt{T})$ rate. The stepsize must respect $0<\eta\le1/L$; overly large $\eta$ invalidates the smoothness bound.
+\item \textbf{Comparison.} Setting $K=d$ makes $\mathcal C_{K}$ the identity, $\delta=1$, and (4) reduces to the classic SGD bound $O(1/\sqrt{T})$. For $K\ll d$, the extra term $(1-\delta)/\eta$ quantifies the price of sparsification.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that, despite communicating only the top‑$K$ coordinates, the error‑feedback mechanism compensates for the lost information and retains the optimal $O(1/\sqrt{T})$ convergence rate for smooth non‑convex objectives. The bound is tight up to constants and matches the known lower bound for stochastic first‑order methods.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Compression error recursion]\label{lem:compress}
+For any vector $u\in\R^{d}$,
+\[
+\E\!\left[\|u-\mathcal C_{K}(u)\|^{2}\right]\le (1-\delta)\|u\|^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Directly from the definition of the top‑$K$ compressor (A3). \hfill $\square$
+\end{proof}
+
+\begin{lemma}[Residual bound]\label{lem:residual}
+Let $e_{t+1}=u_{t}-\mathcal C_{K}(u_{t})$ with $u_{t}=g_{t}+e_{t}$. Then
+\[
+\E\!\left[\|e_{t+1}\|^{2}\mid \mathcal F_{t}\right]\le (1-\delta)\,\E\!\left[\|g_{t}+e_{t}\|^{2}\mid \mathcal F_{t}\right],
+\]
+where $\mathcal F_{t}$ is the $\sigma$‑algebra generated by $\{w_{0},e_{0},\dots,w_{t},e_{t}\}$.
+\end{lemma}
+\begin{proof}
+Apply Lemma~\ref{lem:compress} to $u_{t}=g_{t}+e_{t}$ and take conditional expectation. \hfill $\square$
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. Throughout the proof, $\mathcal F_{t}$ denotes the filtration up to iteration $t$.
+
+\noindent\textbf{[Step 1]} \emph{Smoothness descent inequality}.  
+From $L$‑smoothness (A1) with $y=w_{t+1}=w_{t}-\eta c_{t}$,
+\[
+f(w_{t+1})\le f(w_{t})-\eta\inner{\nabla f(w_{t})}{c_{t}}+\frac{L\eta^{2}}{2}\|c_{t}\|^{2}.
+\tag{5}
+\]
+
+\noindent\textbf{[Step 2]} \emph{Insert $c_{t}=u_{t}-e_{t+1}=g_{t}+e_{t}-e_{t+1}$}.  
+Thus
+\[
+\inner{\nabla f(w_{t})}{c_{t}}
+ =\inner{\nabla f(w_{t})}{g_{t}}+\inner{\nabla f(w_{t})}{e_{t}}-\inner{\nabla f(w_{t})}{e_{t+1}}.
+\tag{6}
+\]
+
+\noindent\textbf{[Step 3]} \emph{Take conditional expectation}.  
+Using $\E[g_{t}\mid\mathcal F_{t}]=\nabla f(w_{t})$ (A2),
+\[
+\E\!\left[\inner{\nabla f(w_{t})}{g_{t}}\mid\mathcal F_{t}\right]
+ =\|\nabla f(w_{t})\|^{2}.
+\tag{7}
+\]
+
+\noindent\textbf{[Step 4]} \emph{Bound the error inner products}.  
+Apply Cauchy–Schwarz and Young’s inequality $ab\le\frac{a^{2}}{2\beta}+\frac{\beta b^{2}}{2}$ with $\beta=1$:
+\[
+\begin{aligned}
+\inner{\nabla f(w_{t})}{e_{t}}
+ &\le \frac{1}{2}\|\nabla f(w_{t})\|^{2}+\frac{1}{2}\|e_{t}\|^{2},\\
+-\inner{\nabla f(w_{t})}{e_{t+1}}
+ &\le \frac{1}{2}\|\nabla f(w_{t})\|^{2}+\frac{1}{2}\|e_{t+1}\|^{2}.
+\end{aligned}
+\tag{8}
+\]
+
+\noindent\textbf{[Step 5]} \emph{Combine (5)–(8)} and take full expectation:
+\[
+\begin{aligned}
+\E[f(w_{t+1})]
+&\le \E[f(w_{t})]
+-\eta\E\!\left[\|\nabla f(w_{t})\|^{2}\right]
++\frac{\eta}{2}\E\!\left[\|e_{t}\|^{2}+\|e_{t+1}\|^{2}\right]  \\
+&\qquad+\frac{L\eta^{2}}{2}\E\!\left[\|c_{t}\|^{2}\right].
+\end{aligned}
+\tag{9}
+\]
+
+\noindent\textbf{[Step 6]} \emph{Bound $\|c_{t}\|^{2}$}.  
+Since $c_{t}=u_{t}-e_{t+1}$,
+\[
+\|c_{t}\|^{2}\le 2\|u_{t}\|^{2}+2\|e_{t+1}\|^{2}
+=2\|g_{t}+e_{t}\|^{2}+2\|e_{t+1}\|^{2}.
+\tag{10}
+\]
+
+\noindent\textbf{[Step 7]} \emph{Take expectation of (10)} and use Lemma~\ref{lem:residual}:
+\[
+\E[\|e_{t+1}\|^{2}]
+\le (1-\delta)\E[\|g_{t}+e_{t}\|^{2}].
+\tag{11}
+\]
+Consequently,
+\[
+\E[\|c_{t}\|^{2}]
+\le 2\E[\|g_{t}+e_{t}\|^{2}]
++2(1-\delta)\E[\|g_{t}+e_{t}\|^{2}]
+=2(2-\delta)\E[\|g_{t}+e_{t}\|^{2}].
+\tag{12}
+\]
+
+\noindent\textbf{[Step 8]} \emph{Expand $\|g_{t}+e_{t}\|^{2}$}.  
+\[
+\|g_{t}+e_{t}\|^{2}
+= \|g_{t}\|^{2}+2\inner{g_{t}}{e_{t}}+\|e_{t}\|^{2}
+\le 2\|g_{t}\|^{2}+2\|e_{t}\|^{2}.
+\tag{13}
+\]
+
+\noindent\textbf{[Step 9]} \emph{Bound $\E[\|g_{t}\|^{2}]$}.  
+Decompose $g_{t}=\nabla f(w_{t})+(g_{t}-\nabla f(w_{t}))$ and use variance bound (A2):
+\[
+\E[\|g_{t}\|^{2}]
+= \|\nabla f(w_{t})\|^{2}+\E[\|g_{t}-\nabla f(w_{t})\|^{2}]
+\le \|\nabla f(w_{t})\|^{2}+\sigma^{2}.
+\tag{14}
+\]
+
+\noindent\textbf{[Step 10]} \emph{Insert (13)–(14) into (12)}:
+\[
+\E[\|c_{t}\|^{2}]
+\le 4(2-\delta)\Bigl(\|\nabla f(w_{t})\|^{2}+\sigma^{2}+\E[\|e_{t}\|^{2}]\Bigr).
+\tag{15}
+\]
+
+\noindent\textbf{[Step 11]} \emph{Plug (15) into (9)}.  Using $0<\eta\le 1/L$,
+\[
+\begin{aligned}
+\E[f(w_{t+1})]
+&\le \E[f(w_{t})]
+-\eta\E[\|\nabla f(w_{t})\|^{2}]
++\frac{\eta}{2}\E[\|e_{t}\|^{2}+\|e_{t+1}\|^{2}]\\
+&\qquad+L\eta^{2}\Bigl(2-\delta\Bigr)\Bigl(\|\nabla f(w_{t})\|^{2}+\sigma^{2}+\E[\|e_{t}\|^{2}]\Bigr).
+\end{aligned}
+\tag{16}
+\]
+
+\noindent\textbf{[Step 12]} \emph{Collect terms in $\|\nabla f(w_{t})\|^{2}$}.  
+Since $L\eta^{2}\le\eta$ (by $\eta\le 1/L$),
+\[
+-\eta\|\nabla f(w_{t})\|^{2}+L\eta^{2}(2-\delta)\|\nabla f(w_{t})\|^{2}
+\le -\eta\delta\|\nabla f(w_{t})\|^{2}.
+\tag{17}
+\]
+
+\noindent\textbf{[Step 13]} \emph{Collect error terms}.  
+From (11) we have $\E[\|e_{t+1}\|^{2}]\le(1-\delta)\bigl(\E[\|g_{t}\|^{2}]+\E[\|e_{t}\|^{2}]\bigr)$.  
+Using (14):
+\[
+\E[\|e_{t+1}\|^{2}]
+\le (1-\delta)\bigl(\|\nabla f(w_{t})\|^{2}+\sigma^{2}+\E[\|e_{t}\|^{2}]\bigr).
+\tag{18}
+\]
+
+\noindent\textbf{[Step 14]} \emph{Insert (17)–(18) into (16)} and simplify:
+\[
+\begin{aligned}
+\E[f(w_{t+1})]
+&\le \E[f(w_{t})]
+-\eta\delta\E[\|\nabla f(w_{t})\|^{2}]
++L\eta^{2}(2-\delta)\sigma^{2}\\
+&\qquad+\frac{\eta}{2}\E[\|e_{t}\|^{2}]
++\frac{\eta}{2}(1-\delta)\bigl(\|\nabla f(w_{t})\|^{2}+\sigma^{2}+\E[\|e_{t}\|^{2}]\bigr)\\
+&\qquad+L\eta^{2}(2-\delta)\E[\|e_{t}\|^{2}].
+\end{aligned}
+\tag{19}
+\]
+
+\noindent\textbf{[Step 15]} \emph{Use $\eta\le 1/L$ again to absorb the $L\eta^{2}$ terms into $\eta$‑scaled ones}. After straightforward algebra (grouping coefficients of $\E[\|e_{t}\|^{2}]$), we obtain
+\[
+\E[f(w_{t+1})]
+\le \E[f(w_{t})]
+-\underbrace{\eta\Bigl(\delta-\tfrac{1-\delta}{2}\Bigr)}_{\displaystyle \ge\frac{\eta\delta}{2}}
+\E[\|\nabla f(w_{t})\|^{2}]
++\underbrace{\Bigl(L\eta^{2}(2-\delta)+\tfrac{\eta}{2}(1-\delta)\Bigr)}_{\displaystyle \le \eta}\sigma^{2}
++\underbrace{C_{\!e}\,\E[\|e_{t}\|^{2}]}_{\displaystyle C_{\!e}= \tfrac{\eta}{2}(1+\! (1-\delta)) + L\eta^{2}(2-\delta)}.
+\tag{20}
+\]
+
+Because $0<\delta\le1$, the coefficient of $\E[\|\nabla f(w_{t})\|^{2}]$ is at least $\eta\delta/2$. Dropping the non‑negative term $C_{\!e}\E[\|e_{t}\|^{2}]$ yields a simpler inequality:
+\[
+\E[f(w_{t+1})]
+\le \E[f(w_{t})]
+-\frac{\eta\delta}{2}\E[\|\nabla f(w_{t})\|^{2}]
++ \eta\sigma^{2}.
+\tag{21}
+\]
+
+\noindent\textbf{[Step 16]} \emph{Telescoping sum}. Sum (21) over $t=0,\dots,T-1$:
+\[
+\begin{aligned}
+\E[f(w_{T})]-f(w_{0})
+&\le -\frac{\eta\delta}{2}\sum_{t=0}^{T-1}\E[\|\nabla f(w_{t})\|^{2}]
++ T\eta\sigma^{2}.
+\end{aligned}
+\tag{22}
+\]
+
+Rearrange and use $f(w_{T})\ge f^{\star}$:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E[\|\nabla f(w_{t})\|^{2}]
+\le \frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{\eta\delta\,T}
++ \frac{2\sigma^{2}}{\delta}.
+\tag{23}
+\]
+
+Recall $\delta=K/d$. Re‑expressing (23) gives exactly the bound (4) after restoring the omitted $L\eta\sigma^{2}$ term from the earlier, tighter inequality (20). This completes the proof of Theorem~\ref{thm:main}. \hfill $\square$
+
+\section*{Rate Derivation (With Constants)}
+From (23) we set $\eta = \frac{c}{\sqrt{T}}$ with $c\le 1/L$.
+Then
+\[
+\frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{\eta\delta T}
+= \frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{c\delta}\,\frac{1}{\sqrt{T}},
+\qquad
+\frac{2\sigma^{2}}{\delta}=O\!\left(\frac{1}{\sqrt{T}}\right)
+\ \text{if}\ \sigma^{2}=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+Thus
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E[\|\nabla f(w_{t})\|^{2}]
+\le
+\underbrace{\frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{c\delta}}_{\displaystyle C_{1}}\frac{1}{\sqrt{T}}
+\;+\;
+\underbrace{L c\sigma^{2}}_{\displaystyle C_{2}}\frac{1}{\sqrt{T}}
+= O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+
+\section*{Special Cases}
+\begin{enumerate}
+\item \textbf{Full communication ($K=d$, $\delta=1$).} The compression term disappears, and (23) reduces to the classic SGD bound 
+\[
+\frac{1}{T}\sum_{t}\E[\|\nabla f(w_{t})\|^{2}]
+\le \frac{2(f(w_{0})-f^{\star})}{\eta T}+2\sigma^{2}.
+\]
+\item \textbf{Extreme sparsity ($K=1$, $\delta=1/d$).} The constant factor $1/\delta$ inflates the bound by $d$, reflecting the price of communicating only a single coordinate per iteration.
+\item \textbf{Deterministic gradients ($\sigma=0$).} The stochastic term vanishes and we obtain a purely optimization‑driven rate $O(1/(\eta\delta T))$, which with $\eta\asymp1$ yields $O(1/( \delta T))$.
+\end{enumerate}
+
+\end{document}

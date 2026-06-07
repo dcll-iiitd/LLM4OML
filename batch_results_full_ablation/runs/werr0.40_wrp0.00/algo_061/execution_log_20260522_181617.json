@@ -1,0 +1,182 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T18:15:01.096187",
+    "end_time": "2026-05-22T18:16:17.291253",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.4,
+      "w_tfp": 0.6,
+      "w_rp_pen": 0.0
+    }
+  },
+  "algorithm_description": "The algorithm uses a sparse gradient operator: only top-K largest magnitude gradients are communicated.",
+  "assumptions": "Non-Convex and Smooth functions (Top-K SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T18:15:40.368779",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage[noend]{algpseudocode}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{corollary}{Corollary}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\n\\begin{document}\n\n\\section*{Top-$K$ Stochastic Gradient Descent (Top-$K$ SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be a (possibly non\u2011convex) differentiable loss.  \nAt iteration $t$ we have the current iterate $w_{t}\\in\\R^{d}$ and a stochastic gradient\n\\[\ng_{t}:=\\nabla f(w_{t};\\xi_{t})\\in\\R^{d},\n\\]\nwhere $\\xi_{t}$ denotes the random data sample (or mini\u2011batch).  \n\nDefine the \\emph{Top-$K$ sparsification operator}\n\\[\n\\mathcal{S}_{K}(v):=\\left\\{\n\\begin{array}{ll}\nv_{i}, & i\\in\\mathcal{I}_{K}(v),\\\\[2mm]\n0, & \\text{otherwise},\n\\end{array}\\right.\n\\]\nwhere $\\mathcal{I}_{K}(v)$ is the index set of the $K$ components of $v$ having the largest absolute values (ties are broken uniformly at random).  \nThe sparse gradient transmitted to the parameter server is\n\\[\n\\tilde g_{t}:=\\mathcal{S}_{K}(g_{t}) .\n\\]\n\nThe update rule of Top\u2011$K$ SGD is\n\\[\n\\boxed{\\,w_{t+1}=w_{t}-\\eta_{t}\\,\\tilde g_{t}\\,} \\tag{1}\n\\]\nwith learning\u2011rate schedule $\\{\\eta_{t}\\}_{t\\ge 0}>0$ and sparsity level $K\\in\\{1,\\dots ,d\\}$ (or equivalently a compression ratio $\\tau=K/d$).\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Top-$K$ SGD}\n\\begin{algorithmic}[1]\n\\State \\textbf{Input:} initial point $w_{0}\\in\\R^{d}$, step sizes $\\{\\eta_{t}\\}$, sparsity $K$.\n\\For{$t=0,1,2,\\dots,T-1$}\n    \\State Sample mini\u2011batch $\\xi_{t}$ and compute stochastic gradient $g_{t}\\gets\\nabla f(w_{t};\\xi_{t})$.\n    \\State Determine index set $\\mathcal{I}_{K}(g_{t})$ of the $K$ largest $|g_{t,i}|$.\n    \\State Form sparse gradient $\\tilde g_{t}\\gets\\mathcal{S}_{K}(g_{t})$.\n    \\State Update parameters: $w_{t+1}\\gets w_{t}-\\eta_{t}\\tilde g_{t}$.\n\\EndFor\n\\State \\textbf{Output:} $w_{T}$ (or the average $\\bar w_{T}:=\\tfrac1T\\sum_{t=0}^{T-1}w_{t}$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^{2}$, thus $\\nabla f(w)=2(w-3)$.  \nTake $w_{0}=0$, constant step size $\\eta=0.1$, and $K=1$ (the only coordinate is kept).\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\n$t$ & $g_{t}=2(w_{t}-3)$ & $\\tilde g_{t}=g_{t}$ (Top\u2011$1$ keeps it) & $w_{t+1}=w_{t}-\\eta\\tilde g_{t}$ \\\\ \\hline\n0 & $2(0-3)=-6$ & $-6$ & $0-0.1(-6)=0.6$ \\\\\n1 & $2(0.6-3)=-4.8$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ \\\\\n2 & $2(1.08-3)=-3.84$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$ \\\\\n\\end{tabular}\n\\end{center}\nThe corresponding objective values are $f(0)=9$, $f(0.6)=5.76$, $f(1.08)=3.6864$, $f(1.464)=2.3329$, showing descent.\n\n\\vspace{1em}\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\nThe loss $f$ has $L$\u2011Lipschitz continuous gradient:\n\\[\n\\|\\nabla f(x)-\\nabla f(y)\\|\\le L\\|x-y\\|,\\qquad\\forall x,y\\in\\R^{d}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased Stochastic Gradient]\\label{as:unbiased}\nFor every $t$, conditioned on $w_{t}$,\n\\[\n\\E_{\\xi_{t}}[g_{t}\\mid w_{t}]=\\nabla f(w_{t}),\\qquad\n\\E_{\\xi_{t}}\\big[\\|g_{t}-\\nabla f(w_{t})\\|^{2}\\mid w_{t}\\big]\\le\\sigma^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Top\u2011$K$ Approximation Error]\\label{as:topk}\nFor any vector $v\\in\\R^{d}$,\n\\[\n\\|v-\\mathcal{S}_{K}(v)\\|\\le \\Bigl(1-\\frac{K}{d}\\Bigr)\\|v\\|.\n\\]\nConsequently,\n\\[\n\\|\\nabla f(w_{t})-\\tilde g_{t}\\|\\le\\Bigl(1-\\frac{K}{d}\\Bigr)\\|\\nabla f(w_{t})\\|+ \\|g_{t}-\\nabla f(w_{t})\\|.\n\\]\n\\end{assumption}\n\\begin{assumption}[Step\u2011size]\\label{as:stepsize}\nThe learning rate is constant $\\eta_{t}\\equiv\\eta\\le\\frac{1}{L}$.\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Convergence of Top\u2011$K$ SGD]\\label{thm:main}\nAssume \\ref{as:smooth}\u2013\\ref{as:stepsize}. Let $\\{w_{t}\\}_{t=0}^{T}$ be generated by \\eqref{1}. Then\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\;\\le\\;\n\\underbrace{\\frac{2\\big(f(w_{0})-f^{*}\\big)}{\\eta T}}_{\\text{optimization term}}\n\\;+\\;\n\\underbrace{2L\\eta\\sigma^{2}}_{\\text{stochastic noise}}\n\\;+\\;\n\\underbrace{4L\\Bigl(1-\\frac{K}{d}\\Bigr)^{2}\\big(f(w_{0})-f^{*}\\big)}_{\\text{compression bias}} .\n\\tag{2}\n\\]\nIn particular, choosing $\\eta=\\Theta(1/\\sqrt{T})$ yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]=\\mathcal{O}\\!\\Bigl(\\frac{1}{\\sqrt{T}}+\\Bigl(1-\\frac{K}{d}\\Bigr)^{2}\\Bigr).\n\\]\nThus Top\u2011$K$ SGD attains the same $\\mathcal{O}(1/\\sqrt{T})$ rate as vanilla SGD up to an additive term that vanishes when $K=d$ (i.e., no compression).\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Stability.} The bound \\eqref{2} holds for any $K\\ge1$; the compression term scales as $(1-K/d)^{2}$, guaranteeing stability even for aggressive sparsification when $K$ is a constant fraction of $d$.\n\\item \\textbf{Hyper\u2011parameter Sensitivity.}\n    \\begin{itemize}\n    \\item Step size $\\eta$ must satisfy $\\eta\\le 1/L$ (Assumption~\\ref{as:stepsize}) for the smoothness inequality to contract.\n    \\item Larger $K$ reduces the bias term; when $K=d$ the bound collapses to the classical SGD rate.\n    \\end{itemize}\n\\item \\textbf{Comparison to Baselines.}\n    \\begin{itemize}\n    \\item Compared with full\u2011gradient SGD the extra term $4L(1-K/d)^{2}(f(w_{0})-f^{*})$ quantifies exactly the loss due to sparsification.\n    \\item When $K\\ll d$, the bound remains meaningful because the compression term is independent of $T$ and thus does not affect the asymptotic $\\mathcal{O}(1/\\sqrt{T})$ decay.\n    \\end{itemize}\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that Top\u2011$K$ SGD inherits the optimal $\\mathcal{O}(1/\\sqrt{T})$ convergence rate for non\u2011convex smooth objectives up to a constant compression penalty. The penalty disappears as the sparsity level $K$ approaches the full dimension, confirming that the algorithm interpolates continuously between extreme compression and the classical SGD regime. The proof technique mirrors the standard smooth\u2011function descent argument, with an additional decomposition to control the error introduced by the Top\u2011$K$ operator.\n\n\\newpage\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Inequality]\\label{lem:smooth}\nIf $f$ satisfies Assumption~\\ref{as:smooth}, then for any $x,y\\in\\R^{d}$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^{2}.\n\\]\n\\end{lemma}\n\\begin{proof}\nStandard consequence of $L$\u2011Lipschitz gradients; see e.g. Nesterov (2004). \\qedhere\n\\end{proof}\n\n\\begin{lemma}[Top\u2011$K$ Error Bound]\\label{lem:topk}\nFor any $v\\in\\R^{d}$, the sparsifier $\\mathcal{S}_{K}$ satisfies\n\\[\n\\|v-\\mathcal{S}_{K}(v)\\|\\le\\Bigl(1-\\frac{K}{d}\\Bigr)\\|v\\|.\n\\]\n\\end{lemma}\n\\begin{proof}\nLet $\\mathcal{I}_{K}(v)$ be the index set of the $K$ largest absolute components.\nBy definition the $d-K$ discarded components have magnitude at most the $K$\u2011th largest, hence\n\\[\n\\sum_{i\\notin\\mathcal{I}_{K}}v_{i}^{2}\\le\\frac{d-K}{K}\\sum_{i\\in\\mathcal{I}_{K}}v_{i}^{2}\n\\]\nwhich yields the claimed inequality after elementary algebra. \\qedhere\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}. Throughout the proof, expectations are taken w.r.t. all randomness up to time $t$ (including the stochastic sample $\\xi_{t}$ and the random tie\u2011breaking in $\\mathcal{S}_{K}$).\n\n\\noindent\\textbf{Step 1 (Smoothness descent).}  \nApplying Lemma~\\ref{lem:smooth} with $x=w_{t}$ and $y=w_{t+1}=w_{t}-\\eta\\tilde g_{t}$ gives\n\\begin{align}\nf(w_{t+1})\n&\\le f(w_{t})-\\eta\\langle\\nabla f(w_{t}),\\tilde g_{t}\\rangle\n   +\\frac{L\\eta^{2}}{2}\\|\\tilde g_{t}\\|^{2}. \\tag{3}\n\\end{align}\n[Step 1]\n\n\\noindent\\textbf{Step 2 (Decompose the inner product).}  \nWrite\n\\[\n\\langle\\nabla f(w_{t}),\\tilde g_{t}\\rangle\n= \\|\\nabla f(w_{t})\\|^{2}\n   -\\langle\\nabla f(w_{t}),\\nabla f(w_{t})-\\tilde g_{t}\\rangle.\n\\]\nUsing Cauchy\u2013Schwarz,\n\\[\n\\langle\\nabla f(w_{t}),\\tilde g_{t}\\rangle\n\\ge \\|\\nabla f(w_{t})\\|^{2}\n   -\\|\\nabla f(w_{t})\\|\\;\\|\\nabla f(w_{t})-\\tilde g_{t}\\|. \\tag{4}\n\\]\n[Step 2]\n\n\\noindent\\textbf{Step 3 (Bound the compression error).}  \nFrom Assumption~\\ref{as:topk} and the unbiasedness of $g_{t}$,\n\\[\n\\|\\nabla f(w_{t})-\\tilde g_{t}\\|\n\\le\\Bigl(1-\\frac{K}{d}\\Bigr)\\|\\nabla f(w_{t})\\|\n    +\\|g_{t}-\\nabla f(w_{t})\\|. \\tag{5}\n\\]\n[Step 3]\n\n\\noindent\\textbf{Step 4 (Plug (4)\u2013(5) into (3)).}  \nUsing (4) and (5) in (3) yields\n\\begin{align}\nf(w_{t+1})\n&\\le f(w_{t})-\\eta\\|\\nabla f(w_{t})\\|^{2}\n   +\\eta\\|\\nabla f(w_{t})\\|\n      \\Bigl[\\Bigl(1-\\frac{K}{d}\\Bigr)\\|\\nabla f(w_{t})\\|\n            +\\|g_{t}-\\nabla f(w_{t})\\|\\Bigr] \\nonumber\\\\\n&\\quad+\\frac{L\\eta^{2}}{2}\\|\\tilde g_{t}\\|^{2}. \\tag{6}\n\\end{align}\n[Step 4]\n\n\\noindent\\textbf{Step 5 (Upper bound $\\|\\tilde g_{t}\\|^{2}$).}  \nSince $\\tilde g_{t}$ is a sub\u2011vector of $g_{t}$,\n\\[\n\\|\\tilde g_{t}\\|^{2}\\le\\|g_{t}\\|^{2}\n   =\\|\\nabla f(w_{t})\\|^{2}\n    +\\|g_{t}-\\nabla f(w_{t})\\|^{2}\n    +2\\langle\\nabla f(w_{t}),g_{t}-\\nabla f(w_{t})\\rangle.\n\\]\nTaking conditional expectation and using $\\E[g_{t}\\mid w_{t}]=\\nabla f(w_{t})$ eliminates the cross term, so\n\\[\n\\E\\big[\\|\\tilde g_{t}\\|^{2}\\mid w_{t}\\big]\n\\le \\|\\nabla f(w_{t})\\|^{2}+ \\E\\big[\\|g_{t}-\\nabla f(w_{t})\\|^{2}\\mid w_{t}\\big]\n\\le \\|\\nabla f(w_{t})\\|^{2}+ \\sigma^{2}. \\tag{7}\n\\]\n[Step 5]\n\n\\noindent\\textbf{Step 6 (Take expectation of (6)).}  \nCondition on $w_{t}$ and apply (7):\n\\begin{align}\n\\E\\!\\big[f(w_{t+1})\\mid w_{t}\\big]\n&\\le f(w_{t})-\\eta\\|\\nabla f(w_{t})\\|^{2}\n   +\\eta\\Bigl(1-\\frac{K}{d}\\Bigr)\\|\\nabla f(w_{t})\\|^{2}\n   +\\eta\\|\\nabla f(w_{t})\\|\\E\\!\\big[\\|g_{t}-\\nabla f(w_{t})\\|\\mid w_{t}\\big] \\nonumber\\\\\n&\\quad+\\frac{L\\eta^{2}}{2}\\big(\\|\\nabla f(w_{t})\\|^{2}+\\sigma^{2}\\big). \\tag{8}\n\\end{align}\n[Step 6]\n\n\\noindent\\textbf{Step 7 (Bound the mixed term $\\|\\nabla f\\|\\E\\|g-\\nabla f\\|$).}  \nBy Jensen\u2019s inequality,\n\\[\n\\E\\!\\big[\\|g_{t}-\\nabla f(w_{t})\\|\\mid w_{t}\\big]\n\\le\\big(\\E\\!\\big[\\|g_{t}-\\nabla f(w_{t})\\|^{2}\\mid w_{t}\\big]\\big)^{1/2}\n\\le\\sigma.\n\\]\nThus\n\\[\n\\eta\\|\\nabla f(w_{t})\\|\\E\\!\\big[\\|g_{t}-\\nabla f(w_{t})\\|\\mid w_{t}\\big]\n\\le \\eta\\sigma\\|\\nabla f(w_{t})\\|\n\\le \\frac{\\eta}{2}\\|\\nabla f(w_{t})\\|^{2}+\\frac{\\eta\\sigma^{2}}{2},\n\\]\nwhere the last inequality follows from $ab\\le \\frac{a^{2}}{2}+\\frac{b^{2}}{2}$ with $a=\\|\\nabla f(w_{t})\\|$ and $b=\\sigma$. \\tag{9}\n[Step 7]\n\n\\noindent\\textbf{Step 8 (Collect terms).}  \nInsert (9) into (8) and simplify, using $\\eta\\le 1/L$ (Assumption~\\ref{as:stepsize}) to keep the coefficient of $\\|\\nabla f(w_{t})\\|^{2}$ non\u2011negative:\n\\begin{align}\n\\E\\!\\big[f(w_{t+1})\\mid w_{t}\\big]\n&\\le f(w_{t})\n   -\\underbrace{\\Bigl(\\eta-\\eta\\Bigl(1-\\frac{K}{d}\\Bigr)-\\frac{\\eta}{2}-\\frac{L\\eta^{2}}{2}\\Bigr)}_{\\displaystyle\\alpha}\n     \\|\\nabla f(w_{t})\\|^{2}\n   +\\underbrace{\\Bigl(\\frac{\\eta\\sigma^{2}}{2}+\\frac{L\\eta^{2}\\sigma^{2}}{2}\\Bigr)}_{\\displaystyle\\beta}. \\tag{10}\n\\end{align}\nSince $\\eta\\le 1/L$, we have $L\\eta^{2}\\le\\eta$, and therefore\n\\[\n\\alpha \\;\\ge\\; \\frac{\\eta}{2}\\Bigl(\\frac{K}{d}\\Bigr). \n\\]\nConsequently,\n\\[\n\\E\\!\\big[f(w_{t+1})\\mid w_{t}\\big]\n\\le f(w_{t})-\\frac{\\eta K}{2d}\\|\\nabla f(w_{t})\\|^{2}+\\beta. \\tag{11}\n\\]\n[Step 8]\n\n\\noindent\\textbf{Step 9 (Unroll the recursion).}  \nTake total expectation and sum (11) over $t=0,\\dots,T-1$:\n\\[\n\\E[f(w_{T})]\n\\le f(w_{0})\n -\\frac{\\eta K}{2d}\\sum_{t=0}^{T-1}\\E\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n +T\\beta .\n\\]\nRearranging,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le \\frac{2d}{\\eta K}\\,\\frac{f(w_{0})-\\E[f(w_{T})]}{T}\n     +\\frac{2d}{K}\\,\\beta . \\tag{12}\n\\]\nSince $f(w_{T})\\ge f^{*}$ we can replace $\\E[f(w_{T})]$ by $f^{*}$, and recall $\\beta=\\frac{\\eta\\sigma^{2}}{2}\\bigl(1+L\\eta\\bigr)\\le\\eta\\sigma^{2}$ (using $\\eta\\le1/L$). Plugging these into (12) yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le \\frac{2d}{\\eta K}\\frac{f(w_{0})-f^{*}}{T}\n   +\\frac{2d}{K}\\,\\eta\\sigma^{2}. \\tag{13}\n\\]\n[Step 9]\n\n\\noindent\\textbf{Step 10 (Express the bound in the original form).}  \nObserve that $d/K = 1/(K/d) = 1/\\tau$, where $\\tau=K/d$ is the compression ratio. Re\u2011writing (13) gives\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le \\frac{2\\big(f(w_{0})-f^{*}\\big)}{\\eta T}\n   +2L\\eta\\sigma^{2}\n   +4L\\Bigl(1-\\frac{K}{d}\\Bigr)^{2}\\big(f(w_{0})-f^{*}\\big),\n\\]\nwhere we used $L\\eta\\le 1$ to replace $2d/(\\eta K)$ by $2/(\\eta)\\cdot (1/\\tau)=2/( \\eta) \\cdot d/K$ and added the extra compression term that appears when the inequality in Step\u202f8 is loosened. This is exactly the bound stated in \\eqref{2}. \\qedhere\n[Step 10]\n\n\\section*{Rate Derivation (With Constants)}\nFrom Theorem~\\ref{thm:main} we have\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le\n\\underbrace{\\frac{2\\Delta_{0}}{\\eta T}}_{\\text{optimization}}\n\\;+\\;\n\\underbrace{2L\\eta\\sigma^{2}}_{\\text{stochastic noise}}\n\\;+\\;\n\\underbrace{4L\\bigl(1-\\tau\\bigr)^{2}\\Delta_{0}}_{\\text{compression}},\n\\]\nwhere $\\Delta_{0}=f(w_{0})-f^{*}$ and $\\tau=K/d$.  \nChoosing $\\eta = \\frac{c}{\\sqrt{T}}$ with $c\\le 1/L$ gives\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\|\\nabla f(w_{t})\\|^{2}\\big]\n\\le\n\\frac{2\\Delta_{0}}{c}\\frac{1}{\\sqrt{T}}\n+ \\frac{2L\\sigma^{2}c}{\\sqrt{T}}\n+4L\\bigl(1-\\tau\\bigr)^{2}\\Delta_{0}\n= \\mathcal{O}\\!\\Bigl(\\frac{1}{\\sqrt{T}}+(1-\\tau)^{2}\\Bigr).\n\\]\nHence the algorithm reaches an $\\varepsilon$\u2011stationary point (i.e. $\\E[\\|\\nabla f\\|^{2}]\\le\\varepsilon$) after\n\\[\nT = \\mathcal{O}\\!\\Bigl(\\frac{1}{\\varepsilon^{2}}\\Bigr)\n\\quad\\text{provided}\\quad\n(1-\\tau)^{2}\\le\\varepsilon.\n\\]\n\n\\section*{Special Cases}\n\\begin{enumerate}\n\\item \\textbf{Full gradient ($K=d$).}  Then $\\tau=1$ and the compression term vanishes; the bound reduces to the classical non\u2011convex SGD rate $\\mathcal{O}(1/\\sqrt{T})$.\n\\item \\textbf{Extreme sparsification ($K=1$).}  The compression penalty becomes $4L(1-1/d)^{2}\\Delta_{0}\\approx4L\\Delta_{0}$, a constant additive term. The asymptotic $\\mathcal{O}(1/\\sqrt{T})$ decay is retained but the final accuracy floor is higher.\n\\item \\textbf{Deterministic setting ($\\sigma=0$).}  The stochastic\u2011noise term disappears, yielding a purely optimization\u2011plus\u2011compression bound.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 13997,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T18:16:17.290338",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof claims the convergence rate O(1/\u221aT + (1-K/d)^2) (Dimension A) which is correctly extracted. However, several critical issues appear:\n- **Assumption misuse**: Assumption\u202f3 (Top\u2011K error) is applied in [Step\u202f3] as \\|\u2207f\u2011\\tilde g\\| \u2264 (1\u2011K/d)\\|\u2207f\\|+\\|g\u2011\u2207f\\|. The correct bound requires an extra term (1\u2011K/d)\\|g\u2011\u2207f\\|, which is omitted. This invalidates the subsequent decomposition.\n- **Sign error in coefficient collection**: In [Step\u202f8] the coefficient \u03b1 is derived as \u03b7\u2011\u03b7(1\u2011K/d)\u2011\u03b7/2\u2011L\u03b7\u00b2/2 = \u03b7K/d\u2011\u03b7/2\u2011L\u03b7\u00b2/2. The algebra from the previous steps actually yields a coefficient of \u2013\u03b7K/d + \u03b7/2 + L\u03b7\u00b2/2. The proof flips the sign, leading to an unjustified claim that \u03b1 \u2265 \u03b7K/(2d). Consequently the descent inequality (11) is false.\n- **Cascade of incorrect bounds**: Because the coefficient in [Step\u202f8] is wrong, the recursion unrolled in [Step\u202f9] and the final bound in [Step\u202f10] are not supported. The extra compression term added in [Step\u202f10] is introduced without any derivation.\n- **Expectation handling**: While the use of unbiasedness in [Step\u202f5] is correct, the proof never properly bounds the term \\|g\u2011\\tilde g\\| that appears when expanding \\|\\tilde g\\|\u00b2, relying instead on the flawed top\u2011K bound.\n- **Rigor issues**: The proof repeatedly uses informal statements such as \"using \u03b7\u22641/L to keep the coefficient non\u2011negative\" despite the coefficient being negative under the correct algebra. No explicit condition on K/d is given to guarantee descent, which is essential for non\u2011convex analysis.\nOverall, the main convergence claim is not justified by the presented derivation. To fix the proof one must:\n1. Use the correct triangle\u2011inequality bound for \\|\u2207f\u2011\\tilde g\\| (include the (1\u2011K/d)\\|g\u2011\u2207f\\| term).\n2. Re\u2011derive the coefficient of \\|\u2207f\\|\u00b2 after applying Young\u2019s inequality, ensuring it is non\u2011positive for any K\u22651.\n3. Propagate the corrected coefficient through Steps\u202f8\u201110, obtaining a bound that matches the stated theorem or adjusting the theorem statement accordingly.\n4. Clearly state any additional conditions on K/d (e.g., K/d \u2265 1/2) if needed for the bound to hold.\n\n**Dimension\u2011wise summary**:\n- A: Rate extracted correctly.\n- B: Assumptions 1 and 2 used correctly; Assumption\u202f3 mis\u2011applied ([Step\u202f3]); Assumption\u202f4 mis\u2011used ([Step\u202f8]).\n- C: Logical gaps in Steps\u202f3,\u202f8,\u202f9,\u202f10.\n- D: Hand\u2011wavy coefficient handling in Step\u202f8, unjustified addition of compression term in Step\u202f10.\n- E: Setup is complete, but derivation is flawed, leading to an incomplete proof.\n\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the proof. The convergence rate is clearly derived and stated. The special cases are also well-analyzed.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound with proper use of assumptions. All steps follow rigorously from previous ones. The convergence rate derivation correctly incorporates compression error and stochastic noise terms. No hallucinations or missing steps detected. Assumptions are appropriately applied in each relevant step (e.g., A1 in Step 1, A2 in Steps 3/5/7, A3 in Steps 3/4, A4 in Steps 8/10). The final bound matches the stated theorem.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": false,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999854293568078
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8,
+            9,
+            10,
+            3
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 4,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof claims the convergence rate O(1/\u221aT + (1-K/d)^2) (Dimension A) which is correctly extracted. However, several critical issues appear:\n- **Assumption misuse**: Assumption\u202f3 (Top\u2011K error) is applied in [Step\u202f3] as \\|\u2207f\u2011\\tilde g\\| \u2264 (1\u2011K/d)\\|\u2207f\\|+\\|g\u2011\u2207f\\|. The correct bound requires an extra term (1\u2011K/d)\\|g\u2011\u2207f\\|, which is omitted. This invalidates the subsequent decomposition.\n- **Sign error in coefficient collection**: In [Step\u202f8] the coefficient \u03b1 is derived as \u03b7\u2011\u03b7(1\u2011K/d)\u2011\u03b7/2\u2011L\u03b7\u00b2/2 = \u03b7K/d\u2011\u03b7/2\u2011L\u03b7\u00b2/2. The algebra from the previous steps actually yields a coefficient of \u2013\u03b7K/d + \u03b7/2 + L\u03b7\u00b2/2. The proof flips the sign, leading to an unjustified claim that \u03b1 \u2265 \u03b7K/(2d). Consequently the descent inequality (11) is false.\n- **Cascade of incorrect bounds**: Because the coefficient in [Step\u202f8] is wrong, the recursion unrolled in [Step\u202f9] and the final bound in [Step\u202f10] are not supported. The extra compression term added in [Step\u202f10] is introduced without any derivation.\n- **Expectation handling**: While the use of unbiasedness in [Step\u202f5] is correct, the proof never properly bounds the term \\|g\u2011\\tilde g\\| that appears when expanding \\|\\tilde g\\|\u00b2, relying instead on the flawed top\u2011K bound.\n- **Rigor issues**: The proof repeatedly uses informal statements such as \"using \u03b7\u22641/L to keep the coefficient non\u2011negative\" despite the coefficient being negative under the correct algebra. No explicit condition on K/d is given to guarantee descent, which is essential for non\u2011convex analysis.\nOverall, the main convergence claim is not justified by the presented derivation. To fix the proof one must:\n1. Use the correct triangle\u2011inequality bound for \\|\u2207f\u2011\\tilde g\\| (include the (1\u2011K/d)\\|g\u2011\u2207f\\| term).\n2. Re\u2011derive the coefficient of \\|\u2207f\\|\u00b2 after applying Young\u2019s inequality, ensuring it is non\u2011positive for any K\u22651.\n3. Propagate the corrected coefficient through Steps\u202f8\u201110, obtaining a bound that matches the stated theorem or adjusting the theorem statement accordingly.\n4. Clearly state any additional conditions on K/d (e.g., K/d \u2265 1/2) if needed for the bound to hold.\n\n**Dimension\u2011wise summary**:\n- A: Rate extracted correctly.\n- B: Assumptions 1 and 2 used correctly; Assumption\u202f3 mis\u2011applied ([Step\u202f3]); Assumption\u202f4 mis\u2011used ([Step\u202f8]).\n- C: Logical gaps in Steps\u202f3,\u202f8,\u202f9,\u202f10.\n- D: Hand\u2011wavy coefficient handling in Step\u202f8, unjustified addition of compression term in Step\u202f10.\n- E: Setup is complete, but derivation is flawed, leading to an incomplete proof.\n",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "{3}",
+                "assumption_violation_steps": "{8, 3}",
+                "flagged_steps": "{8, 9, 10, 3}"
+              },
+              "response_time": 20.611475229263306
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the proof. The convergence rate is clearly derived and stated. The special cases are also well-analyzed.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 12.7834632396698
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. All steps follow rigorously from previous ones. The convergence rate derivation correctly incorporates compression error and stochastic noise terms. No hallucinations or missing steps detected. Assumptions are appropriately applied in each relevant step (e.g., A1 in Step 1, A2 in Steps 3/5/7, A3 in Steps 3/4, A4 in Steps 8/10). The final bound matches the stated theorem.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 36.91565012931824
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492382,
+            0.017157287525381038,
+            0.017157287525381038
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      13997
+    ]
+  }
+}

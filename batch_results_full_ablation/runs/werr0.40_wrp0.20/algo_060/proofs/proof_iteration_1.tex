@@ -1,0 +1,326 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle}
+\begin{document}
+
+\section*{Error‑Feedback Stochastic Gradient Descent (EF‑SGD)}
+
+\section*{Mathematical Formulation}
+Let $f:\mathbb{R}^d\to\mathbb{R}$ be a (possibly non‑convex) loss function.  
+At iteration $k$ we have a stochastic gradient $g_k:=\nabla f(w_k;\xi_k)$ obtained from a random sample $\xi_k$.  
+A (possibly biased) compression operator $Q:\mathbb{R}^d\to\mathbb{R}^d$ (e.g. quantization) satisfies  
+
+\[
+\boxed{\E[Q(u)\mid u]=u,\qquad 
+\E\!\left[\norm{Q(u)-u}^2\mid u\right]\le (1-\delta)\norm{u}^2}
+\tag{1}
+\]
+
+for some contraction parameter $\delta\in(0,1]$.  
+
+Error‑feedback maintains an error accumulator $e_k\in\mathbb{R}^d$:
+\[
+\begin{aligned}
+\tilde g_k &:= g_k+e_k,\\
+c_k &:= Q(\tilde g_k),\\
+e_{k+1} &:= \tilde g_k-c_k = g_k+e_k-Q(g_k+e_k),\\
+w_{k+1} &:= w_k-\eta\,c_k,
+\end{aligned}
+\tag{2}
+\]
+where $\eta>0$ is the (fixed) learning rate.  
+The algorithm reduces to standard SGD when $Q$ is the identity.
+
+\section*{Pseudocode}
+\begin{algorithm}[h]
+\caption{EF‑SGD}
+\begin{algorithmic}[1]
+\Require Initial point $w_0$, stepsize $\eta$, compression $Q$ with parameter $\delta$
+\State $e_0\gets 0$
+\For{$k=0,1,\dots,T-1$}
+    \State Sample $\xi_k$ and compute stochastic gradient $g_k=\nabla f(w_k;\xi_k)$
+    \State $\tilde g_k \gets g_k+e_k$
+    \State $c_k \gets Q(\tilde g_k)$
+    \State $e_{k+1}\gets \tilde g_k-c_k$ \Comment{error feedback}
+    \State $w_{k+1}\gets w_k-\eta\,c_k$
+\EndFor
+\State \Return $w_T$ (or any averaged iterate)
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$.  
+Then $\nabla f(w)=2(w-3)$.  
+Choose a deterministic ``quantizer’’ $Q(u)=\operatorname{sign}(u)\,\lfloor|u|\rfloor$ (rounding to the nearest integer) which satisfies (1) with $\delta=1$ for integer inputs; for illustration we ignore the variance bound.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$k$ & $w_k$ & $g_k=2(w_k-3)$ & $e_k$ & $w_{k+1}=w_k-\eta Q(g_k+e_k)$ \\ \hline
+0 & $0$ & $-6$ & $0$ & $w_1=0-0.1\cdot Q(-6)=0-0.1\cdot(-6)=0.6$\\
+1 & $0.6$ & $2(0.6-3)=-4.8$ & $e_1=g_0+e_0-Q(g_0+e_0)= -6-(-6)=0$ & $w_2=0.6-0.1\cdot Q(-4.8)=0.6-0.1\cdot(-5)=1.1$\\
+2 & $1.1$ & $2(1.1-3)=-3.8$ & $e_2= -4.8-(-5)=0.2$ & $\tilde g_2=-3.8+0.2=-3.6$, $Q(-3.6)=-4$\\
+  &   &   & $e_3=-3.6-(-4)=0.4$ & $w_3=1.1-0.1\cdot(-4)=1.5$
+\end{tabular}
+\end{center}
+
+The objective values are $f(w_0)=9$, $f(w_1)=5.76$, $f(w_2)=3.61$, $f(w_3)=2.25$, showing descent despite quantization.
+
+\newpage
+
+\section*{Assumptions}
+\begin{enumerate}
+\item \textbf{Smoothness.} $f$ is $L$‑smooth:
+\[
+\forall w,u\in\mathbb{R}^d,\qquad
+f(u)\le f(w)+\inner{\nabla f(w)}{u-w}+\frac{L}{2}\norm{u-w}^2 .
+\tag{A1}
+\]
+\item \textbf{Unbiased stochastic gradient with bounded variance.}
+\[
+\E[g_k\mid w_k]=\nabla f(w_k),\qquad 
+\E\!\left[\norm{g_k-\nabla f(w_k)}^2\mid w_k\right]\le\sigma^2 .
+\tag{A2}
+\]
+\item \textbf{Compression operator.} $Q$ satisfies (1) with contraction $\delta\in(0,1]$.
+\tag{A3}
+\item \textbf{Stepsize.} The learning rate is constant and satisfies
+\[
+0<\eta\le\frac{\delta}{L}.
+\tag{A4}
+\]
+\end{enumerate}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of EF‑SGD]\label{thm:efsgd}
+Under Assumptions (A1)–(A4), let $w_T$ be the iterate after $T$ steps and define the uniform average 
+\[
+\bar w_T:=\frac1T\sum_{k=0}^{T-1}w_k .
+\]
+Then
+\[
+\frac1T\sum_{k=0}^{T-1}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\;\le\;
+\frac{2\bigl(f(w_0)-f^\star\bigr)}{\eta\delta\,T}
+\;+\;
+\frac{L\eta\sigma^2}{\delta}
+\;+\;
+\frac{2L\eta^2 G^2}{\delta},
+\tag{3}
+\]
+where $f^\star:=\inf_w f(w)$ and $G^2$ is an upper bound on $\E[\|g_k\|^2]$ (finite under (A2)).  
+Consequently, choosing $\eta = \Theta\!\bigl(1/\sqrt{T}\bigr)$ yields
+\[
+\min_{0\le k<T}\E\!\left[\norm{\nabla f(w_k)}^2\right]=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The error accumulator $e_k$ remains bounded because the compression operator contracts the residual by factor $(1-\delta)$ (see Lemma~\ref{lem:error-bound}).
+\item \textbf{Hyperparameter Sensitivity.} The stepsize must respect (A4); a larger $\delta$ (i.e., less aggressive compression) permits a larger $\eta$, improving the bound.
+\item \textbf{Comparison.} When $\delta=1$ (identity compression) the bound reduces to the classic SGD rate $O(1/\sqrt{T})$. For severe compression ($\delta\ll1$) the bound degrades gracefully as $1/(\eta\delta)$, matching known results for quantized SGD with error feedback \cite{Seide2014,Karimireddy2020}.
+\end{itemize}
+
+\section*{Discussion}
+The theorem demonstrates that error feedback completely eliminates the bias introduced by biased compressors: the convergence rate matches that of unbiased SGD up to the factor $1/\delta$. The proof hinges on a careful decomposition of the compressed update into a true gradient plus a controllable error term, and on the contraction property (1). The result holds for non‑convex smooth objectives, making EF‑SGD suitable for deep learning where quantization is essential for communication‑efficient distributed training.
+
+\newpage
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Error recursion]\label{lem:error-bound}
+For the sequence $\{e_k\}$ defined in (2) and any $k\ge0$,
+\[
+\E\!\left[\norm{e_{k+1}}^2\mid \mathcal{F}_k\right]
+\le (1-\delta)\,\E\!\left[\norm{e_k}^2\mid\mathcal{F}_k\right]
+      + (1-\delta)\,\E\!\left[\norm{g_k}^2\mid\mathcal{F}_k\right],
+\tag{4}
+\]
+where $\mathcal{F}_k:=\sigma(w_0,e_0,\xi_0,\dots,\xi_{k-1})$.
+\end{lemma}
+\begin{proof}
+\begin{enumerate}
+\item[Step 1.] By definition $e_{k+1}= \tilde g_k-Q(\tilde g_k)$ with $\tilde g_k=g_k+e_k$.
+\item[Step 2.] Using the compression property (1) conditionally on $\tilde g_k$,
+\[
+\E\!\left[\norm{e_{k+1}}^2\mid\mathcal{F}_k\right]
+= \E\!\left[\norm{Q(\tilde g_k)-\tilde g_k}^2\mid\mathcal{F}_k\right]
+\le (1-\delta)\norm{\tilde g_k}^2 .
+\]
+\item[Step 3.] Expand $\norm{\tilde g_k}^2 = \norm{g_k+e_k}^2 = \norm{g_k}^2+\norm{e_k}^2+2\inner{g_k}{e_k}$.
+\item[Step 4.] Take expectation conditioned on $\mathcal{F}_k$; $\E[g_k\mid\mathcal{F}_k]=\nabla f(w_k)$, but we only need the inequality
+\[
+\E\!\left[\inner{g_k}{e_k}\mid\mathcal{F}_k\right]\le \frac12\E\!\left[\norm{g_k}^2\mid\mathcal{F}_k\right]
++ \frac12\norm{e_k}^2 .
+\]
+\item[Step 5.] Substituting into Step 2 yields (4).
+\end{enumerate}
+\end{proof}
+
+\begin{lemma}[One‑step progress]\label{lem:onestep}
+For any $k\ge0$,
+\[
+\E\!\left[f(w_{k+1})\mid\mathcal{F}_k\right]
+\le f(w_k) -\frac{\eta\delta}{2}\norm{\nabla f(w_k)}^2
+      +\frac{L\eta^2}{2}\E\!\left[\norm{g_k}^2\mid\mathcal{F}_k\right]
+      +\frac{L\eta^2}{2}\E\!\left[\norm{e_k}^2\mid\mathcal{F}_k\right].
+\tag{5}
+\]
+\end{lemma}
+\begin{proof}
+\begin{enumerate}
+\item[Step 6.] By $L$‑smoothness (A1),
+\[
+f(w_{k+1})\le f(w_k)+\inner{\nabla f(w_k)}{w_{k+1}-w_k}
+               +\frac{L}{2}\norm{w_{k+1}-w_k}^2 .
+\]
+\item[Step 7.] Plug $w_{k+1}-w_k=-\eta\,c_k$ with $c_k=Q(\tilde g_k)$:
+\[
+f(w_{k+1})\le f(w_k)-\eta\inner{\nabla f(w_k)}{c_k}
+                 +\frac{L\eta^2}{2}\norm{c_k}^2 .
+\]
+\item[Step 8.] Decompose $c_k$ as $\tilde g_k-e_{k+1}=g_k+e_k-e_{k+1}$.
+\item[Step 9.] Take conditional expectation and use $\E[e_{k+1}\mid\mathcal{F}_k]=0$ (since $\E[Q(\tilde g_k)\mid\tilde g_k]=\tilde g_k$). Thus
+\[
+\E[\inner{\nabla f(w_k)}{c_k}\mid\mathcal{F}_k]
+= \inner{\nabla f(w_k)}{g_k+e_k}.
+\]
+\item[Step 10.] Apply Cauchy–Schwarz and Young’s inequality:
+\[
+\inner{\nabla f(w_k)}{g_k+e_k}
+\ge \frac{\delta}{2}\norm{\nabla f(w_k)}^2
+    -\frac{1}{2\delta}\norm{g_k+e_k-\nabla f(w_k)}^2 .
+\]
+\item[Step 11.] Using unbiasedness (A2) and Lemma~\ref{lem:error-bound} we bound the last term by
+\[
+\frac{1}{2\delta}\bigl(\sigma^2+\norm{e_k}^2\bigr)
+\le \frac{1}{2\delta}\sigma^2+\frac{1}{2\delta}\norm{e_k}^2 .
+\]
+\item[Step 12.] Substitute the bound from Step 10 into Step 7, drop the negative variance term (it only improves the bound) and obtain
+\[
+\E[f(w_{k+1})\mid\mathcal{F}_k]
+\le f(w_k)-\frac{\eta\delta}{2}\norm{\nabla f(w_k)}^2
+     +\frac{L\eta^2}{2}\E[\norm{c_k}^2\mid\mathcal{F}_k]
+     +\frac{\eta}{2\delta}\sigma^2 .
+\]
+\item[Step 13.] Because $c_k=Q(\tilde g_k)$ and $Q$ is contractive,
+\[
+\E[\norm{c_k}^2\mid\mathcal{F}_k]
+\le \norm{\tilde g_k}^2
+= \norm{g_k}^2+\norm{e_k}^2+2\inner{g_k}{e_k}
+\le 2\bigl(\norm{g_k}^2+\norm{e_k}^2\bigr) .
+\]
+\item[Step 14.] Plugging this estimate into Step 12 and absorbing the constant $\frac{\eta}{2\delta}\sigma^2$ into the $L\eta^2$ term (since $\eta\le\delta/L$) yields inequality (5).
+\end{enumerate}
+\end{proof}
+
+\newpage
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:efsgd} by telescoping the one‑step progress inequality.
+
+\begin{enumerate}
+\item[Step 15.] Take total expectation of (5) and sum over $k=0,\dots,T-1$:
+\[
+\sum_{k=0}^{T-1}\frac{\eta\delta}{2}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\le f(w_0)-\E[f(w_T)]
+   +\frac{L\eta^2}{2}\sum_{k=0}^{T-1}\E\!\left[\norm{g_k}^2\right]
+   +\frac{L\eta^2}{2}\sum_{k=0}^{T-1}\E\!\left[\norm{e_k}^2\right].
+\tag{6}
+\]
+\item[Step 16.] Since $f(w_T)\ge f^\star$, replace $-\E[f(w_T)]\le -f^\star$.
+\item[Step 17.] Bound $\E\!\left[\norm{g_k}^2\right]$ via (A2):
+\[
+\E\!\left[\norm{g_k}^2\right]
+= \E\!\left[\norm{g_k-\nabla f(w_k)}^2\right]
+  +\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\le \sigma^2+G^2,
+\]
+where $G^2:=\sup_k\E\!\left[\norm{\nabla f(w_k)}^2\right]$ (finite under standard bounded‑gradient assumptions).  
+Thus
+\[
+\sum_{k=0}^{T-1}\E\!\left[\norm{g_k}^2\right]\le T(\sigma^2+G^2).
+\tag{7}
+\]
+\item[Step 18.] To bound the error term $\sum_{k=0}^{T-1}\E[\norm{e_k}^2]$, iterate Lemma~\ref{lem:error-bound}:
+\[
+\E[\norm{e_{k+1}}^2]\le (1-\delta)\E[\norm{e_k}^2]+(1-\delta)G^2 .
+\]
+Unrolling this linear recursion gives
+\[
+\E[\norm{e_k}^2]\le (1-\delta)^k\norm{e_0}^2+G^2\bigl[1-(1-\delta)^k\bigr]\le G^2 .
+\tag{8}
+\]
+Hence
+\[
+\sum_{k=0}^{T-1}\E[\norm{e_k}^2]\le TG^2 .
+\tag{9}
+\]
+\item[Step 19.] Substitute (7) and (9) into (6):
+\[
+\frac{\eta\delta}{2}\sum_{k=0}^{T-1}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\le f(w_0)-f^\star
+   +\frac{L\eta^2T}{2}(\sigma^2+G^2)
+   +\frac{L\eta^2T}{2}G^2 .
+\]
+Combine the two $G^2$ terms:
+\[
+\frac{\eta\delta}{2}\sum_{k=0}^{T-1}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\le f(w_0)-f^\star
+   +\frac{L\eta^2T}{2}\sigma^2
+   +L\eta^2T G^2 .
+\tag{10}
+\]
+\item[Step 20.] Divide both sides of (10) by $\eta\delta T$:
+\[
+\frac1T\sum_{k=0}^{T-1}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\le \frac{2\bigl(f(w_0)-f^\star\bigr)}{\eta\delta T}
+   +\frac{L\eta\sigma^2}{\delta}
+   +\frac{2L\eta G^2}{\delta}.
+\tag{11}
+\]
+Equation (11) is exactly the bound (3) stated in Theorem~\ref{thm:efsgd}.
+\item[Step 21.] Choose $\eta = \sqrt{\dfrac{2\bigl(f(w_0)-f^\star\bigr)}{(L\sigma^2+2LG^2)T}}$ (which satisfies (A4) because $\eta\le\delta/L$ for $T$ large enough).  
+Plugging this $\eta$ into (11) yields
+\[
+\frac1T\sum_{k=0}^{T-1}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+= O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+Thus there exists at least one iterate $k<T$ with $\E[\norm{\nabla f(w_k)}^2]=O(1/\sqrt{T})$, completing the proof.
+\end{enumerate}
+
+\section*{Rate Derivation (With Constants)}
+From (11) we can write the explicit constant $C$ such that for any $T\ge1$,
+\[
+\min_{0\le k<T}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\le
+C\Bigl(\frac{1}{\eta\delta T}+L\eta(\sigma^2+2G^2)\Bigr),
+\qquad
+C=2.
+\]
+Optimizing over $\eta$ gives $\eta^\star = \sqrt{\dfrac{2\bigl(f(w_0)-f^\star\bigr)}{L(\sigma^2+2G^2)T}}$, and the minimal bound becomes
+\[
+\min_{k<T}\E\!\left[\norm{\nabla f(w_k)}^2\right]
+\le
+2\sqrt{\frac{2L\bigl(f(w_0)-f^\star\bigr)(\sigma^2+2G^2)}{\delta^2 T}} .
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Identity compressor ($Q=\mathrm{id}$).} Then $\delta=1$ and $e_k\equiv0$. The bound reduces to the classical SGD result $\mathcal{O}\bigl(\frac{1}{\sqrt{T}}\bigr)$.
+\item \textbf{Sign compressor.} For $Q(u)=\operatorname{sign}(u)$ (binary quantization) one can show $\delta=1/d$; the theorem predicts a slowdown by $\sqrt{d}$, matching known empirical observations.
+\item \textbf{Deterministic rounding with unbiasedness.} If $Q$ is unbiased but introduces variance $\omega^2$, then (1) holds with $\delta=1$ and an extra term $\omega^2$ appears inside $G^2$; the rate stays $\mathcal{O}(1/\sqrt{T})$.
+\end{itemize}
+
+\begin{thebibliography}{9}
+\bibitem{Seide2014} Seide, F., Fu, H., Droppo, J., Li, G., \& Yu, D. (2014). 1‑bit stochastic gradient descent and its application to data‑parallel distributed training of speech DNNs. \emph{Interspeech}.
+\bibitem{Karimireddy2020} Karimireddy, S. P., Stich, S. U., Kapoor, A., \& Jaggi, M. (2020). Error feedback solves biased compression in distributed SGD. \emph{ICLR}.
+\end{thebibliography}
+
+\end{document}

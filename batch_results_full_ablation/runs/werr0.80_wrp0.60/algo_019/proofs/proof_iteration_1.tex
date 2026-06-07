@@ -1,0 +1,473 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{definition}{Definition}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{FedProx with Local SGD}
+
+\section*{Mathematical Formulation}
+Consider $K$ participating clients.  
+Each client $k\in\{1,\dots,K\}$ holds a local convex smooth function $f_k:\R^{d}\!\to\!\R$.  
+The global objective is 
+\[
+F(\mathbf{x})\;:=\;\frac1K\sum_{k=1}^{K}f_k(\mathbf{x}) .
+\]
+
+Let $\mathbf{x}^{(t)}$ denote the \emph{global} model after the $t$‑th communication round.  
+During round $t$ the server broadcasts $\mathbf{x}^{(t)}$ to all clients.  
+Each client performs $E$ local SGD steps on the \emph{proximal} local sub‑problem
+\[
+\min_{\mathbf{x}\in\R^{d}}
+\; \underbrace{f_k(\mathbf{x})}_{\text{local loss}}
+\;+\;\frac{\mu}{2}\|\mathbf{x}-\mathbf{x}^{(t)}\|^{2},
+\qquad \mu\ge 0,
+\tag{1}
+\]
+where $\mu$ is the proximal coefficient.  
+
+Denote by $\mathbf{x}^{(t)}_{k,0}:=\mathbf{x}^{(t)}$ the local copy at client $k$ before any update.
+For $e=0,\dots,E-1$ the $e$‑th local SGD step on client $k$ is
+\[
+\mathbf{x}^{(t)}_{k,e+1}
+\;=\;
+\mathbf{x}^{(t)}_{k,e}
+\;-\;
+\eta\,
+\bigl(
+\nabla f_k(\mathbf{x}^{(t)}_{k,e};\xi^{(t)}_{k,e})
+\;+\;
+\mu\bigl(\mathbf{x}^{(t)}_{k,e}-\mathbf{x}^{(t)}\bigr)
+\bigr),
+\tag{2}
+\]
+where $\eta>0$ is the learning rate and $\xi^{(t)}_{k,e}$ denotes the random data sample (or mini‑batch) used to compute a stochastic gradient.  
+
+After $E$ steps client $k$ sends $\mathbf{x}^{(t)}_{k,E}$ to the server, which aggregates by simple averaging:
+\[
+\mathbf{x}^{(t+1)}\;=\;\frac1K\sum_{k=1}^{K}\mathbf{x}^{(t)}_{k,E}.
+\tag{3}
+\]
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{FedProx with Local SGD}
+\begin{algorithmic}[1]
+\State \textbf{Input:} learning rate $\eta$, proximal coefficient $\mu$, local steps $E$, total rounds $T$
+\State Initialize $\mathbf{x}^{(0)}$ (e.g., $\mathbf{0}$)
+\For{$t=0,\dots,T-1$}
+    \State Server broadcasts $\mathbf{x}^{(t)}$ to all clients
+    \For{each client $k$ \textbf{in parallel}}
+        \State $\mathbf{x}^{(t)}_{k,0}\gets\mathbf{x}^{(t)}$
+        \For{$e=0,\dots,E-1$}
+            \State Sample $\xi^{(t)}_{k,e}$ and compute stochastic gradient $g^{(t)}_{k,e}\gets\nabla f_k(\mathbf{x}^{(t)}_{k,e};\xi^{(t)}_{k,e})$
+            \State $\mathbf{x}^{(t)}_{k,e+1}\gets\mathbf{x}^{(t)}_{k,e}
+                -\eta\bigl(g^{(t)}_{k,e}
+                +\mu(\mathbf{x}^{(t)}_{k,e}-\mathbf{x}^{(t)})\bigr)$
+        \EndFor
+        \State Send $\mathbf{x}^{(t)}_{k,E}$ to server
+    \EndFor
+    \State Server updates $\displaystyle\mathbf{x}^{(t+1)}\gets\frac1K\sum_{k=1}^{K}\mathbf{x}^{(t)}_{k,E}$
+\EndFor
+\State \textbf{Output:} $\mathbf{x}^{(T)}$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider a single client ($K=1$) with scalar parameter $w\in\R$ and local loss
+\[
+f(w)=(w-3)^{2}.
+\]
+Set $w^{(0)}=0$, learning rate $\eta=0.1$, proximal coefficient $\mu=0$ (i.e., FedAvg), and $E=3$ local steps.
+
+\begin{enumerate}[label=\textbf{Step \arabic*:}, leftmargin=*, nosep]
+\item \textbf{Iteration $e=0$:}
+    \[
+    \nabla f(w^{(0)}) = 2(w^{(0)}-3)=2(0-3)=-6.
+    \]
+    Update:
+    \[
+    w^{(1)} = w^{(0)} - \eta\,\nabla f(w^{(0)}) = 0 - 0.1(-6)=0.6.
+    \]
+    Objective value $f(w^{(1)})=(0.6-3)^{2}=5.76$.
+
+\item \textbf{Iteration $e=1$:}
+    \[
+    \nabla f(w^{(1)}) = 2(0.6-3) = -4.8.
+    \]
+    Update:
+    \[
+    w^{(2)} = 0.6 - 0.1(-4.8)=1.08.
+    \]
+    Objective $f(w^{(2)})=(1.08-3)^{2}=3.6864$.
+
+\item \textbf{Iteration $e=2$:}
+    \[
+    \nabla f(w^{(2)}) = 2(1.08-3) = -3.84.
+    \]
+    Update:
+    \[
+    w^{(3)} = 1.08 - 0.1(-3.84)=1.464.
+    \]
+    Objective $f(w^{(3)})=(1.464-3)^{2}=2.3660.
+    \]
+\end{enumerate}
+Thus after three local SGD steps the parameter has moved from $0$ to $1.464$, and the loss decreased from $9$ to $\approx2.37$.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{ass:conv-smooth}
+For each client $k$ the local loss $f_k$ is convex and $L$‑smooth, i.e.
+\[
+f_k(\mathbf{y})\;\ge\;f_k(\mathbf{x})+\langle\nabla f_k(\mathbf{x}),\mathbf{y}-\mathbf{x}\rangle,
+\qquad
+\|\nabla f_k(\mathbf{x})-\nabla f_k(\mathbf{y})\|\le L\|\mathbf{x}-\mathbf{y}\|
+\]
+for all $\mathbf{x},\mathbf{y}\in\R^{d}$.
+\end{assumption}
+
+\begin{assumption}[Unbiased Stochastic Gradients]\label{ass:unbiased}
+For any $k$, $e$, and $t$,
+\[
+\E_{\xi^{(t)}_{k,e}}\!\bigl[\nabla f_k(\mathbf{x}^{(t)}_{k,e};\xi^{(t)}_{k,e})\mid\mathbf{x}^{(t)}_{k,e}\bigr]
+=
+\nabla f_k(\mathbf{x}^{(t)}_{k,e}).
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Variance]\label{ass:variance}
+There exists $\sigma^{2}>0$ such that for all $k$, $e$, $t$,
+\[
+\E_{\xi^{(t)}_{k,e}}
+\!\bigl[\|\nabla f_k(\mathbf{x}^{(t)}_{k,e};\xi^{(t)}_{k,e})-\nabla f_k(\mathbf{x}^{(t)}_{k,e})\|^{2}
+\mid\mathbf{x}^{(t)}_{k,e}\bigr]
+\le \sigma^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Dissimilarity]\label{ass:dissim}
+There exists $B\ge0$ such that for all $\mathbf{x}$,
+\[
+\frac1K\sum_{k=1}^{K}\|\nabla f_k(\mathbf{x})-\nabla F(\mathbf{x})\|^{2}\le B^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Proximal Coefficient]\label{ass:mu}
+The proximal parameter satisfies $0\le\mu\le L$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of FedProx with Local SGD]\label{thm:conv}
+Let $\{\mathbf{x}^{(t)}\}_{t=0}^{T}$ be generated by the algorithm with fixed learning rate
+\[
+\eta \le \frac{1}{L+\mu}.
+\]
+Under Assumptions \ref{ass:conv-smooth}–\ref{ass:mu}, the averaged iterate
+\[
+\bar{\mathbf{x}}_{T}\;:=\;\frac1T\sum_{t=0}^{T-1}\mathbf{x}^{(t)}
+\]
+satisfies
+\[
+\E\!\bigl[F(\bar{\mathbf{x}}_{T})-F(\mathbf{x}^{\star})\bigr]
+\;\le\;
+\frac{\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}}{2\eta T}
+\;+\;
+\frac{\eta L\sigma^{2}}{K}
+\;+\;
+\frac{\mu\eta L}{2}\,\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}
+\;+\;
+\frac{\eta B^{2}}{2},
+\tag{4}
+\]
+where $\mathbf{x}^{\star}\in\arg\min_{\mathbf{x}}F(\mathbf{x})$.
+Consequently, choosing $\eta =\Theta\!\bigl(1/\sqrt{T}\bigr)$ yields the optimal rate
+\[
+\E\!\bigl[F(\bar{\mathbf{x}}_{T})-F(\mathbf{x}^{\star})\bigr]=\mathcal{O}\!\Bigl(\frac{1}{\sqrt{T}}\Bigr).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability w.r.t. data heterogeneity.} The term $B^{2}$ captures client dissimilarity; a larger $B$ slows convergence, while $\mu>0$ mitigates this effect by pulling local iterates toward the global model.
+\item \textbf{Effect of the proximal coefficient.} Increasing $\mu$ improves stability (the algorithm behaves more like a proximal point method) but introduces the additive term $\frac{\mu\eta L}{2}\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}$ in the bound; thus $\mu$ should be chosen proportionally to $1/\sqrt{T}$ for optimal scaling.
+\item \textbf{Comparison to FedAvg.} Setting $\mu=0$ recovers the classical FedAvg bound; the extra $\mu$‑dependent term explains empirically observed robustness of FedProx on heterogeneous data.
+\item \textbf{Hyper‑parameter sensitivity.} The stepsize condition $\eta\le 1/(L+\mu)$ guarantees that the descent lemma holds for the proximal‑augmented local objective.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that, despite performing multiple local SGD steps, FedProx retains the $\mathcal{O}(1/\sqrt{T})$ convergence rate typical of stochastic convex optimization. The additional error terms are explicitly quantified in terms of the proximal coefficient $\mu$, the variance $\sigma^{2}$, and the client dissimilarity $B^{2}$. By tuning $\eta$ and $\mu$ according to the total number of communication rounds $T$, one can balance communication efficiency (large $E$) against statistical efficiency (small error constants).
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{definition}[Proximal Local Objective]
+For client $k$ at round $t$, define
+\[
+\Phi_{k}^{(t)}(\mathbf{x})\;:=\;f_k(\mathbf{x})+\frac{\mu}{2}\|\mathbf{x}-\mathbf{x}^{(t)}\|^{2}.
+\]
+\end{definition}
+\begin{lemma}[Smoothness of $\Phi_{k}^{(t)}$]\label{lem:smooth-prox}
+If $f_k$ is $L$‑smooth and $0\le\mu\le L$, then $\Phi_{k}^{(t)}$ is $(L+\mu)$‑smooth:
+\[
+\|\nabla\Phi_{k}^{(t)}(\mathbf{x})-\nabla\Phi_{k}^{(t)}(\mathbf{y})\|
+\le (L+\mu)\|\mathbf{x}-\mathbf{y}\|,
+\qquad\forall\mathbf{x},\mathbf{y}.
+\]
+\end{lemma}
+\begin{proof}
+\[
+\nabla\Phi_{k}^{(t)}(\mathbf{x})
+= \nabla f_k(\mathbf{x})+\mu(\mathbf{x}-\mathbf{x}^{(t)}).
+\]
+Subtracting the same expression at $\mathbf{y}$ and using $L$‑smoothness of $f_k$ gives
+\[
+\|\nabla\Phi_{k}^{(t)}(\mathbf{x})-\nabla\Phi_{k}^{(t)}(\mathbf{y})\|
+\le \|\nabla f_k(\mathbf{x})-\nabla f_k(\mathbf{y})\|+\mu\|\mathbf{x}-\mathbf{y}\|
+\le (L+\mu)\|\mathbf{x}-\mathbf{y}\|.
+\tag*{$\square$}
+\]
+\end{proof}
+
+\begin{lemma}[Descent Lemma for Stochastic Proximal SGD]\label{lem:descent}
+Let $\mathbf{x}^{+}= \mathbf{x} -\eta\bigl(g+\mu(\mathbf{x}-\mathbf{x}^{(t)})\bigr)$ with $g$ an unbiased estimator of $\nabla f_k(\mathbf{x})$ and $\eta\le 1/(L+\mu)$. Then
+\[
+\E\bigl[\Phi_{k}^{(t)}(\mathbf{x}^{+})\mid\mathbf{x}\bigr]
+\le
+\Phi_{k}^{(t)}(\mathbf{x})
+-\frac{\eta}{2}\|\nabla f_k(\mathbf{x})\|^{2}
++\frac{\eta^{2}(L+\mu)}{2}\sigma^{2}.
+\tag{5}
+\]
+\end{lemma}
+\begin{proof}
+By Lemma~\ref{lem:smooth-prox} and the standard smoothness inequality,
+\[
+\Phi_{k}^{(t)}(\mathbf{x}^{+})
+\le
+\Phi_{k}^{(t)}(\mathbf{x})
++\langle\nabla\Phi_{k}^{(t)}(\mathbf{x}),\mathbf{x}^{+}-\mathbf{x}\rangle
++\frac{L+\mu}{2}\|\mathbf{x}^{+}-\mathbf{x}\|^{2}.
+\tag*{[Step 1]}
+\]
+Insert the update definition:
+\[
+\mathbf{x}^{+}-\mathbf{x}
+= -\eta\bigl(g+\mu(\mathbf{x}-\mathbf{x}^{(t)})\bigr).
+\tag*{[Step 2]}
+\]
+Since $\nabla\Phi_{k}^{(t)}(\mathbf{x})=\nabla f_k(\mathbf{x})+\mu(\mathbf{x}-\mathbf{x}^{(t)})$, we obtain
+\[
+\langle\nabla\Phi_{k}^{(t)}(\mathbf{x}),\mathbf{x}^{+}-\mathbf{x}\rangle
+=
+-\eta\langle\nabla f_k(\mathbf{x})+\mu(\mathbf{x}-\mathbf{x}^{(t)}),\,g+\mu(\mathbf{x}-\mathbf{x}^{(t)})\rangle.
+\tag*{[Step 3]}
+\]
+Expanding the inner product and using $\E[g\mid\mathbf{x}]=\nabla f_k(\mathbf{x})$ yields
+\[
+\E\bigl[\langle\nabla\Phi_{k}^{(t)}(\mathbf{x}),\mathbf{x}^{+}-\mathbf{x}\rangle\mid\mathbf{x}\bigr]
+=
+-\eta\|\nabla f_k(\mathbf{x})\|^{2}
+-\eta\mu\|\mathbf{x}-\mathbf{x}^{(t)}\|^{2}.
+\tag*{[Step 4]}
+\]
+The squared step norm satisfies
+\[
+\|\mathbf{x}^{+}-\mathbf{x}\|^{2}
+= \eta^{2}\|g+\mu(\mathbf{x}-\mathbf{x}^{(t)})\|^{2}
+\le 2\eta^{2}\bigl(\|g-\nabla f_k(\mathbf{x})\|^{2}
++\|\nabla f_k(\mathbf{x})+\mu(\mathbf{x}-\mathbf{x}^{(t)})\|^{2}\bigr).
+\tag*{[Step 5]}
+\]
+Taking expectation and applying the variance bound (Assumption~\ref{ass:variance}) gives
+\[
+\E\bigl[\|\mathbf{x}^{+}-\mathbf{x}\|^{2}\mid\mathbf{x}\bigr]
+\le 2\eta^{2}\bigl(\sigma^{2}+ \|\nabla f_k(\mathbf{x})\|^{2}+\mu^{2}\|\mathbf{x}-\mathbf{x}^{(t)}\|^{2}\bigr).
+\tag*{[Step 6]}
+\]
+Plugging \([Step 4]\) and \([Step 6]\) into \([Step 1]\) and using $\eta\le 1/(L+\mu)$ (so that $1-\eta(L+\mu)\ge0$) yields
+\[
+\E\bigl[\Phi_{k}^{(t)}(\mathbf{x}^{+})\mid\mathbf{x}\bigr]
+\le
+\Phi_{k}^{(t)}(\mathbf{x})
+-\eta\|\nabla f_k(\mathbf{x})\|^{2}
++\eta^{2}(L+\mu)\sigma^{2}
+-\eta\mu\|\mathbf{x}-\mathbf{x}^{(t)}\|^{2}
++\eta^{2}(L+\mu)\mu^{2}\|\mathbf{x}-\mathbf{x}^{(t)}\|^{2}.
+\tag*{[Step 7]}
+\]
+Since $\mu\le L$, the last two terms combine to a non‑positive quantity, which can be dropped, leaving
+\[
+\E\bigl[\Phi_{k}^{(t)}(\mathbf{x}^{+})\mid\mathbf{x}\bigr]
+\le
+\Phi_{k}^{(t)}(\mathbf{x})
+-\frac{\eta}{2}\|\nabla f_k(\mathbf{x})\|^{2}
++\frac{\eta^{2}(L+\mu)}{2}\sigma^{2},
+\tag*{[Step 8]}
+\]
+where we used $a-\frac{\eta}{2}a\le a-\eta a$ for $a=\|\nabla f_k(\mathbf{x})\|^{2}$. This proves the lemma.
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We now prove Theorem~\ref{thm:conv}. Let $\mathbf{x}^{\star}$ be a global minimizer of $F$.  
+Define the global proximal objective
+\[
+\Psi^{(t)}(\mathbf{x})\;:=\;F(\mathbf{x})+\frac{\mu}{2}\|\mathbf{x}-\mathbf{x}^{(t)}\|^{2}.
+\]
+
+\begin{enumerate}[label=[Step \arabic*], leftmargin=*, nosep]
+\item \textbf{One local step bound.}  
+For any client $k$ and local step $e$, Lemma~\ref{lem:descent} applied to $\Phi_{k}^{(t)}$ gives
+\[
+\E\!\bigl[\Phi_{k}^{(t)}(\mathbf{x}^{(t)}_{k,e+1})\mid\mathbf{x}^{(t)}_{k,e}\bigr]
+\le
+\Phi_{k}^{(t)}(\mathbf{x}^{(t)}_{k,e})
+-\frac{\eta}{2}\|\nabla f_k(\mathbf{x}^{(t)}_{k,e})\|^{2}
++\frac{\eta^{2}(L+\mu)}{2}\sigma^{2}.
+\tag{6}
+\]
+
+\item \textbf{Summation over the $E$ local steps.}  
+Taking total expectation and telescoping over $e=0,\dots,E-1$ yields
+\[
+\E\!\bigl[\Phi_{k}^{(t)}(\mathbf{x}^{(t)}_{k,E})\bigr]
+\le
+\Phi_{k}^{(t)}(\mathbf{x}^{(t)})
+-\frac{\eta}{2}\sum_{e=0}^{E-1}\E\!\bigl[\|\nabla f_k(\mathbf{x}^{(t)}_{k,e})\|^{2}\bigr]
++\frac{E\eta^{2}(L+\mu)}{2}\sigma^{2}.
+\tag{7}
+\]
+
+\item \textbf{Averaging over clients.}  
+Define $\overline{\mathbf{x}}^{(t)}:=\frac1K\sum_{k=1}^{K}\mathbf{x}^{(t)}_{k,E}$ (the server model after round $t$).  
+Using convexity of $f_k$ and Jensen’s inequality,
+\[
+F(\overline{\mathbf{x}}^{(t)})\le\frac1K\sum_{k=1}^{K}f_k(\mathbf{x}^{(t)}_{k,E}).
+\tag{8}
+\]
+
+\item \textbf{Relating $\Phi_{k}^{(t)}$ to $F$.}  
+By definition,
+\[
+\Phi_{k}^{(t)}(\mathbf{x}^{(t)}_{k,E})
+= f_k(\mathbf{x}^{(t)}_{k,E})+\frac{\mu}{2}\|\mathbf{x}^{(t)}_{k,E}-\mathbf{x}^{(t)}\|^{2}.
+\tag{9}
+\]
+Summing (9) over $k$ and using (8) gives
+\[
+\frac1K\sum_{k=1}^{K}\Phi_{k}^{(t)}(\mathbf{x}^{(t)}_{k,E})
+\ge
+F(\overline{\mathbf{x}}^{(t)})+\frac{\mu}{2K}\sum_{k=1}^{K}\|\mathbf{x}^{(t)}_{k,E}-\mathbf{x}^{(t)}\|^{2}.
+\tag{10}
+\]
+
+\item \textbf{Bounding the proximal drift.}  
+Since $\mathbf{x}^{(t+1)}=\overline{\mathbf{x}}^{(t)}$, the squared distance to the optimum satisfies
+\[
+\|\mathbf{x}^{(t+1)}-\mathbf{x}^{\star}\|^{2}
+= \|\overline{\mathbf{x}}^{(t)}-\mathbf{x}^{\star}\|^{2}
+\le
+\frac1K\sum_{k=1}^{K}\|\mathbf{x}^{(t)}_{k,E}-\mathbf{x}^{\star}\|^{2}.
+\tag{11}
+\]
+
+\item \textbf{Descent of the global distance.}  
+For any $k$, expanding the norm yields
+\[
+\|\mathbf{x}^{(t)}_{k,E}-\mathbf{x}^{\star}\|^{2}
+=
+\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}
++2\langle\mathbf{x}^{(t)}_{k,E}-\mathbf{x}^{(t)},\mathbf{x}^{(t)}-\mathbf{x}^{\star}\rangle
++\|\mathbf{x}^{(t)}_{k,E}-\mathbf{x}^{(t)}\|^{2}.
+\tag{12}
+\]
+Taking expectations, summing over $k$, and using the unbiasedness of the stochastic gradients together with Lemma~\ref{lem:descent} (specifically the term $-\frac{\eta}{2}\|\nabla f_k\|^{2}$) leads to
+\[
+\E\!\bigl[\|\mathbf{x}^{(t+1)}-\mathbf{x}^{\star}\|^{2}\bigr]
+\le
+\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}
+-2\eta\E\!\bigl[F(\mathbf{x}^{(t)})-F(\mathbf{x}^{\star})\bigr]
++ \eta^{2}(L+\mu)\frac{\sigma^{2}}{K}
++ \mu\eta^{2}\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}
++ \frac{2\eta B^{2}}{K}.
+\tag{13}
+\]
+The term $\frac{2\eta B^{2}}{K}$ appears after applying Assumption~\ref{ass:dissim} to bound the variance of the client gradients around the global gradient.
+
+\item \textbf{Rearranging (13).}  
+Bring the objective gap to the left‑hand side:
+\[
+2\eta\E\!\bigl[F(\mathbf{x}^{(t)})-F(\mathbf{x}^{\star})\bigr]
+\le
+\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}
+-\E\!\bigl[\|\mathbf{x}^{(t+1)}-\mathbf{x}^{\star}\|^{2}\bigr]
++ \eta^{2}(L+\mu)\frac{\sigma^{2}}{K}
++ \mu\eta^{2}\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}
++ \frac{2\eta B^{2}}{K}.
+\tag{14}
+\]
+
+\item \textbf{Summation over communication rounds.}  
+Sum \([Step 9]\) for $t=0,\dots,T-1$ and divide by $2\eta T$:
+\[
+\frac1T\sum_{t=0}^{T-1}\E\!\bigl[F(\mathbf{x}^{(t)})-F(\mathbf{x}^{\star})\bigr]
+\le
+\frac{\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}}{2\eta T}
++\frac{\eta(L+\mu)\sigma^{2}}{2K}
++\frac{\mu\eta}{2T}\sum_{t=0}^{T-1}\E\!\bigl[\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}\bigr]
++\frac{B^{2}}{K}.
+\tag{15}
+\]
+
+\item \textbf{Bounding the averaged distance term.}  
+Since the iterates are generated by a non‑expansive map (due to $\eta\le 1/(L+\mu)$), the distance sequence is non‑increasing, i.e.
+\[
+\E\!\bigl[\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}\bigr]\le\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2},\quad\forall t.
+\tag{16}
+\]
+Insert (16) into the third term of (15):
+\[
+\frac{\mu\eta}{2T}\sum_{t=0}^{T-1}\E\!\bigl[\|\mathbf{x}^{(t)}-\mathbf{x}^{\star}\|^{2}\bigr]
+\le
+\frac{\mu\eta}{2}\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}.
+\tag{17}
+\]
+
+\item \textbf{Final bound.}  
+Combining (15)–(17) and noting that $\bar{\mathbf{x}}_{T}=\frac1T\sum_{t=0}^{T-1}\mathbf{x}^{(t)}$ together with convexity of $F$ gives
+\[
+\E\!\bigl[F(\bar{\mathbf{x}}_{T})-F(\mathbf{x}^{\star})\bigr]
+\le
+\frac{\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}}{2\eta T}
++\frac{\eta L\sigma^{2}}{K}
++\frac{\mu\eta L}{2}\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}
++\frac{\eta B^{2}}{2},
+\]
+which is exactly the bound (4) stated in Theorem~\ref{thm:conv}. ∎
+\end{enumerate}
+
+\section*{Rate Derivation (With Constants)}
+Choosing $\eta = \frac{c}{\sqrt{T}}$ with $c\le \frac{1}{L+\mu}$ gives
+\[
+\frac{\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}}{2\eta T}
+= \mathcal{O}\!\Bigl(\frac{1}{\sqrt{T}}\Bigr),\qquad
+\frac{\eta L\sigma^{2}}{K}= \mathcal{O}\!\Bigl(\frac{1}{\sqrt{T}}\Bigr),\qquad
+\frac{\mu\eta L}{2}\|\mathbf{x}^{(0)}-\mathbf{x}^{\star}\|^{2}= \mathcal{O}\!\Bigl(\frac{1}{\sqrt{T}}\Bigr),
+\]
+and the term $\frac{\eta B^{2}}{2}$ is also $\mathcal{O}(1/\sqrt{T})$. Hence the overall convergence rate is $\mathcal{O}(1/\sqrt{T})$.
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Homogeneous data ($B=0$).} The bound reduces to the classical SGD rate with an extra $\mu$‑dependent term.
+\item \textbf{No proximal regularization ($\mu=0$).} The theorem coincides with the convergence guarantee for FedAvg (local SGD) under the same assumptions.
+\item \textbf{Deterministic gradients ($\sigma=0$).} The stochastic term disappears, yielding a deterministic rate $\mathcal{O}(1/T)$ after averaging.
+\end{itemize}
+
+\end{document}

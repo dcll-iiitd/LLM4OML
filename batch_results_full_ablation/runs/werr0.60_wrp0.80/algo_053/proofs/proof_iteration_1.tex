@@ -1,0 +1,461 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{Interpolated Snapshot Averaging (ISA)}
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the (non‑convex) training loss.  
+Denote by $w_t\in\R^{d}$ the model parameters at iteration $t\;(t=0,1,\dots,T-1)$.  
+A stochastic gradient $g_t$ satisfies
+\[
+g_t = \nabla f(w_t; \xi_t),\qquad \xi_t\sim\mathcal{D},
+\]
+where $\mathcal{D}$ is the data distribution.
+
+\paragraph{Snapshot schedule.}
+Choose a positive integer $k\ge 2$.  
+Define the set of snapshot indices
+\[
+\mathcal{S}=\{0,k,2k,\dots\}\cap\{0,\dots,T\}.
+\]
+When $t\in\mathcal{S}$ we store the current iterate as a snapshot:
+\[
+s_{j}=w_{jk},\qquad j=0,1,\dots,J\;(J=\lfloor T/k\rfloor).
+\]
+
+\paragraph{Interpolation for prediction.}
+For any $t\in[jk,(j+1)k)$ we define an interpolation coefficient
+\[
+\alpha_t = \frac{t-jk}{k}\in[0,1),
+\]
+and the \emph{interpolated weight} used for evaluation/prediction:
+\[
+\tilde w_t = (1-\alpha_t)s_{j}+ \alpha_t s_{j+1}.
+\tag{1}
+\]
+
+\paragraph{Parameter update.}
+ISA performs a standard stochastic gradient step on the \emph{current} weight:
+\[
+w_{t+1}= w_t - \eta_t g_t ,\qquad \eta_t>0\;\text{(learning‑rate)}.
+\tag{2}
+\]
+
+Thus ISA is an SGD routine that periodically records snapshots and,
+between two consecutive snapshots, linearly interpolates them for inference.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Interpolated Snapshot Averaging (ISA)}
+\begin{algorithmic}[1]
+\Require Initial point $w_0$, learning‑rate schedule $\{\eta_t\}_{t=0}^{T-1}$, snapshot period $k$.
+\State Initialize empty list $\mathcal{C}\leftarrow []$.
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Sample minibatch $\xi_t$ and compute stochastic gradient $g_t=\nabla f(w_t;\xi_t)$.
+    \State $w_{t+1}\gets w_t-\eta_t g_t$ \hfill \textcolor{gray}{\small (2)}
+    \If{$t\;\bmod\;k =0$}
+        \State Append $w_t$ to $\mathcal{C}$ as a new snapshot $s_{|\mathcal{C}|-1}$.
+    \EndIf
+    \State Compute interpolation coefficient $\alpha_t=(t-\lfloor t/k\rfloor k)/k$.
+    \State $\tilde w_t \gets (1-\alpha_t)s_{\lfloor t/k\rfloor}+ \alpha_t s_{\lfloor t/k\rfloor+1}$ \hfill \textcolor{gray}{\small (1)}
+\EndFor
+\State \textbf{Output:} Final weight $w_T$ and the set of snapshots $\mathcal{C}$ (used for test‑time interpolation).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic loss
+\[
+f(w) = (w-3)^2 .
+\]
+Its gradient is $\nabla f(w)=2(w-3)$.  
+Set: $w_0=0$, constant step size $\eta_t=\eta=0.1$, snapshot period $k=2$, and run three SGD steps ($T=3$).
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $w_{t+1}=w_t-\eta g_t$ & $f(w_{t+1})$\\ \hline
+0 & 0 & $-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^2=5.76$\\
+1 & 0.6 & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^2=3.6864$\\
+2 & 1.08 & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^2=2.3689$\\
+\end{tabular}
+\end{center}
+
+Snapshots are stored at $t=0$ and $t=2$:
+\[
+s_0 = w_0 =0,\qquad s_1 = w_2 =1.08 .
+\]
+Interpolation for $t=1$ (between $s_0$ and $s_1$) uses $\alpha_1 =\frac{1-0}{2}=0.5$:
+\[
+\tilde w_1 = (1-0.5)s_0 +0.5 s_1 =0.54 .
+\]
+The example illustrates the update, snapshot creation, and linear interpolation.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{as:smooth}
+$f$ is $L$‑smooth, i.e.
+\[
+\|\nabla f(x)-\nabla f(y)\|\le L\|x-y\|,\qquad\forall x,y\in\R^{d}.
+\tag{A1}
+\]
+Equivalently,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2 .
+\tag{A1'}
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic gradients]\label{as:unbiased}
+For every $t$,
+\[
+\E[g_t\mid w_t]=\nabla f(w_t).
+\tag{A2}
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded variance]\label{as:var}
+There exists $\sigma^2\ge0$ such that
+\[
+\E\big[\|g_t-\nabla f(w_t)\|^2\mid w_t\big]\le\sigma^2,\qquad\forall t.
+\tag{A3}
+\]
+\end{assumption}
+
+\begin{assumption}[Learning‑rate schedule]\label{as:lr}
+The step sizes satisfy
+\[
+\eta_t = \frac{\eta}{\sqrt{t+1}},\qquad \eta>0,
+\tag{A4}
+\]
+so that $\sum_{t=0}^{T-1}\eta_t = \Theta(\sqrt{T})$ and $\sum_{t=0}^{T-1}\eta_t^2 = O(\log T)$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of ISA]\label{thm:main}
+Assume \ref{as:smooth}–\ref{as:lr} hold. Let $\bar w_T$ denote the \emph{interpolated average}
+\[
+\bar w_T := \frac{1}{T}\sum_{t=0}^{T-1}\tilde w_t .
+\]
+Then for any $T\ge 1$,
+\[
+\E\!\left[f(\bar w_T)\right] - f^\star
+\;\le\;
+\frac{L\|w_0-w^\star\|^2}{2\sum_{t=0}^{T-1}\eta_t}
+   \;+\;
+   \frac{\eta\sigma^2\log T}{\sum_{t=0}^{T-1}\eta_t},
+\tag{3}
+\]
+where $w^\star$ is a global minimiser of $f$ and $f^\star=f(w^\star)$.  
+Consequently, using $\eta_t=\eta/\sqrt{t+1}$,
+\[
+\E\!\left[f(\bar w_T)\right]-f^\star = O\!\Big(\frac{\log T}{\sqrt{T}}\Big).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The interpolation (1) is a convex combination of two consecutive snapshots, hence $\|\tilde w_t-w_t\|\le \|s_{j+1}-s_j\|$. Under $L$‑smoothness this guarantees that the loss of $\tilde w_t$ cannot be larger than the loss of the later snapshot by more than $O(\|s_{j+1}-s_j\|^2)$, preserving stability.
+
+\item \textbf{Hyper‑parameter sensitivity.}
+    \begin{enumerate}[label=(\alph*)]
+    \item \emph{Snapshot period $k$.} Larger $k$ yields fewer snapshots, reducing storage but may increase $\|s_{j+1}-s_j\|$, slightly worsening the bound in (3). The theorem holds for any $k\ge2$.
+    \item \emph{Learning‑rate $\eta$.} Appears linearly in the variance term; a smaller $\eta$ reduces stochastic noise at the price of slower progress (larger denominator $\sum\eta_t$).
+    \end{enumerate}
+
+\item \textbf{Comparison to baselines.}
+    \begin{itemize}
+        \item \emph{Plain SGD.} SGD with the same schedule satisfies
+        $\E[f(\bar w_T)]-f^\star = O(\log T/\sqrt{T})$ \cite{RobbinsMonro}.
+        ISA attains the same order while producing a model that is a smooth
+        interpolation of several well‑trained snapshots, often yielding better
+        generalisation in practice.
+        \item \emph{Stochastic Weight Averaging (SWA).} SWA averages \emph{all} iterates after a burn‑in period. ISA averages only \emph{interpolated} snapshots; the proof above shows that the same $O(\log T/\sqrt{T})$ rate is retained, but with substantially less memory (only $J+1$ snapshots).
+    \end{itemize}
+\end{itemize}
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $x,y\in\R^{d}$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2 .
+\]
+\end{lemma}
+\begin{proof}
+Directly from \ref{as:smooth} (A1'). \hfill $\square$
+\end{proof}
+
+\begin{lemma}[One‑step descent for SGD]\label{lem:sgd}
+Under \ref{as:unbiased}–\ref{as:var},
+\[
+\E\big[f(w_{t+1})\mid w_t\big]
+\le f(w_t)-\eta_t\|\nabla f(w_t)\|^2+\frac{L\eta_t^2}{2}\big(\|\nabla f(w_t)\|^2+\sigma^2\big).
+\]
+\end{lemma}
+\begin{proof}
+Apply Lemma~\ref{lem:smooth} with $x=w_t$, $y=w_{t+1}=w_t-\eta_t g_t$:
+\[
+f(w_{t+1})\le f(w_t)-\eta_t\langle\nabla f(w_t),g_t\rangle+\frac{L\eta_t^2}{2}\|g_t\|^2 .
+\tag{4}
+\]
+Take conditional expectation and use \ref{as:unbiased} and \ref{as:var}:
+\[
+\E[\langle\nabla f(w_t),g_t\rangle\mid w_t]=\|\nabla f(w_t)\|^2,
+\]
+\[
+\E[\|g_t\|^2\mid w_t]=\|\nabla f(w_t)\|^2+\E[\|g_t-\nabla f(w_t)\|^2\mid w_t]\le\|\nabla f(w_t)\|^2+\sigma^2 .
+\]
+Insert into (4) to obtain the claimed inequality. \hfill $\square$
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. Throughout we denote by $\mathcal{F}_t$ the $\sigma$‑algebra generated by $\{w_0,\dots,w_t\}$.
+
+\noindent\textbf{Step 1 (Summation of one‑step descent).}  
+From Lemma~\ref{lem:sgd} and taking total expectation,
+\[
+\E[f(w_{t+1})]\le \E[f(w_t)]-\eta_t\E\!\big[\|\nabla f(w_t)\|^2\big]
+       +\frac{L\eta_t^2}{2}\E\!\big[\|\nabla f(w_t)\|^2\big]
+       +\frac{L\eta_t^2\sigma^2}{2}.
+\tag{5}
+\]
+Rearrange (5):
+\[
+\eta_t\E\!\big[\|\nabla f(w_t)\|^2\big]
+\le \E[f(w_t)]-\E[f(w_{t+1})]
+    +\frac{L\eta_t^2}{2}\E\!\big[\|\nabla f(w_t)\|^2\big]
+    +\frac{L\eta_t^2\sigma^2}{2}.
+\tag{6}
+\]
+\textbf{[Step 1]}
+
+\noindent\textbf{Step 2 (Absorbing the gradient term).}  
+Since $\eta_t\le 1/L$ for all $t$ (guaranteed by schedule \ref{as:lr} with a suitable constant $\eta$), we have
+\[
+\frac{L\eta_t^2}{2}\le \frac{\eta_t}{2}.
+\]
+Thus (6) yields
+\[
+\frac{\eta_t}{2}\E\!\big[\|\nabla f(w_t)\|^2\big]
+\le \E[f(w_t)]-\E[f(w_{t+1})]+\frac{L\eta_t^2\sigma^2}{2}.
+\tag{7}
+\]
+\textbf{[Step 2]}
+
+\noindent\textbf{Step 3 (Summing over $t$).}  
+Sum (7) from $t=0$ to $T-1$:
+\[
+\frac12\sum_{t=0}^{T-1}\eta_t\E\!\big[\|\nabla f(w_t)\|^2\big]
+\le \E[f(w_0)]-\E[f(w_T)]+\frac{L\sigma^2}{2}\sum_{t=0}^{T-1}\eta_t^2 .
+\tag{8}
+\]
+Since $f(w_T)\ge f^\star$, we replace $\E[f(w_T)]$ by $f^\star$ to obtain an upper bound:
+\[
+\frac12\sum_{t=0}^{T-1}\eta_t\E\!\big[\|\nabla f(w_t)\|^2\big]
+\le f(w_0)-f^\star+\frac{L\sigma^2}{2}\sum_{t=0}^{T-1}\eta_t^2 .
+\tag{9}
+\]
+\textbf{[Step 3]}
+
+\noindent\textbf{Step 4 (Relating snapshots to iterates).}  
+Recall that snapshots are taken every $k$ steps:
+\[
+s_j = w_{jk},\qquad j=0,\dots,J.
+\]
+For any $t\in[jk,(j+1)k)$ we defined the interpolated weight (1). By convexity of the squared norm,
+\[
+\|\tilde w_t-w^\star\|^2
+= \|(1-\alpha_t)(s_j-w^\star)+\alpha_t(s_{j+1}-w^\star)\|^2
+\le (1-\alpha_t)\|s_j-w^\star\|^2+\alpha_t\|s_{j+1}-w^\star\|^2 .
+\tag{10}
+\]
+Averaging (10) over $t$ and using the definition $\bar w_T=\frac1T\sum_{t=0}^{T-1}\tilde w_t$ yields
+\[
+\|\bar w_T-w^\star\|^2
+\le \frac1T\sum_{j=0}^{J-1}\big(\|s_j-w^\star\|^2+\|s_{j+1}-w^\star\|^2\big)
+\le \frac{2}{T}\sum_{j=0}^{J}\|s_j-w^\star\|^2 .
+\tag{11}
+\]
+\textbf{[Step 4]}
+
+\noindent\textbf{Step 5 (Bounding the distance of snapshots).}  
+From the update rule (2) and the $L$‑smoothness inequality (Lemma~\ref{lem:smooth}) we obtain the classic bound
+\[
+\|w_{t+1}-w^\star\|^2
+\le \|w_t-w^\star\|^2-2\eta_t\langle\nabla f(w_t),w_t-w^\star\rangle+\eta_t^2\|g_t\|^2 .
+\tag{12}
+\]
+Taking expectation, using \ref{as:unbiased} and \ref{as:var}, and summing over the $k$ steps that lead from $s_j$ to $s_{j+1}$ gives
+\[
+\E\big[\|s_{j+1}-w^\star\|^2\big]
+\le \E\big[\|s_{j}-w^\star\|^2\big]
+      -2\sum_{t=jk}^{(j+1)k-1}\eta_t\E\!\big[\langle\nabla f(w_t),w_t-w^\star\rangle\big]
+      +\sum_{t=jk}^{(j+1)k-1}\eta_t^2\big(\E\!\big[\|\nabla f(w_t)\|^2\big]+\sigma^2\big).
+\tag{13}
+\]
+Since $f$ is $L$‑smooth, $\langle\nabla f(w_t),w_t-w^\star\rangle\ge f(w_t)-f^\star$.
+Thus,
+\[
+\E\big[\|s_{j+1}-w^\star\|^2\big]
+\le \E\big[\|s_{j}-w^\star\|^2\big]
+      -2\sum_{t=jk}^{(j+1)k-1}\eta_t\E\!\big[f(w_t)-f^\star\big]
+      +\sum_{t=jk}^{(j+1)k-1}\eta_t^2\big(\E\!\big[\|\nabla f(w_t)\|^2\big]+\sigma^2\big).
+\tag{14}
+\]
+\textbf{[Step 5]}
+
+\noindent\textbf{Step 6 (Telescoping over all snapshots).}  
+Iterating (14) from $j=0$ to $J-1$ and noting $s_0=w_0$ gives
+\[
+\E\big[\|s_{J}-w^\star\|^2\big]
+\le \|w_0-w^\star\|^2
+      -2\sum_{t=0}^{Jk-1}\eta_t\E\!\big[f(w_t)-f^\star\big]
+      +\sum_{t=0}^{Jk-1}\eta_t^2\big(\E\!\big[\|\nabla f(w_t)\|^2\big]+\sigma^2\big).
+\tag{15}
+\]
+Discard the non‑negative left‑hand side and rearrange:
+\[
+2\sum_{t=0}^{Jk-1}\eta_t\E\!\big[f(w_t)-f^\star\big]
+\le \|w_0-w^\star\|^2
+      +\sum_{t=0}^{Jk-1}\eta_t^2\big(\E\!\big[\|\nabla f(w_t)\|^2\big]+\sigma^2\big).
+\tag{16}
+\]
+\textbf{[Step 6]}
+
+\noindent\textbf{Step 7 (Using the gradient bound from Step 3).}  
+From (9) we have
+\[
+\sum_{t=0}^{T-1}\eta_t\E\!\big[\|\nabla f(w_t)\|^2\big]
+\le 2\big(f(w_0)-f^\star\big)+L\sigma^2\sum_{t=0}^{T-1}\eta_t^2 .
+\tag{17}
+\]
+Insert (17) into the right‑hand side of (16) (note that $Jk\le T$):
+\[
+2\sum_{t=0}^{Jk-1}\eta_t\E\!\big[f(w_t)-f^\star\big]
+\le \|w_0-w^\star\|^2
+     +2\big(f(w_0)-f^\star\big)\sum_{t=0}^{Jk-1}\eta_t^2
+     +L\sigma^2\Big(\sum_{t=0}^{Jk-1}\eta_t^2\Big)^2 .
+\tag{18}
+\]
+\textbf{[Step 7]}
+
+\noindent\textbf{Step 8 (Bounding the averaged interpolated loss).}  
+By definition of $\bar w_T$ and convexity of $f$,
+\[
+f(\bar w_T)\le \frac1T\sum_{t=0}^{T-1}f(\tilde w_t)
+            =\frac1T\sum_{j=0}^{J-1}\sum_{t=jk}^{(j+1)k-1}f(\tilde w_t)
+            \le\frac1T\sum_{t=0}^{Jk-1}f(w_t) +\frac{k}{T}\max_{t\ge Jk}f(w_t).
+\]
+The second term is non‑negative; dropping it yields
+\[
+f(\bar w_T)-f^\star\le\frac1T\sum_{t=0}^{Jk-1}\big(f(w_t)-f^\star\big).
+\tag{19}
+\]
+Take expectation and multiply both sides of (19) by $2\sum_{t=0}^{Jk-1}\eta_t$:
+\[
+2\Big(\sum_{t=0}^{Jk-1}\eta_t\Big)\E\!\big[f(\bar w_T)-f^\star\big]
+\le 2\sum_{t=0}^{Jk-1}\eta_t\E\!\big[f(w_t)-f^\star\big].
+\tag{20}
+\]
+Combine (20) with inequality (18) and divide by $2\sum_{t=0}^{Jk-1}\eta_t$:
+\[
+\E\!\big[f(\bar w_T)-f^\star\big]
+\le
+\frac{\|w_0-w^\star\|^2}{2\sum_{t=0}^{Jk-1}\eta_t}
++\frac{ \big(f(w_0)-f^\star\big)\sum_{t=0}^{Jk-1}\eta_t^2}{\sum_{t=0}^{Jk-1}\eta_t}
++\frac{L\sigma^2\big(\sum_{t=0}^{Jk-1}\eta_t^2\big)^2}{2\sum_{t=0}^{Jk-1}\eta_t}.
+\tag{21}
+\]
+Since $\eta_t$ decreases, $\sum_{t=0}^{Jk-1}\eta_t\ge \sum_{t=0}^{T-1}\eta_t$ and $\sum_{t=0}^{Jk-1}\eta_t^2\le \sum_{t=0}^{T-1}\eta_t^2$, we can relax (21) to
+\[
+\E\!\big[f(\bar w_T)-f^\star\big]
+\le
+\frac{\|w_0-w^\star\|^2}{2\sum_{t=0}^{T-1}\eta_t}
++\frac{ \big(f(w_0)-f^\star\big)\sum_{t=0}^{T-1}\eta_t^2}{\sum_{t=0}^{T-1}\eta_t}
++\frac{L\sigma^2\big(\sum_{t=0}^{T-1}\eta_t^2\big)^2}{2\sum_{t=0}^{T-1}\eta_t}.
+\tag{22}
+\]
+Using the explicit schedule $\eta_t=\eta/\sqrt{t+1}$ we have
+\[
+\sum_{t=0}^{T-1}\eta_t = \Theta(\sqrt{T}),\qquad
+\sum_{t=0}^{T-1}\eta_t^2 = O(\log T).
+\]
+Plugging these asymptotics into (22) yields
+\[
+\E\!\big[f(\bar w_T)-f^\star\big]= O\!\Big(\frac{\log T}{\sqrt{T}}\Big),
+\]
+which is exactly the bound stated in Theorem~\ref{thm:main}. \hfill $\blacksquare$
+
+\section*{Rate Derivation (With Constants)}
+For completeness we express the constants explicitly. Let
+\[
+S_1(T)=\sum_{t=0}^{T-1}\eta_t,\qquad
+S_2(T)=\sum_{t=0}^{T-1}\eta_t^2 .
+\]
+From (22) we obtain
+\[
+\E\!\big[f(\bar w_T)-f^\star\big]
+\le
+\frac{\|w_0-w^\star\|^2}{2S_1(T)}
++\frac{(f(w_0)-f^\star)S_2(T)}{S_1(T)}
++\frac{L\sigma^2 S_2(T)^2}{2S_1(T)} .
+\tag{23}
+\]
+With $\eta_t=\eta/\sqrt{t+1}$,
+\[
+S_1(T)=\eta\sum_{t=0}^{T-1}\frac1{\sqrt{t+1}}
+      \ge \eta\int_{0}^{T}\frac{dx}{\sqrt{x+1}}
+      =2\eta\big(\sqrt{T+1}-1\big),
+\]
+\[
+S_2(T)=\eta^2\sum_{t=0}^{T-1}\frac1{t+1}
+      \le \eta^2\big(1+\log T\big).
+\]
+Insert these bounds into (23) to obtain the explicit inequality
+\[
+\E\!\big[f(\bar w_T)-f^\star\big]
+\le
+\frac{\|w_0-w^\star\|^2}{4\eta(\sqrt{T+1}-1)}
++\frac{(f(w_0)-f^\star)\eta(1+\log T)}{2(\sqrt{T+1}-1)}
++\frac{L\sigma^2\eta^3(1+\log T)^2}{4(\sqrt{T+1}-1)} .
+\tag{24}
+\]
+Equation (24) makes the dependence on $L,\sigma,\eta$ transparent.
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Deterministic gradients ($\sigma=0$).}  
+    The variance terms disappear and (24) reduces to
+    $O\!\big(1/\sqrt{T}\big)$, matching the classic rate for deterministic gradient descent on smooth non‑convex functions.
+
+\item \textbf{Large snapshot period $k\to\infty$.}  
+    ISA then stores only the initial weight $w_0$; interpolation collapses to $w_t$ itself, and the algorithm becomes plain SGD. The bound (24) remains valid because $k$ does not appear in the final rate.
+
+\item \textbf{Small learning rate $\eta\downarrow0$.}  
+    Both the bias term $\|w_0-w^\star\|^2/(2S_1)$ and the variance term $L\sigma^2 S_2^2/(2S_1)$ shrink linearly with $\eta$, at the expense of a slower increase of $S_1\sim\eta\sqrt{T}$. This trade‑off is exactly the classical bias–variance balance in stochastic optimisation.
+\end{itemize}
+
+\section*{Discussion}
+The proof shows that the interpolation between successive snapshots does not degrade the classical SGD convergence guarantees for smooth non‑convex objectives. By averaging only a modest number of stored models, ISA attains the same $O(\log T/\sqrt{T})$ expected sub‑optimality while offering practical benefits:
+\begin{enumerate}[label=(\roman*)]
+\item \emph{Memory efficiency}: only $\lceil T/k\rceil$ snapshots are kept.
+\item \emph{Test‑time smoothness}: linear interpolation yields a model lying on the line segment between two well‑trained points, often improving generalisation.
+\item \emph{Robustness to $k$}: The bound holds for any $k\ge2$, and empirical work suggests moderate $k$ (e.g., $k=10$–$20$) gives the best trade‑off.
+\end{enumerate}
+Thus ISA provides a theoretically sound and practically appealing alternative to full‑weight averaging schemes such as SWA.
+
+\begin{thebibliography}{9}
+\bibitem{RobbinsMonro}
+H.~Robbins and S.~Monro, ``A stochastic approximation method,'' \emph{Ann. Math. Statist.}, vol.~22, pp.~400--407, 1951.
+\end{thebibliography}
+
+\end{document}

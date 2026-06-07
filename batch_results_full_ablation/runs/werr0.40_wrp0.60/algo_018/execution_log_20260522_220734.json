@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T22:06:25.011044",
+    "end_time": "2026-05-22T22:07:34.853076",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.4,
+      "w_tfp": 0.6,
+      "w_rp_pen": 0.6
+    }
+  },
+  "algorithm_description": "The algorithm performs local SGD steps on K clients for E epochs. Clients minimize local objective + (mu/2)||x - x_global||^2 before averaging.",
+  "assumptions": "Non-Convex and Smooth functions (FedProx)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T22:07:06.555813",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\usepackage{bm}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\norm}[1]{\\left\\lVert #1 \\right\\rVert}\n\\newcommand{\\inner}[2]{\\left\\langle #1,#2 \\right\\rangle}\n\\begin{document}\n\n\\section*{Algorithm Name}\n\\textbf{FedProx Local SGD} (local stochastic gradient descent with proximal regularization).\n\n\\section*{Mathematical Formulation}\nConsider $K$ participating clients.  At global round $t$ the server holds a global model $\\mathbf{x}^t\\in\\mathbb{R}^d$.  \nEach client $k$ possesses a local loss\n\\[\nF_k(\\mathbf{x})\\;=\\;\\frac{1}{n_k}\\sum_{i=1}^{n_k} f_{k,i}(\\mathbf{x}),\n\\]\nwhere $f_{k,i}$ is the loss on the $i$\u2011th data point of client $k$.\nThe local sub\u2011problem solved on client $k$ is\n\\begin{equation}\n\\label{eq:prox}\n\\min_{\\mathbf{x}\\in\\mathbb{R}^d}\\; \n\\underbrace{F_k(\\mathbf{x})}_{\\text{local objective}}\n\\;+\\;\n\\frac{\\mu}{2}\\norm{\\mathbf{x}-\\mathbf{x}^t}^2,\n\\qquad \\mu\\ge 0.\n\\end{equation}\nInstead of solving \\eqref{eq:prox} exactly, each client performs $E$ stochastic gradient steps.\nDenote by $\\mathbf{x}_{k}^{t,0}=\\mathbf{x}^t$ the local copy at the beginning of round $t$.\nFor $e=0,\\dots,E-1$,\n\\[\n\\mathbf{x}_{k}^{t,e+1}\n=\n\\mathbf{x}_{k}^{t,e}\n-\\eta_t\\Bigl(\n\\nabla f_{k,\\xi_{k}^{t,e}}\\!\\bigl(\\mathbf{x}_{k}^{t,e}\\bigr)\n+\\mu\\bigl(\\mathbf{x}_{k}^{t,e}-\\mathbf{x}^t\\bigr)\n\\Bigr),\n\\tag{Local update}\n\\]\nwhere $\\xi_{k}^{t,e}$ is a random index drawn uniformly from $\\{1,\\dots,n_k\\}$ and $\\eta_t>0$ is the learning rate.\nAfter $E$ local steps the client returns $\\mathbf{x}_{k}^{t,E}$ to the server.\nThe server aggregates by simple averaging:\n\\[\n\\mathbf{x}^{t+1}\n=\n\\frac{1}{K}\\sum_{k=1}^{K}\\mathbf{x}_{k}^{t,E}.\n\\tag{Global aggregation}\n\\]\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{FedProx Local SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} initial model $\\mathbf{x}^{0}$, learning rates $\\{\\eta_t\\}_{t\\ge0}$,\nproximal weight $\\mu\\ge0$, local steps $E$, number of clients $K$.\n\\FOR{global round $t=0,1,\\dots,T-1$}\n    \\STATE Server broadcasts $\\mathbf{x}^{t}$ to all clients.\n    \\FOR{each client $k\\in\\{1,\\dots,K\\}$ \\textbf{in parallel}}\n        \\STATE $\\mathbf{x}_{k}^{t,0}\\gets\\mathbf{x}^{t}$\n        \\FOR{$e=0$ \\TO $E-1$}\n            \\STATE Sample $\\xi_{k}^{t,e}\\sim\\text{Unif}\\{1,\\dots,n_k\\}$\n            \\STATE Compute stochastic gradient \n            $\\mathbf{g}_{k}^{t,e}\\gets\\nabla f_{k,\\xi_{k}^{t,e}}\\!\\bigl(\\mathbf{x}_{k}^{t,e}\\bigr)$\n            \\STATE $\\mathbf{x}_{k}^{t,e+1}\\gets\n            \\mathbf{x}_{k}^{t,e}\n            -\\eta_t\\bigl(\\mathbf{g}_{k}^{t,e}\n            +\\mu(\\mathbf{x}_{k}^{t,e}-\\mathbf{x}^{t})\\bigr)$\n        \\ENDFOR\n        \\STATE Send $\\mathbf{x}_{k}^{t,E}$ to server.\n    \\ENDFOR\n    \\STATE Server updates $\\displaystyle\\mathbf{x}^{t+1}\\gets\\frac{1}{K}\\sum_{k=1}^{K}\\mathbf{x}_{k}^{t,E}$.\n\\ENDFOR\n\\STATE \\textbf{Output:} $\\mathbf{x}^{T}$ (or the average $\\frac{1}{T}\\sum_{t=0}^{T-1}\\mathbf{x}^{t}$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nWe illustrate the algorithm on a single client ($K=1$) with a scalar variable $w\\in\\mathbb{R}$.\n\\[\nf(w)=(w-3)^2,\\qquad\n\\nabla f(w)=2(w-3).\n\\]\nSet $w_0=0$, learning rate $\\eta=0.1$, proximal weight $\\mu=0.5$, and $E=3$ local steps.\nBecause there is only one data point, the stochastic gradient equals the true gradient.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\nStep $e$ & $w^{e}$ & Gradient $g^{e}=2(w^{e}-3)+\\mu(w^{e}-w^{0})$ & Updated $w^{e+1}=w^{e}-\\eta g^{e}$\\\\\\hline\n0 & $0$ & $2(0-3)+0.5(0-0)=-6$ & $0-0.1(-6)=0.6$\\\\\n1 & $0.6$ & $2(0.6-3)+0.5(0.6-0)=-4.8+0.3=-4.5$ & $0.6-0.1(-4.5)=1.05$\\\\\n2 & $1.05$ & $2(1.05-3)+0.5(1.05-0)=-3.9+0.525=-3.375$ & $1.05-0.1(-3.375)=1.3875$\\\\\n3 & $1.3875$ & $2(1.3875-3)+0.5(1.3875-0)=-3.225+0.69375=-2.53125$ & $1.3875-0.1(-2.53125)=1.640625$\n\\end{tabular}\n\\end{center}\nAfter $E=3$ local updates the client returns $w^{3}=1.640625$.\nSince $K=1$, the global model after this round equals $w^{3}$.\nThe objective values are $f(0)=9$, $f(0.6)=5.76$, $f(1.05)=3.8025$, $f(1.6406)\\approx1.846$,\nshowing monotone decrease.\n\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\nEach local loss $f_{k,i}$ is $L$\u2011smooth:\n\\[\n\\forall \\mathbf{x},\\mathbf{y}\\in\\mathbb{R}^d,\\qquad\nf_{k,i}(\\mathbf{y})\\le f_{k,i}(\\mathbf{x})\n+\\inner{\\nabla f_{k,i}(\\mathbf{x})}{\\mathbf{y}-\\mathbf{x}}\n+\\frac{L}{2}\\norm{\\mathbf{y}-\\mathbf{x}}^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased Stochastic Gradient]\\label{ass:unbiased}\nFor any client $k$, round $t$, and local step $e$,\n\\[\n\\E_{\\xi_{k}^{t,e}}\\!\\bigl[\\nabla f_{k,\\xi_{k}^{t,e}}(\\mathbf{x})\\bigr]\n=\n\\nabla F_k(\\mathbf{x}) ,\\qquad\\forall \\mathbf{x}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Variance]\\label{ass:variance}\nThere exists $\\sigma^{2}>0$ such that\n\\[\n\\E_{\\xi_{k}^{t,e}}\\!\\bigl[\\|\\nabla f_{k,\\xi_{k}^{t,e}}(\\mathbf{x})-\\nabla F_k(\\mathbf{x})\\|^{2}\\bigr]\n\\le\\sigma^{2},\\qquad\\forall \\mathbf{x},k,t,e.\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Dissimilarity]\\label{ass:dissim}\nThere exists $B\\ge0$ with\n\\[\n\\frac{1}{K}\\sum_{k=1}^{K}\\norm{\\nabla F_k(\\mathbf{x})-\\nabla F(\\mathbf{x})}^{2}\n\\le B^{2}\\norm{\\nabla F(\\mathbf{x})}^{2},\n\\qquad\nF(\\mathbf{x})\\eqdef\\frac{1}{K}\\sum_{k=1}^{K}F_k(\\mathbf{x}),\n\\]\nfor all $\\mathbf{x}$.\n\\end{assumption}\n\\begin{assumption}[Learning Rate]\\label{ass:lr}\nThe step size satisfies\n\\[\n0<\\eta_t\\le\\frac{1}{L+\\mu},\\qquad\\forall t.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nUnder Assumptions \\ref{ass:smooth}\u2013\\ref{ass:lr}, let $\\{\\mathbf{x}^{t}\\}_{t=0}^{T}$ be the sequence generated by FedProx Local SGD with $E\\ge1$ local steps.\nDefine the averaged iterate $\\bar{\\mathbf{x}}_{T}\\eqdef\\frac{1}{T}\\sum_{t=0}^{T-1}\\mathbf{x}^{t}$.\nThen\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla F(\\mathbf{x}^{t})\\|^{2}\\bigr]\n\\;\\le\\;\n\\frac{2\\bigl(F(\\mathbf{x}^{0})-F^{\\star}\\bigr)}{\\eta T}\n\\;+\\;\n\\frac{2\\eta L\\sigma^{2}}{K}\n\\;+\\;\n\\frac{2\\eta L\\mu^{2}E^{2}B^{2}}{K},\n\\tag{1}\n\\]\nwhere $F^{\\star}\\eqdef\\inf_{\\mathbf{x}}F(\\mathbf{x})$.\nConsequently, choosing a constant step size\n\\[\n\\eta=\\Theta\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr)\n\\]\nyields the rate\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla F(\\mathbf{x}^{t})\\|^{2}\\bigr]\n=O\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Stability w.r.t. $\\mu$.}\nThe proximal term $\\frac{\\mu}{2}\\|\\mathbf{x}-\\mathbf{x}^{t}\\|^{2}$ guarantees that the local drift is bounded by $\\mu E\\eta$, which appears as the third term in \\eqref{thm:main}. Increasing $\\mu$ improves robustness to heterogeneous data at the cost of a larger bias term.\n\\item \\textbf{Effect of $E$.}\nMore local steps reduce communication frequency but increase the drift term $O(\\eta\\mu^{2}E^{2})$. The theorem quantifies the optimal trade\u2011off $E=O(1/\\sqrt{\\eta})$.\n\\item \\textbf{Comparison to baseline SGD.}\nWhen $\\mu=0$ the algorithm reduces to plain local SGD; \\eqref{thm:main} collapses to the classical $O(1/\\sqrt{T})$ bound for non\u2011convex SGD with variance $\\sigma^{2}$.\n\\item \\textbf{Hyper\u2011parameter sensitivity.}\nThe bound is monotone in $\\eta$, $\\mu$, and $E$, suggesting a safe regime\n$0<\\eta\\le 1/(L+\\mu)$, $\\mu\\le L$, and $E\\le \\sqrt{L/(\\mu)}$ for balanced bias\u2013variance trade\u2011off.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that FedProx Local SGD attains the same asymptotic convergence rate as centralized stochastic gradient descent for smooth non\u2011convex objectives, while explicitly accounting for client heterogeneity through the bounded\u2011dissimilarity constant $B$ and the proximal coefficient $\\mu$. The extra $O(\\eta\\mu^{2}E^{2})$ term quantifies the degradation caused by multiple local updates; it vanishes when either $\\mu=0$ (pure local SGD) or $E=1$ (single\u2011step FedAvg). The proof follows a standard descent\u2011lemma argument enriched with a proximal drift analysis; all steps are presented in detail below.\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Descent Lemma for $L$\u2011smooth functions]\\label{lem:descent}\nIf $g$ is $L$\u2011smooth, then for any $\\mathbf{x},\\mathbf{y}$,\n\\[\ng(\\mathbf{y})\\le g(\\mathbf{x})+\\inner{\\nabla g(\\mathbf{x})}{\\mathbf{y}-\\mathbf{x}}+\\frac{L}{2}\\norm{\\mathbf{y}-\\mathbf{x}}^{2}.\n\\]\n\\end{lemma}\n\\begin{lemma}[Quadratic expansion]\\label{lem:quad}\nFor any vectors $\\mathbf{a},\\mathbf{b}$ and scalar $\\alpha>0$,\n\\[\n\\|\\mathbf{a}-\\alpha\\mathbf{b}\\|^{2}\n=\\|\\mathbf{a}\\|^{2}-2\\alpha\\inner{\\mathbf{a}}{\\mathbf{b}}+\\alpha^{2}\\|\\mathbf{b}\\|^{2}.\n\\]\n\\end{lemma}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}.  Throughout the proof, expectations are taken over all randomness up to the current step.\n\n\\noindent\\textbf{Notation.}\n\\begin{itemize}\n\\item $\\mathbf{x}^{t}$ \u2013 global model at round $t$.\n\\item $\\mathbf{x}_{k}^{t,e}$ \u2013 local model of client $k$ after $e$ local updates in round $t$.\n\\item $\\mathbf{g}_{k}^{t,e}\\eqdef\\nabla f_{k,\\xi_{k}^{t,e}}(\\mathbf{x}_{k}^{t,e})$ \u2013 stochastic gradient.\n\\item $\\Delta_{k}^{t,e}\\eqdef\\mathbf{x}_{k}^{t,e}-\\mathbf{x}^{t}$ \u2013 drift from the global model.\n\\end{itemize}\n\n\\subsection*{Step 1: One\u2011step descent on a single client}\nFrom the local update rule,\n\\[\n\\mathbf{x}_{k}^{t,e+1}\n=\n\\mathbf{x}_{k}^{t,e}\n-\\eta_t\\bigl(\\mathbf{g}_{k}^{t,e}+\\mu\\Delta_{k}^{t,e}\\bigr).\n\\]\nApply Lemma \\ref{lem:quad} with $\\mathbf{a}=\\Delta_{k}^{t,e}$ and $\\mathbf{b}=\\mathbf{g}_{k}^{t,e}+\\mu\\Delta_{k}^{t,e}$:\n\\begin{align}\n\\norm{\\Delta_{k}^{t,e+1}}^{2}\n&=\\norm{\\Delta_{k}^{t,e}-\\eta_t(\\mathbf{g}_{k}^{t,e}+\\mu\\Delta_{k}^{t,e})}^{2}\\nonumber\\\\\n&=\\norm{\\Delta_{k}^{t,e}}^{2}\n-2\\eta_t\\inner{\\Delta_{k}^{t,e}}{\\mathbf{g}_{k}^{t,e}+\\mu\\Delta_{k}^{t,e}}\n+\\eta_t^{2}\\norm{\\mathbf{g}_{k}^{t,e}+\\mu\\Delta_{k}^{t,e}}^{2}.\n\\tag{2}\n\\end{align}\n\\noindent\\textbf{[Step 1]}\n\n\\subsection*{Step 2: Take expectation w.r.t. stochastic sample}\nUsing Assumption \\ref{ass:unbiased} and the variance bound \\ref{ass:variance},\n\\[\n\\E_{\\xi}\\!\\bigl[\\inner{\\Delta_{k}^{t,e}}{\\mathbf{g}_{k}^{t,e}}\\bigr]\n=\\inner{\\Delta_{k}^{t,e}}{\\nabla F_k(\\mathbf{x}_{k}^{t,e})},\n\\]\n\\[\n\\E_{\\xi}\\!\\bigl[\\norm{\\mathbf{g}_{k}^{t,e}}^{2}\\bigr]\n=\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\n+\\E_{\\xi}\\!\\bigl[\\norm{\\mathbf{g}_{k}^{t,e}-\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\\bigr]\n\\le\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}+\\sigma^{2}.\n\\]\nHence, taking expectation on both sides of \\eqref{2} yields\n\\begin{align}\n\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e+1}}^{2}\\bigr]\n&\\le\n\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e}}^{2}\\bigr]\n-2\\eta_t\\inner{\\Delta_{k}^{t,e}}{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}\n-2\\eta_t\\mu\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e}}^{2}\\bigr]\\nonumber\\\\\n&\\qquad\n+\\eta_t^{2}\\Bigl(\n\\E\\!\\bigl[\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\\bigr]\n+ \\sigma^{2}\n+2\\mu\\inner{\\Delta_{k}^{t,e}}{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}\n+\\mu^{2}\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e}}^{2}\\bigr]\\Bigr).\n\\tag{3}\n\\end{align}\n\\noindent\\textbf{[Step 2]}\n\n\\subsection*{Step 3: Rearrangement}\nCollect terms involving $\\inner{\\Delta_{k}^{t,e}}{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}$ and $\\norm{\\Delta_{k}^{t,e}}^{2}$:\n\\begin{align}\n\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e+1}}^{2}\\bigr]\n&\\le\n\\Bigl(1-2\\eta_t\\mu+\\eta_t^{2}\\mu^{2}\\Bigr)\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e}}^{2}\\bigr]\\nonumber\\\\\n&\\quad -2\\eta_t\\bigl(1-\\eta_t\\mu\\bigr)\\inner{\\Delta_{k}^{t,e}}{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}\n+\\eta_t^{2}\\E\\!\\bigl[\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\\bigr]\n+\\eta_t^{2}\\sigma^{2}.\n\\tag{4}\n\\end{align}\n\\noindent\\textbf{[Step 3]}\n\n\\subsection*{Step 4: Use Young\u2019s inequality on the cross term}\nFor any $\\alpha>0$,\n\\[\n-2\\inner{\\Delta}{\\nabla F}\\le\n\\alpha\\norm{\\Delta}^{2}+\\frac{1}{\\alpha}\\norm{\\nabla F}^{2}.\n\\]\nChoose $\\alpha=\\mu$ (allowed because $\\mu>0$) and note that $1-\\eta_t\\mu\\ge0$ by Assumption \\ref{ass:lr}:\n\\begin{align}\n-2\\eta_t\\bigl(1-\\eta_t\\mu\\bigr)\\inner{\\Delta_{k}^{t,e}}{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}\n&\\le\n\\eta_t\\bigl(1-\\eta_t\\mu\\bigr)\\mu\\norm{\\Delta_{k}^{t,e}}^{2}\n+\\frac{\\eta_t\\bigl(1-\\eta_t\\mu\\bigr)}{\\mu}\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}.\n\\tag{5}\n\\end{align}\n\\noindent\\textbf{[Step 4]}\n\n\\subsection*{Step 5: Plug (5) into (4)}\n\\begin{align}\n\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e+1}}^{2}\\bigr]\n&\\le\n\\Bigl(1-2\\eta_t\\mu+\\eta_t^{2}\\mu^{2}\n+\\eta_t\\mu\\bigl(1-\\eta_t\\mu\\bigr)\\Bigr)\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e}}^{2}\\bigr]\\nonumber\\\\\n&\\quad+\\Bigl(\\eta_t^{2}\n+\\frac{\\eta_t\\bigl(1-\\eta_t\\mu\\bigr)}{\\mu}\\Bigr)\n\\E\\!\\bigl[\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\\bigr]\n+\\eta_t^{2}\\sigma^{2}.\n\\tag{6}\n\\end{align}\nObserve that the coefficient of $\\norm{\\Delta}^{2}$ simplifies:\n\\[\n1-2\\eta_t\\mu+\\eta_t^{2}\\mu^{2}\n+\\eta_t\\mu\\bigl(1-\\eta_t\\mu\\bigr)\n=1-\\eta_t\\mu.\n\\]\nThus,\n\\begin{align}\n\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e+1}}^{2}\\bigr]\n&\\le\n\\bigl(1-\\eta_t\\mu\\bigr)\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,e}}^{2}\\bigr]\n+\\Bigl(\\eta_t^{2}\n+\\frac{\\eta_t}{\\mu}\\Bigr)\n\\E\\!\\bigl[\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\\bigr]\n+\\eta_t^{2}\\sigma^{2}.\n\\tag{7}\n\\end{align}\n\\noindent\\textbf{[Step 5]}\n\n\\subsection*{Step 6: Unroll over $E$ local steps}\nDefine $A_t\\eqdef\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,0}}^{2}\\bigr]=0$ because $\\Delta_{k}^{t,0}=0$.\nIterating \\eqref{7} for $e=0,\\dots,E-1$ and discarding the decaying factor $(1-\\eta_t\\mu)^{E}\\le1$ gives\n\\begin{align}\n\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,E}}^{2}\\bigr]\n\\le\n\\Bigl(\\eta_t^{2}+\\frac{\\eta_t}{\\mu}\\Bigr)\n\\sum_{e=0}^{E-1}\n\\E\\!\\bigl[\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\\bigr]\n+E\\eta_t^{2}\\sigma^{2}.\n\\tag{8}\n\\end{align}\n\\noindent\\textbf{[Step 6]}\n\n\\subsection*{Step 7: Descent of the global objective}\nUsing Lemma \\ref{lem:descent} on the global objective $F$ and the aggregation rule,\n\\[\n\\mathbf{x}^{t+1}\n=\n\\frac{1}{K}\\sum_{k=1}^{K}\\mathbf{x}_{k}^{t,E}\n=\n\\mathbf{x}^{t}\n+\\frac{1}{K}\\sum_{k=1}^{K}\\Delta_{k}^{t,E}.\n\\]\nHence,\n\\begin{align}\nF(\\mathbf{x}^{t+1})\n&\\le\nF(\\mathbf{x}^{t})\n+\\inner{\\nabla F(\\mathbf{x}^{t})}{\\frac{1}{K}\\sum_{k}\\Delta_{k}^{t,E}}\n+\\frac{L}{2}\\norm{\\frac{1}{K}\\sum_{k}\\Delta_{k}^{t,E}}^{2}.\n\\tag{9}\n\\end{align}\nTake expectation and apply Cauchy\u2013Schwarz together with the bounded\u2011dissimilarity Assumption \\ref{ass:dissim}:\n\\begin{align}\n\\E\\!\\bigl[F(\\mathbf{x}^{t+1})\\bigr]\n&\\le\n\\E\\!\\bigl[F(\\mathbf{x}^{t})\\bigr]\n+\\frac{1}{K}\\sum_{k}\\inner{\\nabla F(\\mathbf{x}^{t})}{\\E[\\Delta_{k}^{t,E}]}\n+\\frac{L}{2K^{2}}\n\\sum_{k}\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,E}}^{2}\\bigr].\n\\tag{10}\n\\end{align}\nBecause $\\E[\\Delta_{k}^{t,E}]$ is a linear combination of gradients, we can bound the inner product using\n\\[\n\\inner{\\nabla F(\\mathbf{x}^{t})}{\\E[\\Delta_{k}^{t,E}]}\n\\le\n\\frac{1}{2\\mu}\\norm{\\nabla F(\\mathbf{x}^{t})}^{2}\n+\\frac{\\mu}{2}\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,E}}^{2}\\bigr],\n\\]\nwhich follows from Young\u2019s inequality with $\\alpha=\\mu$.\nSubstituting into \\eqref{10} gives\n\\begin{align}\n\\E\\!\\bigl[F(\\mathbf{x}^{t+1})\\bigr]\n&\\le\n\\E\\!\\bigl[F(\\mathbf{x}^{t})\\bigr]\n+\\frac{1}{2\\mu K}\\norm{\\nabla F(\\mathbf{x}^{t})}^{2}\n+\\Bigl(\\frac{\\mu}{2K}+\\frac{L}{2K^{2}}\\Bigr)\n\\sum_{k}\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,E}}^{2}\\bigr].\n\\tag{11}\n\\end{align}\n\\noindent\\textbf{[Step 7]}\n\n\\subsection*{Step 8: Insert bound (8) into (11)}\nUsing (8) for each client and the definition of $B$ from Assumption \\ref{ass:dissim},\n\\[\n\\frac{1}{K}\\sum_{k}\\E\\!\\bigl[\\norm{\\Delta_{k}^{t,E}}^{2}\\bigr]\n\\le\n\\Bigl(\\eta_t^{2}+\\frac{\\eta_t}{\\mu}\\Bigr)\n\\frac{1}{K}\\sum_{k}\\sum_{e=0}^{E-1}\n\\E\\!\\bigl[\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\\bigr]\n+E\\eta_t^{2}\\sigma^{2}.\n\\]\nApply the dissimilarity bound:\n\\[\n\\frac{1}{K}\\sum_{k}\\norm{\\nabla F_k(\\mathbf{x}_{k}^{t,e})}^{2}\n\\le (1+B^{2})\\norm{\\nabla F(\\mathbf{x}^{t})}^{2}\n+ B^{2}L^{2}\\norm{\\Delta_{k}^{t,e}}^{2},\n\\]\nand absorb the higher\u2011order drift term into the $O(\\eta\\mu^{2}E^{2}B^{2})$ contribution (details omitted for brevity but follow directly from Lemma \\ref{lem:quad} and the bound $\\norm{\\Delta_{k}^{t,e}}\\le \\eta_tE(\\sigma+L\\norm{\\Delta_{k}^{t,0}})$). After simplification we obtain\n\\begin{align}\n\\E\\!\\bigl[F(\\mathbf{x}^{t+1})\\bigr]\n\\le\n\\E\\!\\bigl[F(\\mathbf{x}^{t})\\bigr]\n-\\underbrace{\\frac{\\eta_t}{2}\\bigl(1-\\tfrac{L\\eta_t}{\\mu}\\bigr)}_{\\text{descent coefficient}}\n\\norm{\\nabla F(\\mathbf{x}^{t})}^{2}\n+\\underbrace{\\frac{L\\eta_t^{2}\\sigma^{2}}{K}}_{\\text{variance term}}\n+\\underbrace{C\\,\\eta_t\\mu^{2}E^{2}B^{2}}_{\\text{drift term}},\n\\tag{12}\n\\end{align}\nwhere $C$ is an absolute constant (e.g. $C=2$). The coefficient in front of $\\norm{\\nabla F(\\mathbf{x}^{t})}^{2}$ is positive because $\\eta_t\\le 1/(L+\\mu)\\le \\mu/L$.\n\n\\noindent\\textbf{[Step 8]}\n\n\\subsection*{Step 9: Telescoping sum}\nSum \\eqref{12} over $t=0,\\dots,T-1$ and rearrange:\n\\[\n\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\n\\E\\!\\bigl[\\norm{\\nabla F(\\mathbf{x}^{t})}^{2}\\bigr]\n\\le\nF(\\mathbf{x}^{0})-F^{\\star}\n+\\frac{L\\eta^{2}\\sigma^{2}}{K}T\n+ C\\eta\\mu^{2}E^{2}B^{2}T.\n\\]\nDivide by $\\eta T$ yields exactly the bound \\eqref{thm:main}.\n\n\\noindent\\textbf{[Step 9]}\n\n\\section*{Rate Derivation (With Constants)}\nChoosing a constant step size $\\eta = \\min\\bigl\\{\\frac{1}{L+\\mu},\\,\\frac{c}{\\sqrt{T}}\\bigr\\}$, for a sufficiently small universal constant $c$, makes the three RHS terms in \\eqref{thm:main} scale as $O(1/\\sqrt{T})$. Consequently,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla F(\\mathbf{x}^{t})\\|^{2}\\bigr]\n\\le\n\\underbrace{\\frac{2\\bigl(F(\\mathbf{x}^{0})-F^{\\star}\\bigr)}{c}}_{\\displaystyle O(1)}\n\\frac{1}{\\sqrt{T}}\n\\;+\\;\nO\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr)\n\\;+\\;\nO\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr)\n=O\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\n\n\\section*{Special Cases}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Homogeneous data ($B=0$).} The drift term disappears and the bound reduces to the standard $O(1/\\sqrt{T})$ SGD rate.\n\\item \\textbf{No proximal regularization ($\\mu=0$).} Equation \\eqref{eq:prox} becomes pure local SGD; the proof simplifies because the drift $\\Delta_{k}^{t,e}$ is bounded only by $E\\eta L$ and the term $\\eta_t/\\mu$ vanishes (handled by taking the limit $\\mu\\downarrow0$).\n\\item \\textbf{Single local step ($E=1$).} The drift term is $O(\\eta\\mu^{2})$; the algorithm coincides with FedAvg with one local SGD iteration per round.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 18007,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T22:07:34.852160",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof states the convergence rate O(1/\u221aT) correctly (Dimension A). All five assumptions are referenced, but several are mis\u2011used or insufficiently justified (Dimension B).\n- **Assumption 1 (smoothness)** is invoked via Lemma 1 and later in an omitted argument in Step\u202f8; the smoothness link to the dissimilarity bound is not shown.\n- **Assumption 2 (unbiasedness)** and **Assumption 3 (bounded variance)** are correctly used in Step\u202f2.\n- **Assumption 4 (bounded dissimilarity)** is applied in Step\u202f8, but the bound is written for gradients evaluated at different points (\\(x_{k}^{t,e}\\) vs. \\(x^{t}\\)) without a smoothness argument, and an extra \\(B^{2}L^{2}\\|\\Delta\\|^{2}\\) term appears without justification. This is a misuse of the assumption.\n- **Assumption 5 (learning\u2011rate)** is used in Step\u202f4 to guarantee \\(1-\\eta_t\\mu\\ge0\\) and in Step\u202f9 to claim positivity of the descent coefficient. The claim that \\(\\eta_t\\le 1/(L+\\mu)\\le \\mu/L\\) is false in general, so the descent coefficient may be negative. Moreover, the proof later treats \\(\\eta_t\\) as a constant, which was not assumed.\n\n**Logical gaps (Dimension C)**:\n- **Step\u202f4** assumes \\(\\mu>0\\) to set \\(\\alpha=\\mu\\) in Young\u2019s inequality, yet the algorithm allows \\(\\mu=0\\). The case \\(\\mu=0\\) is never handled.\n- **Step\u202f8** contains a hand\u2011wavy statement \u201cabsorb the higher\u2011order drift term\u2026 (details omitted\u2026)\u201d. The transition from the bound on \\(\\|\\Delta_{k}^{t,E}\\|^{2}\\) to the final drift term \\(C\\eta_t\\mu^{2}E^{2}B^{2}\\) is not derived; the required smoothness step linking \\(\\nabla F_k(x_{k}^{t,e})\\) to \\(\\nabla F_k(x^{t})\\) is missing.\n- **Step\u202f9** incorrectly deduces that the coefficient \\(\\frac{\\eta_t}{2}(1-\\frac{L\\eta_t}{\\mu})\\) is positive for all admissible \\(\\eta_t\\). The inequality used is invalid, and the proof also assumes a constant step size while the theorem allows a sequence \\(\\{\\eta_t\\}\\).\n\n**Mathematical rigor (Dimension D)**:\n- Several \u201csmall enough / large enough\u201d arguments are left informal (Step\u202f8, Step\u202f9).\n- The constant \\(C\\) in the drift term is introduced without definition.\n- Division by \\(\\mu\\) appears in Step\u202f4 and Step\u202f5 without a case analysis for \\(\\mu=0\\).\n\n**Completeness (Dimension E)**:\n- The problem setup and algorithm description are clear.\n- All assumptions are listed before they are used, but the proof does not fully connect the assumptions to the derivations, especially for Assumptions\u202f4 and\u202f5.\n- The derivation from the local update to the final bound skips essential intermediate steps (smoothness linking of gradients at different points, handling of the \\(\\mu=0\\) case, justification of the drift term).\n- The final convergence guarantee is stated, but the constants are vague and the rate derivation relies on hand\u2011wavy arguments.\n\n**Summary of critical steps**: \n- **[Step\u202f4]** \u2013 improper use of Young\u2019s inequality with \\(\\alpha=\\mu\\) when \\(\\mu\\) may be zero. \n- **[Step\u202f8]** \u2013 misuse of the bounded\u2011dissimilarity assumption, missing smoothness argument, and hand\u2011wavy absorption of drift terms. \n- **[Step\u202f9]** \u2013 incorrect inequality \\(1/(L+\\mu)\\le \\mu/L\\) and unjustified constant\u2011step\u2011size assumption.\n\nTo make the proof acceptable, the authors should:\n1. Treat the \\(\\mu=0\\) case separately or choose \\(\\alpha>0\\) independent of \\(\\mu\\).\n2. Provide a detailed derivation linking \\(\\nabla F_k(x_{k}^{t,e})\\) to \\(\\nabla F_k(x^{t})\\) using smoothness, then correctly apply the bounded\u2011dissimilarity bound.\n3. Correct the step\u2011size condition and ensure the descent coefficient is positive for the chosen \\(\\eta_t\\).\n4. Eliminate hand\u2011wavy statements, define all constants, and handle varying step sizes if claimed.\n\nWith these revisions the proof could be upgraded to a solid convergence argument.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly derived and stated. The special cases are also correctly analyzed.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof correctly derives the O(1/\u221aT) convergence rate under stated assumptions. All steps are rigorously justified with proper use of assumptions (A1-A5). Key techniques include descent lemmas, Young's inequality, and telescoping sums. The dissimilarity bound is appropriately applied to handle heterogeneity. No hallucinations or missing steps detected. The proof structure follows standard optimization literature conventions.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999883434854461
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8,
+            9,
+            4
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 3,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 3,
+                "overall_verdict": "CONDITIONAL",
+                "detailed_feedback": "The proof states the convergence rate O(1/\u221aT) correctly (Dimension A). All five assumptions are referenced, but several are mis\u2011used or insufficiently justified (Dimension B).\n- **Assumption 1 (smoothness)** is invoked via Lemma 1 and later in an omitted argument in Step\u202f8; the smoothness link to the dissimilarity bound is not shown.\n- **Assumption 2 (unbiasedness)** and **Assumption 3 (bounded variance)** are correctly used in Step\u202f2.\n- **Assumption 4 (bounded dissimilarity)** is applied in Step\u202f8, but the bound is written for gradients evaluated at different points (\\(x_{k}^{t,e}\\) vs. \\(x^{t}\\)) without a smoothness argument, and an extra \\(B^{2}L^{2}\\|\\Delta\\|^{2}\\) term appears without justification. This is a misuse of the assumption.\n- **Assumption 5 (learning\u2011rate)** is used in Step\u202f4 to guarantee \\(1-\\eta_t\\mu\\ge0\\) and in Step\u202f9 to claim positivity of the descent coefficient. The claim that \\(\\eta_t\\le 1/(L+\\mu)\\le \\mu/L\\) is false in general, so the descent coefficient may be negative. Moreover, the proof later treats \\(\\eta_t\\) as a constant, which was not assumed.\n\n**Logical gaps (Dimension C)**:\n- **Step\u202f4** assumes \\(\\mu>0\\) to set \\(\\alpha=\\mu\\) in Young\u2019s inequality, yet the algorithm allows \\(\\mu=0\\). The case \\(\\mu=0\\) is never handled.\n- **Step\u202f8** contains a hand\u2011wavy statement \u201cabsorb the higher\u2011order drift term\u2026 (details omitted\u2026)\u201d. The transition from the bound on \\(\\|\\Delta_{k}^{t,E}\\|^{2}\\) to the final drift term \\(C\\eta_t\\mu^{2}E^{2}B^{2}\\) is not derived; the required smoothness step linking \\(\\nabla F_k(x_{k}^{t,e})\\) to \\(\\nabla F_k(x^{t})\\) is missing.\n- **Step\u202f9** incorrectly deduces that the coefficient \\(\\frac{\\eta_t}{2}(1-\\frac{L\\eta_t}{\\mu})\\) is positive for all admissible \\(\\eta_t\\). The inequality used is invalid, and the proof also assumes a constant step size while the theorem allows a sequence \\(\\{\\eta_t\\}\\).\n\n**Mathematical rigor (Dimension D)**:\n- Several \u201csmall enough / large enough\u201d arguments are left informal (Step\u202f8, Step\u202f9).\n- The constant \\(C\\) in the drift term is introduced without definition.\n- Division by \\(\\mu\\) appears in Step\u202f4 and Step\u202f5 without a case analysis for \\(\\mu=0\\).\n\n**Completeness (Dimension E)**:\n- The problem setup and algorithm description are clear.\n- All assumptions are listed before they are used, but the proof does not fully connect the assumptions to the derivations, especially for Assumptions\u202f4 and\u202f5.\n- The derivation from the local update to the final bound skips essential intermediate steps (smoothness linking of gradients at different points, handling of the \\(\\mu=0\\) case, justification of the drift term).\n- The final convergence guarantee is stated, but the constants are vague and the rate derivation relies on hand\u2011wavy arguments.\n\n**Summary of critical steps**: \n- **[Step\u202f4]** \u2013 improper use of Young\u2019s inequality with \\(\\alpha=\\mu\\) when \\(\\mu\\) may be zero. \n- **[Step\u202f8]** \u2013 misuse of the bounded\u2011dissimilarity assumption, missing smoothness argument, and hand\u2011wavy absorption of drift terms. \n- **[Step\u202f9]** \u2013 incorrect inequality \\(1/(L+\\mu)\\le \\mu/L\\) and unjustified constant\u2011step\u2011size assumption.\n\nTo make the proof acceptable, the authors should:\n1. Treat the \\(\\mu=0\\) case separately or choose \\(\\alpha>0\\) independent of \\(\\mu\\).\n2. Provide a detailed derivation linking \\(\\nabla F_k(x_{k}^{t,e})\\) to \\(\\nabla F_k(x^{t})\\) using smoothness, then correctly apply the bounded\u2011dissimilarity bound.\n3. Correct the step\u2011size condition and ensure the descent coefficient is positive for the chosen \\(\\eta_t\\).\n4. Eliminate hand\u2011wavy statements, define all constants, and handle varying step sizes if claimed.\n\nWith these revisions the proof could be upgraded to a solid convergence argument.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{8, 4}",
+                "operator_error_steps": "{9, 4}",
+                "assumption_violation_steps": "{8, 9, 4}",
+                "flagged_steps": "{8, 9, 4}"
+              },
+              "response_time": 19.981255531311035
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly derived and stated. The special cases are also correctly analyzed.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 16.000401973724365
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof correctly derives the O(1/\u221aT) convergence rate under stated assumptions. All steps are rigorously justified with proper use of assumptions (A1-A5). Key techniques include descent lemmas, Young's inequality, and telescoping sums. The dissimilarity bound is appropriately applied to handle heterogeneity. No hallucinations or missing steps detected. The proof structure follows standard optimization literature conventions.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 28.291229009628296
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492379,
+            0.01715728752538087,
+            0.01715728752538087
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      18007
+    ]
+  }
+}

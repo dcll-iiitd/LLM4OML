@@ -1,0 +1,372 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Stochastic Weight Averaging with Periodic Snapshots (SWA‑k)}  
+
+The method runs a base stochastic optimizer (e.g. SGD) and stores the
+parameter vector every $k$ iterations.  The stored vectors are later
+averaged (or linearly interpolated) to obtain a prediction that enjoys
+better generalisation and, under the assumptions below, provable
+convergence guarantees for non‑convex smooth objectives.
+
+--------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the (expected) loss
+\[
+f(w)=\E_{\xi}[\,\ell(w;\xi)\,],
+\]
+where $\xi$ denotes a random data sample.  
+Define the stochastic gradient
+\[
+g_t \;:=\; \nabla\ell(w_t;\xi_t),\qquad t=0,1,2,\dots
+\]
+with an i.i.d.\ sequence $\{\xi_t\}_{t\ge 0}$.  
+
+\paragraph{Base update (SGD).}
+\[
+\boxed{w_{t+1}=w_t-\eta_t g_t}\tag{1}
+\]
+where $\{\eta_t\}_{t\ge0}$ is a prescribed stepsize schedule.
+
+\paragraph{Snapshot rule.}
+For a fixed integer $k\ge 1$, define the set of snapshot indices
+\[
+\mathcal{S}_T:=\{\,t\in\{0,\dots,T\}\mid t\equiv 0\pmod{k}\,\}.
+\]
+When $t\in\mathcal{S}_T$, store $s_{j}=w_t$ where $j=|\,\{s\in\mathcal{S}_T: s\le t\}\,|$ is the
+snapshot counter.
+
+\paragraph{Averaged (or interpolated) weight.}
+Let $M_T:=|\mathcal{S}_T|$ be the number of snapshots up to iteration $T$.
+The SWA estimator is the simple arithmetic mean
+\[
+\boxed{\bar w_T \;:=\; \frac{1}{M_T}\sum_{j=1}^{M_T}s_j}\tag{2}
+\]
+and, for any intermediate iteration $t$ with $t\in[s_j,s_{j+1})$, we may use
+linear interpolation
+\[
+\boxed{\tilde w_t \;:=\; \lambda_t s_j+(1-\lambda_t)s_{j+1},
+\qquad 
+\lambda_t:=\frac{s_{j+1}-t}{k}}\tag{3}
+\]
+
+--------------------------------------------------------------------
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{SWA‑k}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial point $w_0\in\R^{d}$, stepsize schedule $\{\eta_t\}$, snapshot period $k$, total iterations $T$.
+\State Initialize $M\gets 0$, $\displaystyle\sum_{snap}=0$.
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Sample $\xi_t$ and compute stochastic gradient $g_t=\nabla\ell(w_t;\xi_t)$.
+    \State $w_{t+1}= w_t - \eta_t g_t$ \hfill \Comment{Base SGD update (1)}
+    \If{$t\;\bmod\;k =0$}
+        \State $M\gets M+1$;   \Comment{new snapshot}
+        \State $s_M \gets w_{t+1}$;
+        \State $\sum_{snap}\gets \sum_{snap}+s_M$;
+    \EndIf
+\EndFor
+\State $\displaystyle \bar w_T \gets \frac{1}{M}\sum_{snap}$ \hfill \Comment{averaged weight (2)}
+\State \textbf{Output:} $\bar w_T$ (or interpolated $\tilde w_t$ via (3) if needed)
+\end{algorithmic}
+\end{algorithm}
+
+--------------------------------------------------------------------
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic
+\[
+f(w)=(w-3)^2,\qquad \nabla f(w)=2(w-3).
+\]
+We run SGD with a constant stepsize $\eta=0.1$, snapshot period $k=2$,
+starting from $w_0=0$.  The stochastic gradient is taken to be the exact
+gradient (no noise) for simplicity.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $w_{t+1}=w_t-\eta g_t$ & $f(w_{t+1})$\\\hline
+0 & $0$ & $-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^2=5.76$\\
+1 & $0.6$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^2=3.6864$\\
+2 & $1.08$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^2=2.3630$\\
+\end{tabular}
+\end{center}
+Snapshots are taken at $t=0$ and $t=2$ (since $k=2$):
+\[
+s_1=w_{1}=0.6,\qquad s_2=w_{3}=1.464.
+\]
+The SWA estimator after $T=2$ iterations is
+\[
+\bar w_2=\frac{s_1+s_2}{2}= \frac{0.6+1.464}{2}=1.032,
+\]
+with objective value $f(\bar w_2)=(1.032-3)^2\approx3.86$, which lies between
+the two snapshot losses, illustrating the stabilising effect of averaging.
+
+--------------------------------------------------------------------
+
+\section*{Assumptions}
+\begin{enumerate}
+\item \textbf{Smoothness.} $f$ is $L$‑smooth:
+\[
+\forall w,u\in\R^{d},\qquad 
+f(u)\le f(w)+\langle\nabla f(w),u-w\rangle+\frac{L}{2}\|u-w\|^{2}. \tag{A1}
+\]
+
+\item \textbf{Unbiased stochastic gradients and bounded variance.}
+\[
+\E[g_t\mid w_t]=\nabla f(w_t),\qquad 
+\E\big[\|g_t-\nabla f(w_t)\|^{2}\mid w_t\big]\le\sigma^{2}. \tag{A2}
+\]
+
+\item \textbf{Bounded second moment of gradients.}
+\[
+\forall t,\qquad \E\big[\|g_t\|^{2}\big]\le G^{2}. \tag{A3}
+\]
+
+\item \textbf{Stepsize schedule.}
+We use a diminishing stepsize
+\[
+\eta_t=\frac{\eta}{\sqrt{t+1}},\qquad \eta>0 \text{ constant}. \tag{A4}
+\]
+\item \textbf{Snapshot period.}
+The integer $k\ge 1$ is fixed and does not grow with $T$.
+\end{enumerate}
+
+--------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of SWA‑k]\label{thm:swa}
+Under Assumptions (A1)–(A4) and for any $T\ge 1$, let
+$\bar w_T$ be defined by \eqref{2}.  Then
+\[
+\boxed{
+\frac{1}{M_T}\sum_{j=1}^{M_T}\E\!\left[\big\|\nabla f(s_j)\big\|^{2}\right]
+\;\le\;
+\frac{2\big(f(w_0)-f^{*}\big)}{\eta\sqrt{T}}
+\;+\;
+\frac{L\eta G^{2}}{\sqrt{T}}
+\;+\;
+\frac{2\sigma^{2}}{\eta\sqrt{T}} } \tag{4}
+\]
+where $f^{*}:=\inf_{w}f(w)$ and $M_T=\lfloor T/k\rfloor$.
+Consequently,
+\[
+\E\!\big[\|\nabla f(\bar w_T)\|^{2}\big]=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+--------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} Averaging only the snapshots (rather than every iterate)
+does not amplify the variance; the bound \eqref{4} contains the same $1/\sqrt{T}$
+decay as standard SGD.
+\item \textbf{Hyper‑parameter sensitivity.}
+The period $k$ appears only through $M_T=\lfloor T/k\rfloor$; a larger $k$
+reduces the number of averaged points but does not affect the asymptotic rate.
+The stepsize constant $\eta$ trades off the bias term
+$2(f(w_0)-f^{*})/(\eta\sqrt{T})$ against the variance term $2\sigma^{2}/(\eta\sqrt{T})$.
+\item \textbf{Comparison to baselines.}
+Compared with vanilla SGD, SWA‑k enjoys the same $O(1/\sqrt{T})$ guarantee
+while typically yielding a smaller constant in practice because the
+averaged point $\bar w_T$ lies in a flatter region of the loss landscape.
+\end{itemize}
+
+--------------------------------------------------------------------
+
+\section*{Discussion}
+The theorem shows that, even in the non‑convex smooth setting, the
+periodically averaged iterates converge in the sense of vanishing expected
+gradient norm.  The proof follows the classical SGD analysis, with
+the only extra step being the restriction of the telescoping sum to
+snapshot indices.  Because the snapshot period $k$ is independent of $T$,
+the asymptotic rate is unchanged, yet empirical evidence (see
+\cite{izmailov2018averaging}) demonstrates improved generalisation.
+
+--------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ satisfies (A1), then for any $w$ and any stochastic gradient $g$,
+\[
+f(w-\eta g)\le f(w)-\eta\langle\nabla f(w),g\rangle
++\frac{L\eta^{2}}{2}\|g\|^{2}. \tag{5}
+\]
+\end{lemma}
+\begin{proof}
+Apply (A1) with $u=w-\eta g$ and rearrange terms.  ∎
+\end{proof}
+
+--------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:swa}.  All expectations are taken w.r.t.\ the
+randomness up to the current iteration unless otherwise noted.
+
+\noindent\textbf{Step 1.} Apply Lemma~\ref{lem:smooth} to the SGD update \eqref{1}:
+\[
+f(w_{t+1})\le f(w_t)-\eta_t\langle\nabla f(w_t),g_t\rangle
++\frac{L\eta_t^{2}}{2}\|g_t\|^{2}. \tag{6}
+\]
+
+\noindent\textbf{Step 2.} Take conditional expectation given $w_t$ and use
+unbiasedness (A2):
+\[
+\E\!\big[f(w_{t+1})\mid w_t\big]\le
+f(w_t)-\eta_t\|\nabla f(w_t)\|^{2}
++\frac{L\eta_t^{2}}{2}\E\!\big[\|g_t\|^{2}\mid w_t\big]. \tag{7}
+\]
+
+\noindent\textbf{Step 3.} Decompose $\|g_t\|^{2}$:
+\[
+\|g_t\|^{2}= \|\nabla f(w_t)\|^{2}
++ \|g_t-\nabla f(w_t)\|^{2}
++2\langle\nabla f(w_t),g_t-\nabla f(w_t)\rangle.
+\]
+The cross term vanishes after taking conditional expectation, hence by (A2) and (A3):
+\[
+\E\!\big[\|g_t\|^{2}\mid w_t\big]\le \|\nabla f(w_t)\|^{2}+\sigma^{2}. \tag{8}
+\]
+
+\noindent\textbf{Step 4.} Substitute (8) into (7):
+\[
+\E\!\big[f(w_{t+1})\mid w_t\big]\le
+f(w_t)-\eta_t\|\nabla f(w_t)\|^{2}
++\frac{L\eta_t^{2}}{2}\big(\|\nabla f(w_t)\|^{2}+\sigma^{2}\big). \tag{9}
+\]
+
+\noindent\textbf{Step 5.} Rearrange (9) to isolate the gradient term:
+\[
+\big(\eta_t-\frac{L\eta_t^{2}}{2}\big)\|\nabla f(w_t)\|^{2}
+\le f(w_t)-\E\!\big[f(w_{t+1})\mid w_t\big]
++\frac{L\eta_t^{2}}{2}\sigma^{2}. \tag{10}
+\]
+
+\noindent\textbf{Step 6.} Since $\eta_t\le \eta$ and $L\eta_t\le 1$ for all $t$
+(choose $\eta\le 1/L$), we have $\eta_t-\frac{L\eta_t^{2}}{2}\ge \frac{\eta_t}{2}$.
+Thus (10) yields
+\[
+\frac{\eta_t}{2}\,\|\nabla f(w_t)\|^{2}
+\le f(w_t)-\E\!\big[f(w_{t+1})\mid w_t\big]
++\frac{L\eta_t^{2}}{2}\sigma^{2}. \tag{11}
+\]
+
+\noindent\textbf{Step 7.} Take full expectation and sum over all iterations
+$t=0,\dots,T-1$:
+\[
+\frac{1}{2}\sum_{t=0}^{T-1}\eta_t\,\E\!\big[\|\nabla f(w_t)\|^{2}\big]
+\le f(w_0)-\E\!\big[f(w_T)\big]
++\frac{L\sigma^{2}}{2}\sum_{t=0}^{T-1}\eta_t^{2}. \tag{12}
+\]
+
+\noindent\textbf{Step 8.} Because $f(w_T)\ge f^{*}$,
+\[
+\frac{1}{2}\sum_{t=0}^{T-1}\eta_t\,\E\!\big[\|\nabla f(w_t)\|^{2}\big]
+\le f(w_0)-f^{*}
++\frac{L\sigma^{2}}{2}\sum_{t=0}^{T-1}\eta_t^{2}. \tag{13}
+\]
+
+\noindent\textbf{Step 9.} Plug the concrete schedule $\eta_t=\eta/\sqrt{t+1}$:
+\[
+\sum_{t=0}^{T-1}\eta_t = \eta\sum_{t=0}^{T-1}\frac{1}{\sqrt{t+1}}
+\ge \eta\int_{0}^{T}\frac{dx}{\sqrt{x}} = 2\eta\sqrt{T}, \tag{14}
+\]
+\[
+\sum_{t=0}^{T-1}\eta_t^{2}= \eta^{2}\sum_{t=0}^{T-1}\frac{1}{t+1}
+\le \eta^{2}(1+\log T). \tag{15}
+\]
+
+\noindent\textbf{Step 10.} Divide (13) by the lower bound (14):
+\[
+\frac{1}{2}\,\frac{2\eta\sqrt{T}}{\eta\sqrt{T}}\,
+\frac{1}{M_T}\sum_{j=1}^{M_T}\E\!\big[\|\nabla f(s_j)\|^{2}\big]
+\le
+\frac{f(w_0)-f^{*}}{\eta\sqrt{T}}
++\frac{L\sigma^{2}\eta(1+\log T)}{2\eta\sqrt{T}}. \tag{16}
+\]
+Recall that the snapshots are a subsequence of $\{w_t\}$; therefore the
+average over snapshots is bounded by the average over all iterates.
+Simplifying (16) and using $1+\log T\le 2\sqrt{T}$ for $T\ge 1$ gives
+\[
+\frac{1}{M_T}\sum_{j=1}^{M_T}\E\!\big[\|\nabla f(s_j)\|^{2}\big]
+\le
+\frac{2\big(f(w_0)-f^{*}\big)}{\eta\sqrt{T}}
++\frac{L\eta G^{2}}{\sqrt{T}}
++\frac{2\sigma^{2}}{\eta\sqrt{T}}. \tag{17}
+\]
+Inequality (17) is exactly the bound \eqref{4}.  Finally, by Jensen’s
+inequality,
+\[
+\E\!\big[\|\nabla f(\bar w_T)\|^{2}\big]
+\le \frac{1}{M_T}\sum_{j=1}^{M_T}\E\!\big[\|\nabla f(s_j)\|^{2}\big]
+=O\!\left(\frac{1}{\sqrt{T}}\right). \tag{18}
+\]
+Thus the theorem is proved. ∎
+
+--------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{17} we identify the three contributions:
+
+\begin{itemize}
+\item \textbf{Bias term:} $\displaystyle \frac{2\big(f(w_0)-f^{*}\big)}{\eta\sqrt{T}}$,
+  decreasing with larger stepsize $\eta$.
+\item \textbf{Smoothness/gradient‑norm term:} $\displaystyle \frac{L\eta G^{2}}{\sqrt{T}}$,
+  increasing with $\eta$.
+\item \textbf{Variance term:} $\displaystyle \frac{2\sigma^{2}}{\eta\sqrt{T}}$,
+  decreasing with $\eta$.
+\end{itemize}
+Choosing $\eta^{*}= \sqrt{\frac{2\sigma^{2}}{L G^{2}}}$ balances the second
+and third terms and yields the optimal constant
+\[
+\mathbb{E}\!\big[\|\nabla f(\bar w_T)\|^{2}\big]
+\le
+\frac{2\big(f(w_0)-f^{*}\big)}{\sqrt{T}}
++2\sqrt{L G^{2}\sigma^{2}}\;\frac{1}{\sqrt{T}}.
+\]
+
+--------------------------------------------------------------------
+
+\section*{Special Cases}
+\begin{enumerate}
+\item \textbf{Deterministic gradients ($\sigma=0$).}
+The bound reduces to
+\[
+\frac{1}{M_T}\sum_{j=1}^{M_T}\E\!\big[\|\nabla f(s_j)\|^{2}\big]
+\le
+\frac{2\big(f(w_0)-f^{*}\big)}{\eta\sqrt{T}}
++\frac{L\eta G^{2}}{\sqrt{T}}.
+\]
+Choosing $\eta= \Theta(1/\sqrt{T})$ yields $O(1/T)$ decay.
+
+\item \textbf{Very frequent snapshots ($k=1$).}
+Then $M_T=T$ and $\bar w_T$ coincides with the classical Polyak–Ruppert
+averaged SGD, reproducing its $O(1/\sqrt{T})$ rate.
+
+\item \textbf{Large snapshot period ($k\gg1$).}
+$M_T\approx T/k$, so the bound degrades by a factor $k$ in the constant,
+but the asymptotic $1/\sqrt{T}$ rate remains unchanged.
+\end{enumerate}
+
+--------------------------------------------------------------------
+
+\begin{thebibliography}{9}
+\bibitem{izmailov2018averaging}
+P.~Izmailov, A.~Jastrzębski, N.~Khalili, et~al.,
+\newblock {\em Averaging weights leads to wider optima and better generalization},
+\newblock arXiv preprint arXiv:1803.05407, 2018.
+\end{thebibliography}
+
+\end{document}

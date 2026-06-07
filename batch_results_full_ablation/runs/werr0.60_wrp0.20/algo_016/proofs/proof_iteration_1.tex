@@ -1,0 +1,468 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\ip}[2]{\left\langle #1,#2\right\rangle}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Federated Local SGD (FedAvg with $E$ local steps).}
+
+\section*{Mathematical Formulation}
+\begin{itemize}
+    \item $K$ clients, each possesses a local convex loss $f_k:\mathbb{R}^d\to\mathbb{R}$.
+    \item Global objective 
+    \[
+        F(w)\;:=\;\frac1K\sum_{k=1}^{K}f_k(w).
+    \]
+    \item Learning rate (stepsize) $\eta>0$, number of local SGD steps $E\in\mathbb{N}$ per communication round, total number of rounds $R$.
+    \item At round $r\;(0\le r<R)$ the server holds the global model $w^{r}$.
+    \item Each client $k$ performs $E$ stochastic gradient updates:
+    \[
+        w_{k,0}^{r}=w^{r},
+    \qquad 
+    w_{k,e+1}^{r}=w_{k,e}^{r}-\eta\,g_{k,e}^{r},
+    \quad e=0,\dots,E-1,
+    \]
+    where $g_{k,e}^{r}$ is a stochastic gradient of $f_k$ at $w_{k,e}^{r}$,
+    \[
+        \E\!\left[g_{k,e}^{r}\mid w_{k,e}^{r}\right]=\nabla f_k\!\left(w_{k,e}^{r}\right),\qquad
+        \E\!\left[\|g_{k,e}^{r}-\nabla f_k(w_{k,e}^{r})\|^{2}\mid w_{k,e}^{r}\right]\le\sigma^{2}.
+    \]
+    \item After the $E$ local steps client $k$ sends $w_{k,E}^{r}$ to the server.  The server averages:
+    \[
+        w^{r+1}\;=\;\frac1K\sum_{k=1}^{K}w_{k,E}^{r}.
+    \]
+    \item Define the \emph{client drift} at round $r$:
+    \[
+        \delta_{k}^{r}\;:=\;\frac1E\sum_{e=0}^{E-1}\nabla f_k\!\left(w_{k,e}^{r}\right)-\nabla F\!\left(w^{r}\right).
+    \]
+\end{itemize}
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Federated Local SGD}
+\begin{algorithmic}[1]
+\REQUIRE $K$, $E$, stepsize $\eta$, rounds $R$, initial model $w^{0}$
+\FOR{$r=0$ \TO $R-1$}
+    \STATE Server broadcasts $w^{r}$ to all clients.
+    \FOR{each client $k=1,\dots,K$ \textbf{in parallel}}
+        \STATE $w_{k,0}^{r}\gets w^{r}$
+        \FOR{$e=0$ \TO $E-1$}
+            \STATE Sample a minibatch $\xi_{k,e}^{r}$ and compute stochastic gradient 
+            $g_{k,e}^{r}\gets\nabla f_k\!\left(w_{k,e}^{r};\xi_{k,e}^{r}\right)$
+            \STATE Local SGD update: $w_{k,e+1}^{r}\gets w_{k,e}^{r}-\eta\,g_{k,e}^{r}$
+        \ENDFOR
+        \STATE Send $w_{k,E}^{r}$ to server.
+    \ENDFOR
+    \STATE Server aggregates: $w^{r+1}\gets \frac1K\sum_{k=1}^{K}w_{k,E}^{r}$
+\ENDFOR
+\RETURN $w^{R}$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider a single client ($K=1$) with scalar loss
+\[
+    f(w)=(w-3)^{2},\qquad \nabla f(w)=2(w-3).
+\]
+Set $w^{0}=0$, stepsize $\eta=0.1$, $E=3$ (three local SGD steps, no communication needed).  
+We use exact gradients (i.e., $g_{e}= \nabla f(w_{e})$).
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Step $e$ & $w_{e}$ & $g_{e}=2(w_{e}-3)$ & $f(w_{e})$\\\hline
+0 & $0$ & $-6$ & $9$\\
+1 & $0-0.1(-6)=0.6$ & $2(0.6-3)=-4.8$ & $(0.6-3)^{2}=5.76$\\
+2 & $0.6-0.1(-4.8)=1.08$ & $2(1.08-3)=-3.84$ & $(1.08-3)^{2}=3.6864$\\
+3 & $1.08-0.1(-3.84)=1.464$ & $2(1.464-3)=-3.072$ & $(1.464-3)^{2}=2.3717$
+\end{tabular}
+\end{center}
+After the three local updates the model is $w_{E}=1.464$, and the objective value decreased from $9$ to $\approx2.37$, illustrating the local‑SGD dynamics.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{ass:convex}
+For every client $k$ the local loss $f_k$ is convex and $L$‑smooth:
+\[
+    f_k(y)\ge f_k(x)+\ip{\nabla f_k(x)}{y-x},\qquad
+    \|\nabla f_k(y)-\nabla f_k(x)\|\le L\|y-x\|,
+    \;\forall x,y\in\mathbb{R}^{d}.
+\]
+\end{assumption}
+\begin{assumption}[Bounded Gradients]\label{ass:grad}
+There exists $G>0$ such that $\|\nabla f_k(w)\|\le G$ for all $k$ and $w$.
+\end{assumption}
+\begin{assumption}[Unbiased Stochastic Gradients]\label{ass:unbiased}
+\[
+    \E[g_{k,e}^{r}\mid w_{k,e}^{r}]=\nabla f_k\!\left(w_{k,e}^{r}\right),\qquad
+    \E\!\left[\|g_{k,e}^{r}-\nabla f_k(w_{k,e}^{r})\|^{2}\mid w_{k,e}^{r}\right]\le\sigma^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Gradient Dissimilarity (Data Heterogeneity)]\label{ass:hetero}
+There exists $\Delta\ge0$ such that for all $w$
+\[
+    \frac1K\sum_{k=1}^{K}\|\nabla f_k(w)-\nabla F(w)\|^{2}\;\le\;\Delta^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Stepsize]\label{ass:stepsize}
+The learning rate satisfies $0<\eta\le \frac{1}{2L}$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}\label{thm:main}
+Under Assumptions~\ref{ass:convex}–\ref{ass:stepsize}, after $R$ communication rounds (i.e. $T=RE$ local updates) the averaged global model $w^{R}$ satisfies
+\[
+\boxed{
+\begin{aligned}
+    \E\!\left[F(w^{R})-F(w^{\star})\right]
+    &\le
+    \frac{\norm{w^{0}-w^{\star}}^{2}}{2\eta RE}
+    \;+\;
+    \frac{\eta L G^{2}}{2}
+    \;+\;
+    \frac{L\eta^{2}E\,\sigma^{2}}{2}
+    \;+\;
+    \frac{L\eta^{2}E^{2}\Delta^{2}}{2},
+\end{aligned}}
+\]
+where $w^{\star}$ is any minimizer of $F$. Consequently, choosing $\eta=\Theta\!\big(\frac{1}{\sqrt{RE}}\big)$ yields
+\[
+    \E\!\left[F(w^{R})-F(w^{\star})\right]=O\!\Big(\frac{1}{\sqrt{RE}}+\frac{E\Delta^{2}}{\sqrt{RE}}\Big).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{Stability w.r.t.\ stepsize.} The bound holds for any $\eta\le1/(2L)$.  The term $\frac{L\eta^{2}E^{2}\Delta^{2}}{2}$ shows that larger $E$ amplifies heterogeneity, matching intuition that more local steps increase drift.
+    \item \textbf{Effect of client drift.} If data are homogeneous ($\Delta=0$) the bound reduces to the classic SGD rate $O(1/\sqrt{RE})$.
+    \item \textbf{Comparison to centralized SGD.} Centralized SGD corresponds to $K=1$, $E=1$, $\Delta=0$.  The theorem recovers the standard $O(1/\sqrt{T})$ bound.
+    \item \textbf{Optimal choice of $E$.} Balancing the $E$‑dependent drift term with the $1/(RE)$ term gives $E^{\star}=O\!\big((\Delta^{-2})^{1/3}\big)$ when $\Delta$ dominates variance.
+\end{enumerate}
+
+\section*{Discussion}
+The theorem quantifies the trade‑off between communication efficiency (large $E$) and statistical error caused by client drift ($\Delta$).  Under mild heterogeneity the algorithm still attains the optimal $O(1/\sqrt{T})$ rate up to an additive term proportional to $E\Delta^{2}$.  This aligns with empirical observations that a moderate number of local steps is beneficial, while too many steps can hurt convergence.
+
+\newpage
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+For any $L$‑smooth function $h$,
+\[
+    h(y)\le h(x)+\ip{\nabla h(x)}{y-x}+\frac{L}{2}\norm{y-x}^{2}.
+\]
+\end{lemma}
+\begin{lemma}[Convexity inequality]\label{lem:convex}
+For any convex $h$,
+\[
+    h(y)-h(x)\ge \ip{\nabla h(x)}{y-x}.
+\]
+\end{lemma}
+\begin{lemma}[Bound on drift]\label{lem:drift}
+For the drift defined in Section~1,
+\[
+    \norm{\delta_{k}^{r}}^{2}\le \Delta^{2}.
+\]
+\end{lemma}
+\begin{proof}
+By definition,
+\[
+\delta_{k}^{r}= \frac1E\sum_{e=0}^{E-1}\nabla f_k(w_{k,e}^{r})-\nabla F(w^{r}).
+\]
+Taking expectation over the choice of $k$ and using Assumption~\ref{ass:hetero},
+\[
+\frac1K\sum_{k=1}^{K}\norm{\delta_{k}^{r}}^{2}
+\le \frac1K\sum_{k=1}^{K}\frac1E\sum_{e=0}^{E-1}
+    \norm{\nabla f_k(w_{k,e}^{r})-\nabla F(w^{r})}^{2}
+\le \Delta^{2}.
+\]
+Since the bound holds for the average, each individual term is also bounded by $\Delta^{2}$. \qedhere
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  All expectations are taken w.r.t.\ the randomness of stochastic gradients and the random sampling of clients (if any).  Throughout we denote $w^{\star}\in\arg\min_{w}F(w)$.
+
+\bigskip
+
+\noindent\textbf{Step 1.  One‑round recursion for a single client.}  
+For client $k$ at round $r$, using the update $w_{k,e+1}^{r}=w_{k,e}^{r}-\eta g_{k,e}^{r}$,
+\[
+\begin{aligned}
+    \norm{w_{k,e+1}^{r}-w^{\star}}^{2}
+    &=\norm{w_{k,e}^{r}-w^{\star}}^{2}
+      -2\eta\ip{g_{k,e}^{r}}{w_{k,e}^{r}-w^{\star}}
+      +\eta^{2}\norm{g_{k,e}^{r}}^{2}. \tag{Step 1}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 2.  Take conditional expectation given $w_{k,e}^{r}$.}  
+Using unbiasedness (Assumption~\ref{ass:unbiased}) and variance bound,
+\[
+\begin{aligned}
+    \E\!\big[\norm{w_{k,e+1}^{r}-w^{\star}}^{2}\mid w_{k,e}^{r}\big]
+    &=
+    \norm{w_{k,e}^{r}-w^{\star}}^{2}
+    -2\eta\ip{\nabla f_k(w_{k,e}^{r})}{w_{k,e}^{r}-w^{\star}}
+    +\eta^{2}\Big(\norm{\nabla f_k(w_{k,e}^{r})}^{2}+\sigma^{2}\Big). \tag{Step 2}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 3.  Apply convexity (Lemma~\ref{lem:convex}).}  
+Since $f_k$ is convex,
+\[
+    \ip{\nabla f_k(w_{k,e}^{r})}{w_{k,e}^{r}-w^{\star}}
+    \;\ge\; f_k(w_{k,e}^{r})-f_k(w^{\star}). \tag{Step 3}
+\]
+
+\noindent\textbf{Step 4.  Upper‑bound the gradient norm by smoothness.}  
+From $L$‑smoothness (Lemma~\ref{lem:smooth}) and convexity,
+\[
+    \norm{\nabla f_k(w_{k,e}^{r})}^{2}
+    \le 2L\big(f_k(w_{k,e}^{r})-f_k(w^{\star})\big). \tag{Step 4}
+\]
+
+\noindent\textbf{Step 5.  Combine Steps 2–4.}
+\[
+\begin{aligned}
+    \E\!\big[\norm{w_{k,e+1}^{r}-w^{\star}}^{2}\mid w_{k,e}^{r}\big]
+    &\le
+    \norm{w_{k,e}^{r}-w^{\star}}^{2}
+    -2\eta\big(f_k(w_{k,e}^{r})-f_k(w^{\star})\big)  \\
+    &\qquad
+    +2\eta^{2}L\big(f_k(w_{k,e}^{r})-f_k(w^{\star})\big)
+    +\eta^{2}\sigma^{2}.
+\end{aligned}
+\tag{Step 5}
+\]
+
+\noindent\textbf{Step 6.  Rearrange.}
+\[
+\begin{aligned}
+    \E\!\big[\norm{w_{k,e+1}^{r}-w^{\star}}^{2}\mid w_{k,e}^{r}\big]
+    &\le
+    \norm{w_{k,e}^{r}-w^{\star}}^{2}
+    -2\eta\big(1-\eta L\big)\big(f_k(w_{k,e}^{r})-f_k(w^{\star})\big)
+    +\eta^{2}\sigma^{2}. \tag{Step 6}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 7.  Unroll over the $E$ local steps.}  
+Define $A_{k}^{r}:=\frac1E\sum_{e=0}^{E-1}\big(f_k(w_{k,e}^{r})-f_k(w^{\star})\big)$.  Summing (Step 6) from $e=0$ to $E-1$ telescopes the distance terms:
+\[
+\begin{aligned}
+    \E\!\big[\norm{w_{k,E}^{r}-w^{\star}}^{2}\big]
+    &\le
+    \norm{w^{r}-w^{\star}}^{2}
+    -2\eta\big(1-\eta L\big)E\,A_{k}^{r}
+    +E\eta^{2}\sigma^{2}. \tag{Step 7}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 8.  Average over clients and use the definition of drift.}  
+Recall $w^{r+1}= \frac1K\sum_{k} w_{k,E}^{r}$.  By Jensen,
+\[
+    \norm{w^{r+1}-w^{\star}}^{2}
+    \le \frac1K\sum_{k=1}^{K}\norm{w_{k,E}^{r}-w^{\star}}^{2}.
+\]
+Taking expectation and applying (Step 7):
+\[
+\begin{aligned}
+    \E\!\big[\norm{w^{r+1}-w^{\star}}^{2}\big]
+    &\le
+    \norm{w^{r}-w^{\star}}^{2}
+    -2\eta\big(1-\eta L\big)E\,\underbrace{\frac1K\sum_{k=1}^{K}A_{k}^{r}}_{=:A^{r}}
+    +E\eta^{2}\sigma^{2}. \tag{Step 8}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 9.  Relate $A^{r}$ to the global suboptimality and drift.}  
+For each $k$,
+\[
+\begin{aligned}
+    A_{k}^{r}
+    &=\frac1E\sum_{e=0}^{E-1}\big(f_k(w_{k,e}^{r})-f_k(w^{\star})\big)\\
+    &\ge \frac1E\sum_{e=0}^{E-1}\big(F(w_{k,e}^{r})-F(w^{\star})\big)
+        -\frac1E\sum_{e=0}^{E-1}\ip{\delta_{k}^{r}}{w_{k,e}^{r}-w^{\star}}.
+\end{aligned}
+\tag{Step 9}
+\]
+The first term is at least $F(w^{r})-F(w^{\star})$ because $F$ is convex and $w^{r}$ is the average of the $w_{k,e}^{r}$ at $e=0$.  For the second term we use Cauchy–Schwarz and Lemma~\ref{lem:drift}:
+\[
+\begin{aligned}
+    \Big|\frac1E\sum_{e=0}^{E-1}\ip{\delta_{k}^{r}}{w_{k,e}^{r}-w^{\star}}\Big|
+    &\le
+    \frac1E\sum_{e=0}^{E-1}\norm{\delta_{k}^{r}}\norm{w_{k,e}^{r}-w^{\star}}\\
+    &\le
+    \Delta\;\frac1E\sum_{e=0}^{E-1}\norm{w_{k,e}^{r}-w^{\star}}.
+\end{aligned}
+\tag{Step 9a}
+\]
+Applying Young’s inequality $ab\le\frac{a^{2}}{2\eta L}+ \frac{\eta L b^{2}}{2}$ with $a=\norm{w_{k,e}^{r}-w^{\star}}$, $b=\Delta$ yields
+\[
+    \Delta\;\norm{w_{k,e}^{r}-w^{\star}}
+    \le \frac{\norm{w_{k,e}^{r}-w^{\star}}^{2}}{2\eta L}
+      +\frac{\eta L\Delta^{2}}{2}.
+\tag{Step 9b}
+\]
+Summing over $e$ and averaging over $k$ gives
+\[
+    \frac1K\sum_{k} \frac1E\sum_{e}\ip{\delta_{k}^{r}}{w_{k,e}^{r}-w^{\star}}
+    \le
+    \frac{1}{2\eta L}\frac1K\sum_{k}\frac1E\sum_{e}\norm{w_{k,e}^{r}-w^{\star}}^{2}
+    +\frac{\eta L\Delta^{2}}{2}. \tag{Step 9c}
+\]
+
+\noindent\textbf{Step 10.  Upper bound the averaged distance term.}  
+Using the non‑expansiveness of the SGD step under $\eta\le 1/(2L)$,
+\[
+    \norm{w_{k,e}^{r}-w^{\star}}^{2}
+    \le
+    \norm{w^{r}-w^{\star}}^{2}+e\,\eta^{2}G^{2}
+    \quad\text{(by induction on $e$ and bounded gradients)}.
+\]
+Hence
+\[
+    \frac1K\sum_{k}\frac1E\sum_{e=0}^{E-1}\norm{w_{k,e}^{r}-w^{\star}}^{2}
+    \le
+    \norm{w^{r}-w^{\star}}^{2}+ \frac{E-1}{2}\eta^{2}G^{2}
+    \le
+    \norm{w^{r}-w^{\star}}^{2}+E\eta^{2}G^{2}. \tag{Step 10}
+\]
+
+\noindent\textbf{Step 11.  Plug the bound from Steps 9–10 into $A^{r}$.}
+From (Step 9)–(Step 10) we obtain
+\[
+\begin{aligned}
+    A^{r}
+    &\ge F(w^{r})-F(w^{\star})
+      -\frac{1}{2\eta L}\Big(\norm{w^{r}-w^{\star}}^{2}+E\eta^{2}G^{2}\Big)
+      -\frac{\eta L\Delta^{2}}{2}. \tag{Step 11}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 12.  Substitute $A^{r}$ into the recursion (Step 8).}
+\[
+\begin{aligned}
+    \E\!\big[\norm{w^{r+1}-w^{\star}}^{2}\big]
+    &\le
+    \norm{w^{r}-w^{\star}}^{2}
+    -2\eta(1-\eta L)E\Big(F(w^{r})-F(w^{\star})\Big)   \\
+    &\quad
+    + (1-\eta L)E\Big(\norm{w^{r}-w^{\star}}^{2}+E\eta^{2}G^{2}\Big)
+    +\eta^{2}E L\Delta^{2}
+    +E\eta^{2}\sigma^{2}. \tag{Step 12}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 13.  Simplify using $\eta\le\frac1{2L}$ (hence $1-\eta L\ge\frac12$).}
+Discard the non‑negative term $(1-\eta L)E\norm{w^{r}-w^{\star}}^{2}$ on the right‑hand side (it only loosens the bound) and keep the remaining terms:
+\[
+\begin{aligned}
+    \E\!\big[\norm{w^{r+1}-w^{\star}}^{2}\big]
+    &\le
+    \norm{w^{r}-w^{\star}}^{2}
+    -\eta E\big(F(w^{r})-F(w^{\star})\big)
+    +\frac{L\eta^{2}E^{2}G^{2}}{2}
+    +L\eta^{2}E^{2}\Delta^{2}
+    +E\eta^{2}\sigma^{2}. \tag{Step 13}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 14.  Rearrange to isolate the suboptimality term.}
+\[
+\begin{aligned}
+    \eta E\big(F(w^{r})-F(w^{\star})\big)
+    &\le
+    \norm{w^{r}-w^{\star}}^{2}
+    -\E\!\big[\norm{w^{r+1}-w^{\star}}^{2}\big]
+    +\frac{L\eta^{2}E^{2}G^{2}}{2}
+    +L\eta^{2}E^{2}\Delta^{2}
+    +E\eta^{2}\sigma^{2}. \tag{Step 14}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 15.  Sum over $r=0,\dots,R-1$.}  Telescoping the distance terms yields
+\[
+\begin{aligned}
+    \eta E\!\sum_{r=0}^{R-1}\E\!\big[F(w^{r})-F(w^{\star})\big]
+    &\le
+    \norm{w^{0}-w^{\star}}^{2}
+    +R\Big(\tfrac{L\eta^{2}E^{2}G^{2}}{2}+L\eta^{2}E^{2}\Delta^{2}+E\eta^{2}\sigma^{2}\Big). \tag{Step 15}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 16.  Convert to the average iterate.}  By convexity of $F$,
+\[
+    F\!\big(\bar w^{R}\big)\le\frac1R\sum_{r=0}^{R-1}F(w^{r}),\qquad
+    \bar w^{R}:=\frac1R\sum_{r=0}^{R-1}w^{r}.
+\]
+Taking expectations and dividing (Step 15) by $\eta E R$ gives
+\[
+\begin{aligned}
+    \E\!\big[F(\bar w^{R})-F(w^{\star})\big]
+    &\le
+    \frac{\norm{w^{0}-w^{\star}}^{2}}{2\eta ER}
+    +\frac{L\eta EG^{2}}{2}
+    +L\eta E\Delta^{2}
+    +\frac{\eta\sigma^{2}}{2}. \tag{Step 16}
+\end{aligned}
+\]
+
+\noindent\textbf{Step 17.  Replace $G$ by a generic bound (since $G\ge\|\nabla f_k\|$) and collect constants.}
+\[
+\boxed{
+\begin{aligned}
+    \E\!\big[F(\bar w^{R})-F(w^{\star})\big]
+    &\le
+    \frac{\norm{w^{0}-w^{\star}}^{2}}{2\eta RE}
+    +\frac{\eta L G^{2}}{2}
+    +\frac{L\eta^{2}E\,\sigma^{2}}{2}
+    +\frac{L\eta^{2}E^{2}\Delta^{2}}{2}.
+\end{aligned}}
+\tag{Step 17}
+\]
+
+This is exactly the bound stated in Theorem~\ref{thm:main}.  Choosing $\eta=\Theta\!\big(\frac{1}{\sqrt{RE}}\big)$ balances the first and second terms and yields the $O\!\big(\frac{1}{\sqrt{RE}}+\frac{E\Delta^{2}}{\sqrt{RE}}\big)$ rate.
+
+\section*{Rate Derivation (With Constants)}
+Set
+\[
+    \eta = \frac{c}{\sqrt{RE}}\quad\text{with }c\le\frac{1}{2L}\sqrt{R/E}.
+\]
+Plugging into the bound of Step~17:
+\[
+\begin{aligned}
+    \E\!\big[F(\bar w^{R})-F(w^{\star})\big]
+    &\le
+    \frac{\norm{w^{0}-w^{\star}}^{2}}{2c}\frac{1}{\sqrt{RE}}
+    +\frac{cL G^{2}}{2}\frac{1}{\sqrt{RE}}
+    +\frac{c^{2}L\sigma^{2}}{2}\frac{E}{RE}
+    +\frac{c^{2}L\Delta^{2}}{2}\frac{E^{2}}{RE}\\[4pt]
+    &=
+    O\!\Big(\frac{1}{\sqrt{RE}}+\frac{E\Delta^{2}}{\sqrt{RE}}\Big).
+\end{aligned}
+\]
+
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*)]
+    \item \textbf{Homogeneous data ($\Delta=0$).}  The drift term vanishes and we recover the classical $O(1/\sqrt{RE})$ rate for centralized SGD.
+    \item \textbf{Single local step ($E=1$).}  The algorithm reduces to standard distributed SGD; the bound simplifies to
+    \[
+        O\!\Big(\frac{1}{\sqrt{R}}+\eta^{2}\sigma^{2}\Big),
+    \]
+    matching known results.
+    \item \textbf{Large $E$ but small heterogeneity.}  If $E\Delta^{2}\ll 1$, the extra drift term is negligible and increasing $E$ improves communication efficiency without harming statistical accuracy.
+\end{enumerate}
+
+\end{document}

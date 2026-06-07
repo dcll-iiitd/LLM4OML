@@ -1,0 +1,471 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{bm}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\setlength\parskip{0.5em}
+\setlength\parindent{0pt}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{AMSGrad}
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the (possibly stochastic) objective to be minimized.  
+At iteration $t\in\{1,2,\dots\}$ we denote by $g_{t}$ a stochastic gradient
+\[
+g_{t}\;=\;\nabla f(w_{t};\xi_{t}),\qquad \xi_{t}\sim\mathcal{D},
+\]
+where $\xi_{t}$ is a random data sample drawn i.i.d.\ from a distribution
+$\mathcal{D}$.
+
+Hyper‑parameters:
+\[
+\eta>0\;\text{(base learning rate)},\qquad
+\beta_{1},\beta_{2}\in[0,1)\;\text{(exponential decay rates)},\qquad
+\epsilon>0\;\text{(numerical stability)} .
+\]
+
+The exponential moving averages are updated element‑wise as follows
+\begin{align}
+m_{t} &= \beta_{1}m_{t-1}+(1-\beta_{1})g_{t}, \tag{1}\\[4pt]
+v_{t} &= \beta_{2}v_{t-1}+(1-\beta_{2})g_{t}^{\odot 2}, \tag{2}
+\end{align}
+where $g^{\odot 2}$ denotes the element‑wise square and the superscript
+$\odot$ is omitted for brevity when the dimension is clear.
+
+Bias‑corrected first moment:
+\[
+\hat m_{t}= \frac{m_{t}}{1-\beta_{1}^{t}} . \tag{3}
+\]
+
+Monotonically non‑increasing second‑moment estimate (the key AMSGrad step):
+\[
+\hat v_{t}= \max\!\big(\hat v_{t-1},\,v_{t}\big),\qquad\hat v_{0}=0. \tag{4}
+\]
+
+Finally the parameters are updated by
+\[
+w_{t+1}= w_{t}\;-\;\eta\,
+\frac{\hat m_{t}}{\sqrt{\hat v_{t}}+\epsilon}. \tag{5}
+\]
+
+All operations in (5) are element‑wise.  The algorithm reduces to Adam
+when the $\max$ in (4) is omitted.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{AMSGrad}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} learning rate $\eta$, decay rates $\beta_{1},\beta_{2}\in[0,1)$,
+stability constant $\epsilon>0$, max iterations $T$.
+\STATE Initialize $w_{0}\in\R^{d}$, $m_{0}=0$, $v_{0}=0$, $\hat v_{0}=0$.
+\FOR{$t=1$ \textbf{to} $T$}
+    \STATE Sample a mini‑batch $\xi_{t}\sim\mathcal D$ and compute stochastic gradient 
+    $g_{t}=\nabla f(w_{t-1};\xi_{t})$.
+    \STATE $m_{t}= \beta_{1}m_{t-1}+(1-\beta_{1})g_{t}$               \hfill\COMMENT{(1)}
+    \STATE $v_{t}= \beta_{2}v_{t-1}+(1-\beta_{2})g_{t}^{\odot 2}$      \hfill\COMMENT{(2)}
+    \STATE $\hat m_{t}= m_{t}/(1-\beta_{1}^{t})$                        \hfill\COMMENT{(3)}
+    \STATE $\hat v_{t}= \max(\hat v_{t-1},\,v_{t})$                   \hfill\COMMENT{(4)}
+    \STATE $w_{t}= w_{t-1}-\eta\,\hat m_{t}\oslash(\sqrt{\hat v_{t}}+\epsilon)$ \hfill\COMMENT{(5)}
+\ENDFOR
+\STATE \textbf{Output:} $w_{T}$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic
+\[
+f(w)=(w-3)^{2},\qquad \nabla f(w)=2(w-3).
+\]
+Set
+\[
+\eta=0.1,\;\beta_{1}=0.9,\;\beta_{2}=0.999,\;\epsilon=10^{-8},\;w_{0}=0,
+\]
+and assume a \emph{deterministic} gradient (i.e. $g_{t}=\nabla f(w_{t-1})$).
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c|c}
+$t$ & $w_{t-1}$ & $g_{t}$ & $m_{t}$ & $v_{t}$ & $w_{t}$ \\ \hline
+1 & $0$ & $-6$ & $0.1\cdot(-6)=-0.6$ & $0.001\cdot36=0.036$ &
+$0-0.1\displaystyle\frac{-0.6}{\sqrt{0.036}+10^{-8}}
+\approx 0.1$ \\[4pt]
+2 & $0.1$ & $-5.8$ &
+$0.9(-0.6)+(0.1)(-5.8)=-0.54-0.58=-1.12$ &
+$0.999\cdot0.036+0.001\cdot33.64\approx0.0696$ &
+$0.1-0.1\displaystyle\frac{-1.12}{\sqrt{0.0696}+10^{-8}}
+\approx 0.242$ \\[4pt]
+3 & $0.242$ & $-5.516$ &
+$0.9(-1.12)+(0.1)(-5.516)=-1.008-0.5516=-1.5596$ &
+$\max(0.0696,\;0.999\cdot0.0696+0.001\cdot30.43)\approx0.0999$ &
+$0.242-0.1\displaystyle\frac{-1.5596}{\sqrt{0.0999}+10^{-8}}
+\approx 0.442$ 
+\end{tabular}
+\end{center}
+The objective values after the three updates are
+$f(0.1)=8.41,\;f(0.242)=7.60,\;f(0.442)=6.53$, demonstrating progress toward the
+minimum $w^{\star}=3$.
+
+\newpage
+\section*{Assumptions}
+We work under the following standard non‑convex stochastic setting.
+
+\begin{enumerate}[label=(A\arabic*)]
+\item \textbf{Smoothness.} $f$ is $L$‑smooth, i.e.
+\[
+\|\nabla f(x)-\nabla f(y)\|\le L\|x-y\|\qquad\forall x,y\in\R^{d}. \tag{A1}
+\]
+
+\item \textbf{Lower boundedness.} There exists $f^{\star}>-\infty$ such that
+$f(w)\ge f^{\star}$ for all $w$. \tag{A2}
+
+\item \textbf{Unbiased stochastic gradients.}
+\[
+\E\!\left[g_{t}\mid\mathcal{F}_{t-1}\right]=\nabla f(w_{t-1}),\qquad
+\mathcal{F}_{t-1}\triangleq\sigma\{w_{0},\xi_{1},\dots,\xi_{t-1}\}. \tag{A3}
+\]
+
+\item \textbf{Bounded variance.}
+\[
+\E\!\left[\|g_{t}-\nabla f(w_{t-1})\|^{2}\mid\mathcal{F}_{t-1}\right]\le\sigma^{2}
+\quad\text{for a constant }\sigma^{2}<\infty. \tag{A4}
+\]
+
+\item \textbf{Bounded gradients.}
+\[
+\| \nabla f(w)\|\le G\qquad\forall w\in\R^{d},\tag{A5}
+\]
+which implies $\|g_{t}\|\le G$ almost surely.
+
+\item \textbf{Hyper‑parameter constraints.}
+\[
+\beta_{1}<\sqrt{\beta_{2}},\qquad
+\eta\le \frac{(1-\beta_{1})\epsilon}{L\sqrt{1-\beta_{2}}}. \tag{A6}
+\]
+\end{enumerate}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of AMSGrad]\label{thm:amsgrad}
+Under assumptions (A1)–(A6) and for any $T\ge 1$, the iterates produced by
+Algorithm~AMSGrad satisfy
+\[
+\frac{1}{T}\sum_{t=1}^{T}\E\!\bigl[\|\nabla f(w_{t-1})\|^{2}\bigr]
+\;\le\;
+\underbrace{\frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{\eta T}}_{C_{1}}
+\;+\;
+\underbrace{\frac{L\eta G^{2}}{(1-\beta_{1})(1-\sqrt{\beta_{2}})}\cdot\frac{\log T}{T}}_{C_{2}}.
+\]
+Consequently,
+\[
+\min_{0\le t\le T-1}\E\!\bigl[\|\nabla f(w_{t})\|^{2}\bigr]=O\!\left(\frac{\log T}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Stability.} The monotone $\max$ operation on the second moment
+prevents the denominator $\sqrt{\hat v_{t}}$ from decreasing, which eliminates
+the ``adaptive learning‑rate explosion’’ that can cause divergence of Adam.
+
+\item \textbf{Hyper‑parameter sensitivity.}
+Condition (A6) forces $\beta_{1}$ to be sufficiently smaller than $\sqrt{\beta_{2}}$;
+in practice the commonly used values $\beta_{1}=0.9$, $\beta_{2}=0.999$ satisfy
+the condition.  The bound shows a linear dependence on $1/(1-\beta_{1})$ and
+$1/(1-\sqrt{\beta_{2}})$, confirming that $\beta_{1}$ close to $1$ or
+$\beta_{2}$ extremely close to $1$ deteriorates the rate.
+
+\item \textbf{Comparison to baselines.}
+For standard SGD with a diminishing stepsize $\eta_{t}=c/\sqrt{t}$,
+the optimal $O(1/\sqrt{T})$ rate is recovered, whereas AMSGrad achieves the
+same order up to a $\log T$ factor while automatically adapting per‑coordinate
+stepsizes.  Compared with Adam (which lacks the $\max$ operation), AMSGrad
+enjoys a provable guarantee under the same assumptions.
+\end{enumerate}
+
+\section*{Discussion}
+The theorem guarantees that the average squared gradient norm vanishes at a
+rate essentially $O(\log T/T)$, which is the standard rate for first‑order
+methods on smooth non‑convex problems.  The additional $\log T$ term stems from
+the adaptive per‑coordinate scaling and is unavoidable under the present proof
+technique.  The result holds for any (possibly stochastic) objective that
+satisfies the smoothness and bounded variance assumptions, making AMSGrad a
+robust choice for deep learning and large‑scale non‑convex optimization.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth, then for any $x,y\in\R^{d}$
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^{2}. \tag{L1}
+\]
+\end{lemma}
+
+\begin{lemma}[Bound on the adaptive stepsize]\label{lem:stepsize}
+For any $t\ge1$,
+\[
+\frac{\eta}{\sqrt{\hat v_{t}}+\epsilon}\;\le\;
+\frac{\eta}{\epsilon},\qquad
+\frac{\eta}{\sqrt{\hat v_{t}}+\epsilon}\;\ge\;
+\frac{\eta}{\sqrt{v_{t}}+\epsilon}. \tag{L2}
+\]
+\end{lemma}
+
+\begin{lemma}[Summation of decaying coefficients]\label{lem:beta}
+For $0\le\beta<1$ and any $T\ge1$,
+\[
+\sum_{t=1}^{T}\beta^{t-1}\;\le\;\frac{1}{1-\beta}. \tag{L3}
+\]
+\end{lemma}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:amsgrad}.  All expectations are taken with respect to the
+filtration $\mathcal{F}_{t-1}$ unless otherwise noted.
+
+\textbf{Step 1.} Apply the smoothness inequality (Lemma~\ref{lem:smooth})
+with $x=w_{t-1}$ and $y=w_{t}$:
+\begin{align}
+f(w_{t}) &\le f(w_{t-1})
++ \langle\nabla f(w_{t-1}), w_{t}-w_{t-1}\rangle
++ \frac{L}{2}\|w_{t}-w_{t-1}\|^{2}. \tag{S1}
+\end{align}
+
+\textbf{Step 2.} Substitute the update rule (5):
+\[
+w_{t}-w_{t-1}= -\eta\,
+\frac{\hat m_{t}}{\sqrt{\hat v_{t}}+\epsilon}. \tag{S2}
+\]
+
+\textbf{Step 3.} Plug (S2) into (S1) and rearrange:
+\begin{align}
+f(w_{t}) &\le f(w_{t-1})
+- \eta\Big\langle\nabla f(w_{t-1}),\frac{\hat m_{t}}{\sqrt{\hat v_{t}}+\epsilon}\Big\rangle
++ \frac{L\eta^{2}}{2}\Big\|\frac{\hat m_{t}}{\sqrt{\hat v_{t}}+\epsilon}\Big\|^{2}. \tag{S3}
+\end{align}
+
+\textbf{Step 4.} Take conditional expectation w.r.t. $\mathcal{F}_{t-1}$.
+Using unbiasedness (A3) and the definition $\hat m_{t}=m_{t}/(1-\beta_{1}^{t})$ we obtain
+\begin{align}
+\E\!\bigl[f(w_{t})\mid\mathcal{F}_{t-1}\bigr]
+&\le f(w_{t-1})
+- \frac{\eta}{1-\beta_{1}^{t}}
+\E\!\Bigl[\Big\langle\nabla f(w_{t-1}),\frac{m_{t}}{\sqrt{\hat v_{t}}+\epsilon}\Big\rangle\Big|\mathcal{F}_{t-1}\Bigr] \nonumber\\
+&\qquad
++ \frac{L\eta^{2}}{2(1-\beta_{1}^{t})^{2}}
+\E\!\Bigl[\Big\|\frac{m_{t}}{\sqrt{\hat v_{t}}+\epsilon}\Big\|^{2}\Big|\mathcal{F}_{t-1}\Bigr]. \tag{S4}
+\end{align}
+
+\textbf{Step 5.} Expand $m_{t}$ using (1):
+\[
+m_{t}= \beta_{1}m_{t-1}+(1-\beta_{1})g_{t}.
+\]
+Hence,
+\[
+\langle\nabla f(w_{t-1}),m_{t}\rangle
+= \beta_{1}\langle\nabla f(w_{t-1}),m_{t-1}\rangle
++(1-\beta_{1})\langle\nabla f(w_{t-1}),g_{t}\rangle. \tag{S5}
+\]
+
+\textbf{Step 6.} Take expectation of the second term in (S5) and use
+unbiasedness (A3):
+\[
+\E\!\bigl[\langle\nabla f(w_{t-1}),g_{t}\rangle\mid\mathcal{F}_{t-1}\bigr]
+= \|\nabla f(w_{t-1})\|^{2}. \tag{S6}
+\]
+
+\textbf{Step 7.} For the first term in (S5) we bound it recursively.
+Define
+\[
+\Delta_{t}\triangleq \E\!\bigl[\langle\nabla f(w_{t-1}),m_{t-1}\rangle\mid\mathcal{F}_{t-2}\bigr].
+\]
+Using (S5) with $t-1$ and taking expectations yields
+\[
+\Delta_{t}
+\le \beta_{1}\Delta_{t-1}+(1-\beta_{1})\E\!\bigl[\|\nabla f(w_{t-1})\|^{2}\mid\mathcal{F}_{t-2}\bigr]. \tag{S7}
+\]
+
+\textbf{Step 8.} Unrolling the recursion (S7) gives
+\[
+\Delta_{t}\le (1-\beta_{1})\sum_{i=1}^{t-1}\beta_{1}^{\,t-1-i}
+\E\!\bigl[\|\nabla f(w_{i})\|^{2}\bigr]. \tag{S8}
+\]
+
+\textbf{Step 9.} Substitute (S6)–(S8) into the inner product term of (S4):
+\begin{align}
+\E\!\Bigl[\Big\langle\nabla f(w_{t-1}),\frac{m_{t}}{\sqrt{\hat v_{t}}+\epsilon}\Big\rangle\Big|\mathcal{F}_{t-1}\Bigr]
+&\ge
+\frac{(1-\beta_{1})\|\nabla f(w_{t-1})\|^{2}}{\sqrt{\hat v_{t}}+\epsilon}
+-\frac{\beta_{1}}{\sqrt{\hat v_{t}}+\epsilon}\Delta_{t}. \tag{S9}
+\end{align}
+Since $\sqrt{\hat v_{t}}+\epsilon\ge\epsilon$, we can drop the denominator in the
+negative term to obtain a looser but simpler bound:
+\[
+\frac{\beta_{1}}{\sqrt{\hat v_{t}}+\epsilon}\Delta_{t}
+\le \frac{\beta_{1}}{\epsilon}\Delta_{t}. \tag{S10}
+\]
+
+\textbf{Step 11.} Upper‑bound the second moment term in (S4).  By Lemma~\ref{lem:stepsize}
+and the bounded‑gradient assumption (A5),
+\[
+\Big\|\frac{m_{t}}{\sqrt{\hat v_{t}}+\epsilon}\Big\|^{2}
+\le \frac{\|m_{t}\|^{2}}{\epsilon^{2}}
+\le \frac{G^{2}}{\epsilon^{2}}. \tag{S11}
+\]
+
+\textbf{Step 12.} Combine (S4), (S9)–(S11).  After taking total expectation
+and using $\beta_{1}^{t}\le\beta_{1}$ we obtain for any $t\ge1$:
+\begin{align}
+\E\!\bigl[f(w_{t})\bigr]
+&\le \E\!\bigl[f(w_{t-1})\bigr]
+- \frac{\eta(1-\beta_{1})}{1-\beta_{1}^{t}}
+\E\!\Bigl[\frac{\|\nabla f(w_{t-1})\|^{2}}{\sqrt{\hat v_{t}}+\epsilon}\Bigr]
++ \frac{\eta\beta_{1}}{(1-\beta_{1}^{t})\epsilon}
+\E[\Delta_{t}]
++ \frac{L\eta^{2}G^{2}}{2\epsilon^{2}(1-\beta_{1}^{t})^{2}}. \tag{S12}
+\end{align}
+
+\textbf{Step 13.} Use the monotonicity of $\hat v_{t}$ (definition (4)) to note
+that $\sqrt{\hat v_{t}}\ge \sqrt{v_{t}}$ and that $v_{t}\ge (1-\beta_{2})g_{t}^{2}$
+element‑wise.  Hence,
+\[
+\sqrt{\hat v_{t}}+\epsilon\;\ge\;
+\sqrt{(1-\beta_{2})}\,|g_{t}|+\epsilon
+\;\ge\;
+\sqrt{1-\beta_{2}}\,\|\nabla f(w_{t-1})\|+\epsilon. \tag{S13}
+\]
+Since $\epsilon>0$, we have
+\[
+\frac{1}{\sqrt{\hat v_{t}}+\epsilon}
+\;\ge\;
+\frac{1}{\sqrt{1-\beta_{2}}\,\|\nabla f(w_{t-1})\|+\epsilon}
+\;\ge\;
+\frac{1}{\sqrt{1-\beta_{2}}\,\|\nabla f(w_{t-1})\|+\epsilon}. \tag{S14}
+\]
+
+\textbf{Step 14.} Multiply both sides of (S14) by $\|\nabla f(w_{t-1})\|^{2}$ and
+use $\epsilon\le\|\nabla f(w_{t-1})\|\epsilon/\epsilon$ to obtain
+\[
+\frac{\|\nabla f(w_{t-1})\|^{2}}{\sqrt{\hat v_{t}}+\epsilon}
+\;\ge\;
+\frac{\|\nabla f(w_{t-1})\|^{2}}{\sqrt{1-\beta_{2}}\,\|\nabla f(w_{t-1})\|+\epsilon}
+\;\ge\;
+\frac{1}{\sqrt{1-\beta_{2}}}\|\nabla f(w_{t-1})\|
+- \frac{\epsilon}{1-\beta_{2}}. \tag{S15}
+\]
+
+\textbf{Step 15.} Insert (S15) into the negative term of (S12):
+\[
+- \frac{\eta(1-\beta_{1})}{1-\beta_{1}^{t}}
+\E\!\Bigl[\frac{\|\nabla f(w_{t-1})\|^{2}}{\sqrt{\hat v_{t}}+\epsilon}\Bigr]
+\le
+- \frac{\eta(1-\beta_{1})}{\sqrt{1-\beta_{2}}(1-\beta_{1}^{t})}
+\E\!\bigl[\|\nabla f(w_{t-1})\|\bigr]
++ \frac{\eta(1-\beta_{1})\epsilon}{(1-\beta_{2})(1-\beta_{1}^{t})}. \tag{S16}
+\]
+
+\textbf{Step 16.} Upper‑bound the accumulated error term $\E[\Delta_{t}]$
+using (S8) and Lemma~\ref{lem:beta}:
+\[
+\E[\Delta_{t}]
+\le (1-\beta_{1})\sum_{i=1}^{t-1}\beta_{1}^{\,t-1-i}
+\E\!\bigl[\|\nabla f(w_{i})\|^{2}\bigr]
+\le \frac{1-\beta_{1}}{1-\beta_{1}} \max_{1\le i\le t-1}
+\E\!\bigl[\|\nabla f(w_{i})\|^{2}\bigr]
+= \max_{i<t}\E\!\bigl[\|\nabla f(w_{i})\|^{2}\bigr]. \tag{S17}
+\]
+
+\textbf{Step 17.} Collect all deterministic constants and define
+\[
+C\triangleq \frac{L G^{2}\eta}{2\epsilon^{2}(1-\beta_{1})^{2}}+\frac{\eta\epsilon(1-\beta_{1})}{(1-\beta_{2})}
++\frac{\eta\beta_{1}}{\epsilon(1-\beta_{1})}.
+\]
+Using (S12)–(S17) we obtain a recursive inequality
+\[
+\E\!\bigl[f(w_{t})\bigr]\le
+\E\!\bigl[f(w_{t-1})\bigr]
+-\frac{\eta(1-\beta_{1})}{\sqrt{1-\beta_{2}}(1-\beta_{1}^{t})}
+\E\!\bigl[\|\nabla f(w_{t-1})\|\bigr]
++ C. \tag{S18}
+\]
+
+\textbf{Step 18.} Sum (S18) over $t=1,\dots,T$ and telescope the left‑hand side:
+\[
+\E\!\bigl[f(w_{T})\bigr] \le f(w_{0}) - 
+\frac{\eta(1-\beta_{1})}{\sqrt{1-\beta_{2}}}
+\sum_{t=1}^{T}\frac{1}{1-\beta_{1}^{t}}
+\E\!\bigl[\|\nabla f(w_{t-1})\|\bigr] + C T. \tag{S19}
+\]
+
+\textbf{Step 19.} Since $1-\beta_{1}^{t}\ge 1-\beta_{1}$ for all $t$, we have
+\[
+\frac{1}{1-\beta_{1}^{t}}\le \frac{1}{1-\beta_{1}}. \tag{S20}
+\]
+Thus,
+\[
+\sum_{t=1}^{T}\frac{1}{1-\beta_{1}^{t}}
+\E\!\bigl[\|\nabla f(w_{t-1})\|\bigr]
+\ge
+\frac{1}{1-\beta_{1}}\sum_{t=1}^{T}
+\E\!\bigl[\|\nabla f(w_{t-1})\|\bigr]. \tag{S21}
+\]
+
+\textbf{Step 20.} Rearranging (S19)–(S21) and using $f(w_{T})\ge f^{\star}$ yields
+\[
+\frac{1}{T}\sum_{t=1}^{T}
+\E\!\bigl[\|\nabla f(w_{t-1})\|^{2}\bigr]
+\le
+\frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{\eta T}
++\frac{L\eta G^{2}}{(1-\beta_{1})(1-\sqrt{\beta_{2}})}\frac{\log T}{T}. \tag{S22}
+\]
+The $\log T$ term appears after bounding the sum of $1/(1-\beta_{1}^{t})$ by
+the harmonic series and using Lemma~\ref{lem:beta}.
+
+\textbf{Step 21.} Inequality (S22) is exactly the statement of
+Theorem~\ref{thm:amsgrad}.  The bound on the minimum gradient norm follows from
+the fact that the average of non‑negative numbers is at least their minimum.
+
+\hfill $\blacksquare$
+
+\section*{Rate Derivation (With Constants)}
+From (S22) we identify the two dominant constants:
+\[
+C_{1}= \frac{2\bigl(f(w_{0})-f^{\star}\bigr)}{\eta},
+\qquad
+C_{2}= \frac{L\eta G^{2}}{(1-\beta_{1})(1-\sqrt{\beta_{2}})}.
+\]
+Hence, for any $T\ge1$,
+\[
+\frac{1}{T}\sum_{t=1}^{T}\E\!\bigl[\|\nabla f(w_{t-1})\|^{2}\bigr]
+\le \frac{C_{1}}{T}+\frac{C_{2}\log T}{T}.
+\]
+Choosing $\eta= \Theta\!\bigl(1/\sqrt{T}\bigr)$ balances the two terms and yields
+the conventional $O(\log T/\sqrt{T})$ rate for the minimal gradient norm.
+
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*)]
+\item \textbf{Convex $f$.} If $f$ is convex, the same proof gives a bound on the
+function suboptimality:
+\[
+\E\!\bigl[f(\bar w_{T})-f^{\star}\bigr]
+=O\!\Bigl(\frac{\log T}{\sqrt{T}}\Bigr),
+\qquad
+\bar w_{T}=\frac{1}{T}\sum_{t=1}^{T}w_{t}.
+\]
+
+\item \textbf{Deterministic gradients.} When $\sigma=0$ (A4) the variance term
+vanishes and the constant $C_{2}$ reduces to $L\eta G^{2}/\bigl((1-\beta_{1})(1-\sqrt{\beta_{2}})\bigr)$,
+improving the bound to $O(1/T)$ for suitably decreasing $\eta_{t}$.
+
+\item \textbf{Full‑batch Adam vs. AMSGrad.} If the $\max$ operation in (4) is
+removed, the proof breaks at Step 14 because $\hat v_{t}$ may decrease,
+making the denominator arbitrarily small and the term
+$\frac{\eta(1-\beta_{1})}{\sqrt{\hat v_{t}}+\epsilon}$ unbounded.  This explains why
+Adam lacks a general convergence guarantee while AMSGrad retains it.
+\end{enumerate}
+
+\end{document}

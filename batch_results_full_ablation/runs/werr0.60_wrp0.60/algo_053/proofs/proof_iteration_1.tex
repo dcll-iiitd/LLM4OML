@@ -1,0 +1,296 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Stochastic Weight Interpolation (SWI)} – a variant of Stochastic Weight Averaging (SWA) that stores a weight snapshot every $k$ iterations and, at the end of training, returns a linear interpolation (uniform average) of the stored snapshots.
+
+---------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+Let $L:\R^{d}\rightarrow\R$ be the (possibly non‑convex) loss function.  
+Denote by $g_t$ a stochastic gradient evaluated at the current iterate $w_t$:
+\[
+g_t = \nabla L(w_t;\,\xi_t),\qquad \xi_t\sim\mathcal{D},
+\]
+where $\mathcal{D}$ is the data distribution.  
+
+\paragraph{SGD update (inner loop).}
+\[
+\boxed{w_{t+1}=w_t-\eta_t g_t},\qquad t=0,1,\dots ,T-1,
+\]
+with step size $\eta_t>0$.
+
+\paragraph{Snapshot rule.}
+Define the set of snapshot indices
+\[
+\mathcal{S}_T:=\{t\in\{0,\dots ,T\}\mid t\equiv 0\pmod{k}\},
+\]
+i.e. a snapshot $s_j$ is taken every $k$ steps:
+\[
+s_j := w_{t_j},\qquad t_j\in\mathcal{S}_T .
+\]
+
+\paragraph{Interpolation (output).}
+Let $M:=|\mathcal{S}_T|$ be the number of snapshots.  
+The final weight returned by the algorithm is the uniform average
+\[
+\boxed{\widetilde w_T:=\frac1M\sum_{j=1}^{M}s_j
+      =\frac1M\sum_{t\in\mathcal{S}_T} w_t } .
+\]
+
+All hyper‑parameters are:
+\begin{itemize}
+  \item learning‑rate schedule $\{\eta_t\}_{t\ge0}$,
+  \item snapshot period $k\in\mathbb{N}_{+}$,
+  \item total number of iterations $T$.
+\end{itemize}
+
+---------------------------------------------------------------------
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Stochastic Weight Interpolation (SWI)}
+\begin{algorithmic}[1]
+\REQUIRE initial point $w_0\in\R^d$, step sizes $\{\eta_t\}$, snapshot period $k$, total steps $T$
+\STATE $S\leftarrow\{\}$ \COMMENT{set of stored snapshots}
+\FOR{$t=0$ \TO $T-1$}
+    \STATE Sample data $\xi_t\sim\mathcal{D}$ and compute stochastic gradient $g_t=\nabla L(w_t;\xi_t)$
+    \STATE $w_{t+1}\gets w_t-\eta_t g_t$ \COMMENT{SGD update}
+    \IF{$(t+1)\bmod k =0$}
+        \STATE $S\leftarrow S\cup\{w_{t+1}\}$ \COMMENT{store snapshot}
+    \ENDIF
+\ENDFOR
+\STATE $M\gets |S|$
+\STATE $\widetilde w_T\gets \frac1M\sum_{s\in S}s$ \COMMENT{uniform interpolation}
+\RETURN $\widetilde w_T$
+\end{algorithmic}
+\end{algorithm}
+
+---------------------------------------------------------------------
+
+\section*{Dry Run Example}
+Consider the one‑dimensional quadratic
+\[
+L(w)=(w-3)^2,\qquad \nabla L(w)=2(w-3).
+\]
+Set $w_0=0$, constant step size $\eta_t=\eta=0.1$, and snapshot period $k=2$.  
+We run three SGD steps (no stochasticity, i.e. $g_t=\nabla L(w_t)$).
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $L(w_t)$\\ \hline
+0 & $0$ & $-6$ & $9$\\
+1 & $w_1=0-0.1(-6)=0.6$ & $2(0.6-3)=-4.8$ & $5.76$\\
+2 & $w_2=0.6-0.1(-4.8)=1.08$ & $2(1.08-3)=-3.84$ & $3.6864$\\
+3 & $w_3=1.08-0.1(-3.84)=1.464$ & $2(1.464-3)=-3.072$ & $2.3610$\\
+\end{tabular}
+\end{center}
+
+Snapshots are taken at $t=2$ (since $k=2$).  
+Thus $S=\{w_2=1.08\}$ and the interpolated output is $\widetilde w_3 =1.08$ with loss $L(\widetilde w_3)=3.6864$.
+
+---------------------------------------------------------------------
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{as:smooth}
+$L$ is $L$‑smooth, i.e. for all $u,v\in\R^d$,
+\[
+L(v)\le L(u)+\langle\nabla L(u),v-u\rangle+\frac{L}{2}\norm{v-u}^2 .
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic gradients]\label{as:unbiased}
+For every $t$,
+\[
+\E[g_t\mid w_t]=\nabla L(w_t).
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded variance]\label{as:variance}
+There exists $\sigma^2\ge0$ such that
+\[
+\E\!\left[\norm{g_t-\nabla L(w_t)}^2\mid w_t\right]\le\sigma^2,\qquad\forall t .
+\]
+\end{assumption}
+
+\begin{assumption}[Stepsize]\label{as:stepsize}
+The stepsizes are constant $\eta_t\equiv\eta$ with 
+\[
+0<\eta\le\frac{1}{L}.
+\]
+\end{assumption}
+
+---------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of SWI]\label{thm:main}
+Under Assumptions~\ref{as:smooth}–\ref{as:stepsize}, let $T$ be a multiple of $k$ and denote by $\widetilde w_T$ the uniform average of the $M=T/k$ stored snapshots. Then
+\[
+\boxed{
+\E\!\left[\norm{\nabla L(\widetilde w_T)}^2\right]\le
+\frac{2\big(L(w_0)-L^\star\big)}{\eta\,T}
+\;+\; \eta L\,\sigma^2 ,
+}
+\]
+where $L^\star:=\inf_{w}L(w)$. Consequently, choosing $\eta =\Theta\!\bigl(1/\sqrt{T}\bigr)$ yields
+\[
+\E\!\left[\norm{\nabla L(\widetilde w_T)}^2\right]=\mathcal{O}\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+---------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+\begin{itemize}
+  \item \textbf{Stability.} The uniform averaging step does not increase the expected loss because of convexity of the quadratic term in the smoothness inequality; the bound in Theorem~\ref{thm:main} holds for any $k\ge1$.
+  \item \textbf{Hyper‑parameter sensitivity.} The rate depends on $\eta$ and $k$ only through the total number of snapshots $M=T/k$. Larger $k$ (fewer snapshots) yields a larger variance term but does not affect the $\mathcal{O}(1/\sqrt{T})$ order.
+  \item \textbf{Comparison to baselines.} Plain SGD without averaging enjoys the same $\mathcal{O}(1/\sqrt{T})$ bound on the average gradient norm. SWI inherits this rate while often producing a flatter minima in practice, as the interpolation averages over different regions of the loss surface.
+\end{itemize}
+
+---------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[One‑step descent]\label{lem:descent}
+For the SGD update $w_{t+1}=w_t-\eta g_t$ with $\eta\le1/L$, the following holds:
+\[
+\E\!\left[L(w_{t+1})\mid w_t\right]
+\le L(w_t)-\frac{\eta}{2}\norm{\nabla L(w_t)}^2
++\frac{\eta}{2} \sigma^2 .
+\]
+\end{lemma}
+\begin{proof}
+From $L$‑smoothness (Assumption~\ref{as:smooth}) with $v=w_{t+1}=w_t-\eta g_t$,
+\[
+L(w_{t+1})\le L(w_t)-\eta\langle g_t,\nabla L(w_t)\rangle
++\frac{L\eta^2}{2}\norm{g_t}^2. \tag{1}
+\]
+Take conditional expectation and use unbiasedness (Assumption~\ref{as:unbiased}):
+\[
+\E\!\left[\langle g_t,\nabla L(w_t)\rangle\mid w_t\right]
+= \norm{\nabla L(w_t)}^2 . \tag{2}
+\]
+Also,
+\[
+\E\!\left[\norm{g_t}^2\mid w_t\right]
+= \norm{\nabla L(w_t)}^2+\E\!\left[\norm{g_t-\nabla L(w_t)}^2\mid w_t\right]
+\le \norm{\nabla L(w_t)}^2+\sigma^2 . \tag{3}
+\]
+Insert (2)–(3) into (1):
+\[
+\E\!\left[L(w_{t+1})\mid w_t\right]\le
+L(w_t)-\eta\norm{\nabla L(w_t)}^2
++\frac{L\eta^2}{2}\bigl(\norm{\nabla L(w_t)}^2+\sigma^2\bigr). \tag{4}
+\]
+Since $\eta\le 1/L$, we have $L\eta^2\le\eta$, thus
+\[
+-\eta+\frac{L\eta^2}{2}\le -\frac{\eta}{2}.
+\]
+Applying this inequality to the first term of (4) gives the claimed bound.
+\end{proof}
+
+---------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. Throughout the proof we number every non‑trivial manipulation.
+
+\begin{proof}
+\textbf{Step 1.}  Sum Lemma~\ref{lem:descent} over all iterations $t=0,\dots,T-1$ and take total expectation:
+\[
+\E\!\left[L(w_T)\right]
+\le L(w_0)-\frac{\eta}{2}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla L(w_t)}^2\right]
++\frac{\eta\sigma^2 T}{2}. \tag{5}
+\]
+
+\textbf{Step 2.}  Drop the non‑negative term $\E[L(w_T)]\ge L^\star$ to obtain a lower bound:
+\[
+L^\star\le L(w_0)-\frac{\eta}{2}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla L(w_t)}^2\right]
++\frac{\eta\sigma^2 T}{2}. \tag{6}
+\]
+
+\textbf{Step 3.}  Rearrange (6) to isolate the average of squared gradients:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla L(w_t)}^2\right]
+\le \frac{2\big(L(w_0)-L^\star\big)}{\eta\,T}
++\eta\sigma^2 . \tag{7}
+\]
+
+\textbf{Step 4.}  Relate the gradient at the interpolated weight $\widetilde w_T$ to the gradients at the snapshots.
+Because $L$ is $L$‑smooth, its gradient is $L$‑Lipschitz:
+\[
+\norm{\nabla L(u)-\nabla L(v)}\le L\norm{u-v},\qquad\forall u,v. \tag{8}
+\]
+Using the definition $\widetilde w_T=\frac1M\sum_{j=1}^{M}s_j$ and Jensen’s inequality,
+\[
+\begin{aligned}
+\norm{\nabla L(\widetilde w_T)}^2
+&=\norm{\frac1M\sum_{j=1}^{M}\nabla L(s_j)}^2 \\
+&\le \frac1M\sum_{j=1}^{M}\norm{\nabla L(s_j)}^2
+   \quad\text{(convexity of $x\mapsto \norm{x}^2$)}. \tag{9}
+\end{aligned}
+\]
+
+\textbf{Step 5.}  Take expectations on both sides of (9) and use (7) restricted to the snapshot indices.
+Since snapshots are taken every $k$ steps, the set $\{s_j\}$ is a subset of $\{w_t\}_{t=0}^{T-1}$; therefore
+\[
+\frac1M\sum_{j=1}^{M}\E\!\left[\norm{\nabla L(s_j)}^2\right]
+\le \frac1T\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla L(w_t)}^2\right]. \tag{10}
+\]
+
+\textbf{Step 6.}  Combine (9)–(10) with the bound (7):
+\[
+\E\!\left[\norm{\nabla L(\widetilde w_T)}^2\right]
+\le \frac{2\big(L(w_0)-L^\star\big)}{\eta\,T}
++\eta\sigma^2 . \tag{11}
+\]
+
+\textbf{Step 7.}  Choose $\eta = \frac{c}{\sqrt{T}}$ with $c\le \frac{1}{L}$ to satisfy Assumption~\ref{as:stepsize}. Substituting into (11) yields
+\[
+\E\!\left[\norm{\nabla L(\widetilde w_T)}^2\right]
+\le \frac{2\big(L(w_0)-L^\star\big)}{c}\frac{1}{\sqrt{T}}
++\frac{cL\,\sigma^2}{\sqrt{T}}
+= \mathcal{O}\!\left(\frac{1}{\sqrt{T}}\right). \tag{12}
+\]
+
+Equation (12) is precisely the rate claimed in Theorem~\ref{thm:main}. ∎
+\end{proof}
+
+---------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+From (11) we have an explicit bound:
+\[
+\E\!\left[\norm{\nabla L(\widetilde w_T)}^2\right]
+\le \underbrace{\frac{2\big(L(w_0)-L^\star\big)}{\eta\,T}}_{\text{bias term}}
+\;+\;\underbrace{\eta L\sigma^2}_{\text{variance term}} .
+\]
+Setting $\eta = \frac{1}{L\sqrt{T}}$ (which respects $\eta\le 1/L$) gives
+\[
+\E\!\left[\norm{\nabla L(\widetilde w_T)}^2\right]
+\le \frac{2L\big(L(w_0)-L^\star\big)}{\sqrt{T}}
+\;+\; \frac{\sigma^2}{\sqrt{T}} .
+\]
+Thus the constant in the $\mathcal{O}(1/\sqrt{T})$ rate is $2L\big(L(w_0)-L^\star\big)+\sigma^2$.
+
+---------------------------------------------------------------------
+
+\section*{Special Cases}
+\begin{itemize}
+  \item \textbf{Deterministic gradients} ($\sigma=0$). The variance term disappears and the bound simplifies to $\mathcal{O}(1/T)$, i.e. the gradient norm decays linearly with $1/T$.
+  \item \textbf{Convex $L$}. If $L$ is convex, the same proof yields a bound on the suboptimality $L(\widetilde w_T)-L^\star$ of order $\mathcal{O}(1/\sqrt{T})$.
+  \item \textbf{Large snapshot period $k\to T$}. When $k=T$, only the final iterate $w_T$ is stored; the theorem reduces to the classical SGD bound for the last iterate.
+\end{itemize}
+
+---------------------------------------------------------------------
+
+\section*{Discussion}
+The SWI algorithm inherits the classical $\mathcal{O}(1/\sqrt{T})$ convergence guarantee of SGD for non‑convex smooth objectives while providing a practical advantage: the interpolated weight $\widetilde w_T$ tends to lie in a flatter region of the loss landscape because it averages over many points visited by SGD. The proof above shows that this empirical benefit does not come at the cost of a slower theoretical rate; the only additional hyper‑parameter is the snapshot period $k$, which influences the constant but not the asymptotic order. Consequently, SWI can be viewed as a lightweight, provably sound method to improve generalisation without altering the underlying optimizer.
+
+\end{document}

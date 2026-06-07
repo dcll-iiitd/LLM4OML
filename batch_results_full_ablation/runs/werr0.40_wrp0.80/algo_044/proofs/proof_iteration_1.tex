@@ -1,0 +1,313 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{bm}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{corollary}{Corollary}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\ip}[2]{\left\langle #1,#2\right\rangle}
+\newcommand{\grad}{\nabla}
+\newcommand{\clip}[1]{\operatorname{Clip}\!\left(#1\right)}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Differentially Private Stochastic Gradient Descent with Gaussian Noise (DP‑SGD)}  
+
+The algorithm performs standard SGD updates on a (convex, $L$‑smooth) loss while adding calibrated Gaussian noise to each mini‑batch gradient to guarantee $(\varepsilon,\delta)$‑differential privacy.
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\to\R$ be the empirical risk
+\[
+f(w)=\frac{1}{n}\sum_{i=1}^{n}\ell(w;z_i),\qquad 
+\ell(\cdot;z_i)\;\text{convex and $L$‑smooth}.
+\]
+
+At iteration $t$ a mini‑batch $\mathcal{B}_t\subset\{1,\dots,n\}$ of size $b$ is sampled uniformly
+(without replacement).  
+Define the (clipped) stochastic gradient
+\[
+g_t\;=\;\frac{1}{b}\sum_{i\in\mathcal{B}_t}\clip{\grad\ell(w_t;z_i)}\;+\;\xi_t,
+\qquad 
+\xi_t\sim\mathcal{N}(0,\sigma^{2}\mathbf{I}_d).
+\]
+Clipping is performed component‑wise to a radius $C>0$:
+\[
+\clip{\grad\ell(w;z)}\;=\;
+\grad\ell(w;z)\cdot\min\!\Bigl\{1,\frac{C}{\norm{\grad\ell(w;z)}}\Bigr\}.
+\]
+
+The update rule is
+\[
+\boxed{w_{t+1}=w_t-\eta_t g_t},
+\]
+where $\eta_t>0$ is the learning‑rate schedule (e.g.\ $\eta_t=\eta$ or $\eta_t=\frac{\eta_0}{\sqrt{t}}$).
+
+Privacy accounting: each iteration releases a Gaussian‑noised gradient with variance
+$\sigma^{2}=\frac{2C^{2}\log(1.25/\delta)}{b^{2}\varepsilon^{2}}$
+(standard Gaussian mechanism).  By the moments accountant (or advanced composition) the whole run of $T$ iterations satisfies $(\varepsilon,\delta)$‑DP.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{DP‑SGD}
+\begin{algorithmic}[1]
+\State \textbf{Input:} data $\{z_i\}_{i=1}^{n}$, loss $\ell$, clipping norm $C$, noise scale $\sigma$, batch size $b$, learning‑rate schedule $\{\eta_t\}_{t=0}^{T-1}$, iterations $T$.
+\State Initialize $w_0\in\R^{d}$.
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Sample a mini‑batch $\mathcal{B}_t$ of size $b$ uniformly at random.
+    \State Compute per‑example gradients $g_i^{(t)}=\grad\ell(w_t;z_i)$ for $i\in\mathcal{B}_t$.
+    \State Clip: $\tilde g_i^{(t)}=\clip{g_i^{(t)}}$.
+    \State Average: $\bar g_t=\frac{1}{b}\sum_{i\in\mathcal{B}_t}\tilde g_i^{(t)}$.
+    \State Sample noise $\xi_t\sim\mathcal{N}(0,\sigma^{2}\mathbf{I}_d)$.
+    \State Form noisy gradient $g_t=\bar g_t+\xi_t$.
+    \State Update $w_{t+1}=w_t-\eta_t g_t$.
+\EndFor
+\State \textbf{Output:} $w_T$ (or averaged iterate $\bar w_T=\frac{1}{T}\sum_{t=0}^{T-1}w_t$).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the simple 1‑dimensional quadratic
+\[
+f(w)=(w-3)^2,\qquad\grad f(w)=2(w-3).
+\]
+No mini‑batching is needed; we set $C=\infty$ (no clipping) and $\sigma=0$ (pure SGD) to illustrate the deterministic part of the update.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+$t$ & $w_t$ & $g_t=\grad f(w_t)$ & $w_{t+1}=w_t-\eta g_t$ \\ \hline
+0 & $0$ & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ \\
+1 & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ \\
+2 & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ \\
+\end{tabular}
+\end{center}
+Corresponding objective values: $f(0)=9$, $f(0.6)=5.76$, $f(1.08)=3.6864$, $f(1.464)=2.3507$. The iterates move toward the minimizer $w^{\star}=3$.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Convexity]\label{ass:convex}
+For all $w,w'\in\R^{d}$,
+\[
+f(w')\ge f(w)+\ip{\grad f(w)}{w'-w}.
+\]
+\end{assumption}
+\begin{assumption}[L‑smoothness]\label{ass:smooth}
+There exists $L>0$ such that for all $w,w'\in\R^{d}$
+\[
+f(w')\le f(w)+\ip{\grad f(w)}{w'-w}+\frac{L}{2}\norm{w'-w}^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Bounded (clipped) gradients]\label{ass:bddgrad}
+For every example $z$ and every $w$, the clipped gradient satisfies
+\[
+\norm{\clip{\grad\ell(w;z)}}\le C.
+\]
+Consequently $\norm{\bar g_t}\le C$ for all $t$.
+\end{assumption}
+\begin{assumption}[Noise distribution]\label{ass:noise}
+The added noise $\xi_t\sim\mathcal{N}(0,\sigma^{2}\mathbf{I}_d)$ is independent across iterations and independent of the sampled mini‑batch.
+\end{assumption}
+\begin{assumption}[Learning‑rate]\label{ass:lr}
+The step sizes are non‑increasing and satisfy $\eta_t\le \frac{1}{L}$ for all $t$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}\label{thm:conv}
+Let Assumptions~\ref{ass:convex}–\ref{ass:lr} hold. Define the averaged iterate
+\[
+\bar w_T:=\frac{1}{T}\sum_{t=0}^{T-1}w_t .
+\]
+If a constant step size $\eta_t=\eta\le\frac{1}{L}$ is used, then
+\[
+\E\!\bigl[f(\bar w_T)-f(w^{\star})\bigr]
+\;\le\;
+\frac{\norm{w_0-w^{\star}}^{2}}{2\eta T}
+\;+\;
+\frac{\eta C^{2}}{2}
+\;+\;
+\frac{\eta d\sigma^{2}}{2},
+\tag{1}
+\]
+where the expectation is over the randomness of mini‑batch sampling and the Gaussian noise.
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}[leftmargin=*]
+\item \textbf{Stability.} The bound (1) is decreasing in $T$ provided $\eta$ is chosen as $\eta=O(1/\sqrt{T})$, yielding the optimal $O(1/\sqrt{T})$ rate for convex problems.
+\item \textbf{Privacy–utility trade‑off.} The noise variance $\sigma^{2}$ is dictated by the privacy budget $(\varepsilon,\delta)$. Larger $\sigma^{2}$ inflates the third term in (1), degrading utility.
+\item \textbf{Comparison to vanilla SGD.} Setting $\sigma=0$ recovers the classic SGD bound 
+$\frac{\norm{w_0-w^{\star}}^{2}}{2\eta T}+ \frac{\eta C^{2}}{2}$.
+\item \textbf{Hyper‑parameter sensitivity.} The bound is linear in $C$ and $\sqrt{\sigma^{2}}$, suggesting that tighter clipping and smaller noise (i.e.\ larger $\varepsilon$) improve convergence.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that DP‑SGD preserves the $O(1/\sqrt{T})$ convergence rate of standard SGD up to an additive penalty proportional to the noise variance. By calibrating $\sigma$ according to the Gaussian mechanism, the algorithm satisfies $(\varepsilon,\delta)$‑DP for any prescribed privacy budget. The bound is non‑asymptotic and holds for any convex, $L$‑smooth loss, making it directly applicable to empirical risk minimisation in machine learning.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Three‑point identity]\label{lem:three}
+For any $a,b\in\R^{d}$ and any $w\in\R^{d}$,
+\[
+\norm{a-w}^{2}= \norm{b-w}^{2}+2\ip{a-b}{b-w}+\norm{a-b}^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Expand both sides using $\norm{x}^{2}= \ip{x}{x}$ and collect terms. \qedhere
+\end{proof}
+
+\begin{lemma}[Unbiasedness of clipped gradient]\label{lem:unbiased}
+Conditioned on $w_t$, the expectation of the noisy gradient satisfies
+\[
+\E[g_t\mid w_t]=\E[\bar g_t\mid w_t]=\frac{1}{b}\sum_{i\in\mathcal{B}_t}\E\bigl[\clip{\grad\ell(w_t;z_i)}\mid w_t\bigr].
+\]
+\end{lemma}
+\begin{proof}
+Noise $\xi_t$ has zero mean and is independent of the batch, thus $\E[\xi_t]=0$. The remaining term is deterministic given the sampled batch, yielding the claim. \qedhere
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:conv}. Throughout the proof $w^{\star}$ denotes any minimiser of $f$.
+
+\noindent\textbf{Step 1 (Distance recursion).}  
+Using the update $w_{t+1}=w_t-\eta g_t$ and Lemma~\ref{lem:three} with $a=w_{t+1}$, $b=w_t$, we obtain
+\[
+\norm{w_{t+1}-w^{\star}}^{2}
+ = \norm{w_t-w^{\star}}^{2}
+   -2\eta\ip{g_t}{w_t-w^{\star}}
+   +\eta^{2}\norm{g_t}^{2}.
+\tag{2}\label{eq:rec}
+\]
+
+\noindent\textbf{Step 2 (Take conditional expectation).}  
+Condition on $w_t$ and apply Lemma~\ref{lem:unbiased}:
+\[
+\E\!\bigl[\norm{w_{t+1}-w^{\star}}^{2}\mid w_t\bigr]
+ = \norm{w_t-w^{\star}}^{2}
+   -2\eta\ip{\E[g_t\mid w_t]}{w_t-w^{\star}}
+   +\eta^{2}\E\!\bigl[\norm{g_t}^{2}\mid w_t\bigr].
+\tag{3}
+\]
+
+\noindent\textbf{Step 3 (Decompose the inner product).}  
+Because $f$ is convex (Assumption~\ref{ass:convex}),
+\[
+\ip{\grad f(w_t)}{w_t-w^{\star}}\;\ge\; f(w_t)-f(w^{\star}).
+\tag{4}
+\]
+The clipped gradient is bounded by $C$ (Assumption~\ref{ass:bddgrad}), hence
+\[
+\bigl\|\clip{\grad\ell(w_t;z)}\bigr\|\le C\quad\Longrightarrow\quad
+\|\bar g_t\|\le C.
+\tag{5}
+\]
+
+\noindent\textbf{Step 4 (Bound the expected squared norm).}  
+Write $g_t=\bar g_t+\xi_t$. Using independence of $\xi_t$ and the bound (5):
+\[
+\begin{aligned}
+\E\!\bigl[\norm{g_t}^{2}\mid w_t\bigr]
+ &= \E\!\bigl[\norm{\bar g_t+\xi_t}^{2}\mid w_t\bigr]  \\
+ &= \norm{\bar g_t}^{2}+ \E\!\bigl[\norm{\xi_t}^{2}\bigr]    \qquad\text{(cross term zero)}\\
+ &\le C^{2}+ d\sigma^{2}.
+\end{aligned}
+\tag{6}
+\]
+
+\noindent\textbf{Step 5 (Replace $\E[g_t\mid w_t]$ with true gradient).}  
+Since clipping is a non‑expansive projection, we have for any $z$
+\[
+\ip{\clip{\grad\ell(w_t;z)}}{w_t-w^{\star}}
+ \;\le\; \ip{\grad\ell(w_t;z)}{w_t-w^{\star}} .
+\]
+Averaging over the batch and taking expectation yields
+\[
+\ip{\E[g_t\mid w_t]}{w_t-w^{\star}}
+ \;\le\; \ip{\grad f(w_t)}{w_t-w^{\star}} .
+\tag{7}
+\]
+
+\noindent\textbf{Step 6 (Combine (3)–(7)).}  
+Insert (4)–(7) into (3):
+\[
+\begin{aligned}
+\E\!\bigl[\norm{w_{t+1}-w^{\star}}^{2}\mid w_t\bigr]
+ &\le \norm{w_t-w^{\star}}^{2}
+      -2\eta\bigl[f(w_t)-f(w^{\star})\bigr]
+      +\eta^{2}\bigl(C^{2}+d\sigma^{2}\bigr).
+\end{aligned}
+\tag{8}
+\]
+
+\noindent\textbf{Step 7 (Take total expectation).}  
+Removing the conditioning,
+\[
+\E\!\bigl[\norm{w_{t+1}-w^{\star}}^{2}\bigr]
+ \le \E\!\bigl[\norm{w_t-w^{\star}}^{2}\bigr]
+      -2\eta\E\!\bigl[f(w_t)-f(w^{\star})\bigr]
+      +\eta^{2}\bigl(C^{2}+d\sigma^{2}\bigr).
+\tag{9}
+\]
+
+\noindent\textbf{Step 8 (Summation over $t=0,\dots,T-1$).}  
+Telescoping the left‑hand side yields
+\[
+\begin{aligned}
+\E\!\bigl[\norm{w_T-w^{\star}}^{2}\bigr]
+ &\le \norm{w_0-w^{\star}}^{2}
+      -2\eta\sum_{t=0}^{T-1}\E\!\bigl[f(w_t)-f(w^{\star})\bigr]
+      +T\eta^{2}\bigl(C^{2}+d\sigma^{2}\bigr).
+\end{aligned}
+\tag{10}
+\]
+
+\noindent\textbf{Step 9 (Rearrange).}  
+Since the squared norm is non‑negative,
+\[
+2\eta\sum_{t=0}^{T-1}\E\!\bigl[f(w_t)-f(w^{\star})\bigr]
+ \le \norm{w_0-w^{\star}}^{2}+T\eta^{2}\bigl(C^{2}+d\sigma^{2}\bigr).
+\tag{11}
+\]
+
+\noindent\textbf{Step 10 (Average iterate).}  
+Divide (11) by $2\eta T$ and use convexity of $f$:
+\[
+\begin{aligned}
+\E\!\bigl[f(\bar w_T)-f(w^{\star})\bigr]
+ &\le \frac{1}{T}\sum_{t=0}^{T-1}\E\!\bigl[f(w_t)-f(w^{\star})\bigr] \\
+ &\le \frac{\norm{w_0-w^{\star}}^{2}}{2\eta T}
+      +\frac{\eta}{2}\bigl(C^{2}+d\sigma^{2}\bigr).
+\end{aligned}
+\tag{12}
+\]
+
+Equation~(12) is exactly the bound (1) of Theorem~\ref{thm:conv}. \hfill\qedsymbol
+
+\section*{Rate Derivation (With Constants)}
+Choosing $\eta = \frac{R}{\sqrt{T(C^{2}+d\sigma^{2})}}$ where $R:=\norm{w_0-w^{\star}}$, we obtain
+\[
+\E\!\bigl[f(\bar w_T)-f(w^{\star})\bigr]
+ \le \frac{R\sqrt{C^{2}+d\sigma^{2}}}{\sqrt{T}}.
+\]
+Thus the algorithm attains the optimal $O(1/\sqrt{T})$ rate for convex objectives, with a constant that grows linearly with the clipping radius $C$ and with $\sqrt{d}\,\sigma$ (the privacy‑induced noise level).
+
+\section*{Special Cases}
+\begin{enumerate}[leftmargin=*]
+\item \textbf{No privacy noise ($\sigma=0$).} The bound reduces to the classical SGD guarantee:
+\[
+\E[f(\bar w_T)-f(w^{\star})]\le\frac{\norm{w_0-w^{\star}}^{2}}{2\eta T}+\frac{\eta C^{2}}{2}.
+\]
+\item \textbf{Strongly convex $f$ (parameter $\mu>0$).} Repeating the above steps with the stronger inequality
+$\ip{\grad f(w_t)}{w_t-w^{\star}}\ge \mu \norm{w_t-w^{\star}}^{2}+f(w_t)-f(w^{\star})$
+yields a linear convergence term plus an additive $\frac{\eta d\sigma^{2}}{2\mu}$ steady‑state error.
+\item \textbf{Full‑batch DP‑GD (batch size $b=n$).} The clipping bound becomes $C\le \max_i\norm{\grad\ell(w;z_i)}$, and the noise variance scales as $\sigma^{2}\propto \frac{C^{2}}{n^{2}\varepsilon^{2}}$, improving the utility term by a factor $n$.
+\end{enumerate}
+
+\end{document}

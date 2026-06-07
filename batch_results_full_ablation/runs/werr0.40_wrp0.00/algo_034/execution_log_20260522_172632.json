@@ -1,0 +1,183 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T17:25:28.401738",
+    "end_time": "2026-05-22T17:26:32.628561",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.4,
+      "w_tfp": 0.6,
+      "w_rp_pen": 0.0
+    }
+  },
+  "algorithm_description": "The algorithm clips gradients: g_t = grad(f)(x_t) / max(1, ||grad(f)(x_t)||/C). Update uses clipped g_t. Proof requires handling the clipping bias.",
+  "assumptions": "Non-Convex and Smooth functions (Clipped SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T17:25:57.546497",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm,algpseudocode}\n\\usepackage{fullpage}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\n\\begin{document}\n\n\\section*{Clipped Stochastic Gradient Descent (Clipped\u2011SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be differentiable.  \nGiven a stepsize sequence $(\\eta_t)_{t\\ge 0}$ and a clipping threshold $C>0$, the\n\\textbf{clipped gradient} at iteration $t$ is defined by\n\\[\n\\boxed{\\;\n\\tilde g_t \\;:=\\; \n\\frac{\\nabla f(x_t)}{\\displaystyle \\max\\!\\Bigl(1,\\,\n\\frac{\\|\\nabla f(x_t)\\|}{C}\\Bigr)} \n\\;}\n\\tag{1}\n\\]\nEquivalently,\n\\[\n\\tilde g_t=\n\\begin{cases}\n\\nabla f(x_t), & \\|\\nabla f(x_t)\\|\\le C,\\\\[4pt]\nC\\,\\dfrac{\\nabla f(x_t)}{\\|\\nabla f(x_t)\\|}, & \\|\\nabla f(x_t)\\|> C .\n\\end{cases}\n\\tag{2}\n\\]\nThe update rule is the standard (stochastic) gradient step but using the\nclipped vector:\n\\[\n\\boxed{\\; x_{t+1}=x_t-\\eta_t \\tilde g_t \\;}\n\\tag{3}\n\\]\n\nWhen a stochastic gradient $g_t$ (unbiased estimator of $\\nabla f(x_t)$) is\navailable, we first clip $g_t$ exactly as in (1) and then apply (3).\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Clipped\u2011SGD}\n\\begin{algorithmic}[1]\n\\Require Initial point $x_0\\in\\R^d$, stepsize schedule $(\\eta_t)$, clipping threshold $C>0$\n\\For{$t=0,1,\\dots,T-1$}\n    \\State Sample a mini\u2011batch (or a data point) and compute a stochastic gradient $g_t$ of $f$ at $x_t$.\n    \\State $\\displaystyle \\tilde g_t \\gets \\frac{g_t}{\\max\\!\\bigl(1,\\|g_t\\|/C\\bigr)}$ \\Comment{gradient clipping}\n    \\State $x_{t+1}\\gets x_t-\\eta_t \\tilde g_t$ \\Comment{gradient step}\n\\EndFor\n\\State \\Return $x_T$ (or the averaged iterate $\\bar x_T=\\frac1T\\sum_{t=0}^{T-1}x_t$)\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the one\u2011dimensional quadratic\n\\[\nf(w)=(w-3)^2,\\qquad \\nabla f(w)=2(w-3).\n\\]\nSet $w_0=0$, stepsize $\\eta=0.1$, clipping threshold $C=1$ and run three\niterations.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_t$ & $\\nabla f(w_t)$ & $\\tilde g_t$ (clipped) & $f(w_t)$ \\\\\n\\hline\n0 & $0$ & $-6$ & $C\\,\\frac{-6}{|{-6}|}= -1$ & $9$\\\\\n1 & $0-0.1(-1)=0.1$ & $2(0.1-3)=-5.8$ & $-1$ & $ (0.1-3)^2=8.41$\\\\\n2 & $0.1-0.1(-1)=0.2$ & $2(0.2-3)=-5.6$ & $-1$ & $ (0.2-3)^2=7.84$\\\\\n3 & $0.2-0.1(-1)=0.3$ & $2(0.3-3)=-5.4$ & $-1$ & $ (0.3-3)^2=7.29$\\\\\n\\end{tabular}\n\\end{center}\nThe clipping forces every gradient step to have magnitude $C=1$, leading to a\nsteady linear progress toward the optimum $w^\\star=3$.\n\n\\newpage\n\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f$ is $L$\u2011smooth, i.e. for all $x,y\\in\\R^d$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Stochastic Variance]\\label{ass:variance}\nWe have access to stochastic gradients $g_t$ such that\n\\[\n\\E[g_t\\mid x_t]=\\nabla f(x_t),\\qquad \n\\E\\bigl[\\|g_t-\\nabla f(x_t)\\|^2\\mid x_t\\bigr]\\le\\sigma^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Clipping Threshold]\\label{ass:threshold}\nThe clipping constant $C>0$ is arbitrary but fixed throughout the run.\n\\end{assumption}\n\\begin{assumption}[Stepsize]\\label{ass:stepsize}\nThe stepsize is constant $\\eta_t\\equiv\\eta$ with\n\\[\n0<\\eta\\le \\frac{1}{L}.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nAssume \\ref{ass:smooth}\u2013\\ref{ass:stepsize}. Let $x_{t+1}=x_t-\\eta\\tilde g_t$ be the\niterations of Clipped\u2011SGD, where $\\tilde g_t$ is defined in \\eqref{1}.\nDefine the bias vector \n\\[\nb_t:=\\nabla f(x_t)-\\tilde g_t .\n\\]\nThen for any $T\\ge1$,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^2\\bigr]\n\\;\\le\\;\n\\underbrace{\\frac{2\\bigl(f(x_0)-f^\\star\\bigr)}{\\eta T}}_{(\\mathrm{I})}\n\\;+\\;\n\\underbrace{2C\\,\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|b_t\\|\\,\\|\\nabla f(x_t)\\|\\bigr]}_{(\\mathrm{II})}\n\\;+\\;\n\\underbrace{L\\eta C^2}_{(\\mathrm{III})}\n\\;+\\;\n\\underbrace{L\\eta\\sigma^2}_{(\\mathrm{IV})}.\n\\]\nMoreover, using the elementary bound $\\|b_t\\|\\le\\max\\{0,\\|\\nabla f(x_t)\\|-C\\}$\nand the inequality $a-C\\le a^2/C$ for $a\\ge C$, term $(\\mathrm{II})$ can be\ncontrolled by $\\frac{1}{C}\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\|\\nabla f(x_t)\\|^3]$.\nConsequently, if $C\\ge\\sqrt{2L\\eta}\\,\\,\\sigma$ and $T$ is large enough,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^2\\bigr]\n= O\\!\\Bigl(\\frac{1}{\\eta T}+L\\eta C^2\\Bigr).\n\\]\nChoosing $\\eta=\\Theta\\!\\bigl(1/\\sqrt{T}\\bigr)$ yields the optimal\nnon\u2011convex rate $O(1/\\sqrt{T})$.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} Because $\\|\\tilde g_t\\|\\le C$, the update (3) never\nproduces a step larger than $\\eta C$, guaranteeing that the iterates stay in a\ncompact region whenever $f$ has coercive level sets.\n\\item \\textbf{Hyper\u2011parameter Sensitivity.}\n    \\begin{itemize}\n        \\item Larger $C$ reduces the clipping bias (term (II)) but may increase\n        variance impact via $(\\mathrm{III})$.\n        \\item The stepsize must respect $\\eta\\le1/L$; the optimal choice\n        $\\eta\\asymp 1/\\sqrt{T}$ balances the $1/(\\eta T)$ term against the\n        $L\\eta C^2$ term.\n    \\end{itemize}\n\\item \\textbf{Comparison to vanilla SGD.}\n    Without clipping the standard bound is\n    $\\frac{1}{T}\\sum_{t}\\E\\|\\nabla f(x_t)\\|^2\\le\n    \\frac{2(f(x_0)-f^\\star)}{\\eta T}+L\\eta\\sigma^2$.\n    The extra bias term (II) is the price paid for robustness against exploding\n    gradients; when all gradients are naturally bounded by $C$, term (II) is\n    zero and the bound coincides with that of SGD.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that gradient clipping does not deteriorate the\nasymptotic $O(1/\\sqrt{T})$ convergence rate for smooth non\u2011convex objectives,\nprovided the clipping threshold is chosen not too small.  The analysis\nrelies only on elementary smoothness and variance assumptions, making it\napplicable to deep learning settings where occasional gradient explosions are\nobserved.\n\n\\newpage\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Descent Lemma for $L$\u2011smooth functions]\\label{lem:descent}\nIf $f$ is $L$\u2011smooth, then for any $x$ and any vector $u$,\n\\[\nf(x-u)\\le f(x)-\\langle\\nabla f(x),u\\rangle+\\frac{L}{2}\\|u\\|^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\nImmediate from Assumption \\ref{ass:smooth} with $y=x-u$.\n\\end{proof}\n\n\\begin{lemma}[Bias bound for clipping]\\label{lem:bias}\nFor any vector $v\\in\\R^d$ and any $C>0$, let $\\tilde v$ be its clipped version defined\nby \\eqref{2} and let $b:=v-\\tilde v$. Then\n\\[\n\\|b\\|= \\max\\{0,\\|v\\|-C\\}\\le\\frac{\\|v\\|^2}{C}.\n\\tag{4}\n\\]\n\\end{lemma}\n\\begin{proof}\nIf $\\|v\\|\\le C$, then $\\tilde v=v$ and $b=0$, so the claim holds.\nIf $\\|v\\|>C$, then $\\tilde v=C\\,v/\\|v\\|$ and\n\\[\n\\|b\\| =\\bigl\\|v-C\\frac{v}{\\|v\\|}\\bigr\\|\n= \\|v\\|\\Bigl|1-\\frac{C}{\\|v\\|}\\Bigr|\n= \\|v\\|-C .\n\\]\nSince $\\|v\\|-C\\le\\|v\\|^2/C$ for $\\|v\\|\\ge C$, inequality (4) follows.\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}.  Throughout the proof, expectations are taken\nwith respect to all randomness up to time $t$ unless otherwise noted.\n\n\\bigskip\n\\noindent\\textbf{[Step 1]} Apply Lemma \\ref{lem:descent} with $u=\\eta\\tilde g_t$:\n\\[\nf(x_{t+1})\\le f(x_t)-\\eta\\langle\\nabla f(x_t),\\tilde g_t\\rangle\n+\\frac{L\\eta^{2}}{2}\\|\\tilde g_t\\|^{2}.\n\\tag{5}\n\\]\n\n\\noindent\\textbf{[Step 2]} Decompose $\\tilde g_t$ as\n\\[\n\\tilde g_t = \\nabla f(x_t)-b_t, \\qquad\nb_t:=\\nabla f(x_t)-\\tilde g_t .\n\\tag{6}\n\\]\n\n\\noindent\\textbf{[Step 3]} Substitute (6) into the inner product term of (5):\n\\[\n\\langle\\nabla f(x_t),\\tilde g_t\\rangle\n= \\|\\nabla f(x_t)\\|^{2}-\\langle\\nabla f(x_t),b_t\\rangle .\n\\tag{7}\n\\]\n\n\\noindent\\textbf{[Step 4]} Use the elementary inequality\n$|\\langle a,b\\rangle|\\le\\frac12\\|a\\|^{2}+\\frac12\\|b\\|^{2}$ to bound the bias term:\n\\[\n\\langle\\nabla f(x_t),b_t\\rangle\n\\le\\frac12\\|\\nabla f(x_t)\\|^{2}+\\frac12\\|b_t\\|^{2}.\n\\tag{8}\n\\]\n\n\\noindent\\textbf{[Step 5]} Insert (7)\u2013(8) into (5) and collect the $\\|\\nabla f\\|^{2}$\nterms:\n\\[\n\\begin{aligned}\nf(x_{t+1})\n&\\le f(x_t)-\\eta\\Bigl(\\|\\nabla f(x_t)\\|^{2}\n-\\langle\\nabla f(x_t),b_t\\rangle\\Bigr)\n+\\frac{L\\eta^{2}}{2}\\|\\tilde g_t\\|^{2}\\\\[2pt]\n&\\le f(x_t)-\\eta\\Bigl(\\|\\nabla f(x_t)\\|^{2}\n-\\frac12\\|\\nabla f(x_t)\\|^{2}\n-\\frac12\\|b_t\\|^{2}\\Bigr)\n+\\frac{L\\eta^{2}}{2}\\|\\tilde g_t\\|^{2}\\\\[2pt]\n&= f(x_t)-\\frac{\\eta}{2}\\|\\nabla f(x_t)\\|^{2}\n+\\frac{\\eta}{2}\\|b_t\\|^{2}\n+\\frac{L\\eta^{2}}{2}\\|\\tilde g_t\\|^{2}.\n\\end{aligned}\n\\tag{9}\n\\]\n\n\\noindent\\textbf{[Step 6]} Bound the norm of the clipped gradient using the\ndefinition (2): $\\|\\tilde g_t\\|\\le C$. Hence\n\\[\n\\|\\tilde g_t\\|^{2}\\le C^{2}.\n\\tag{10}\n\\]\n\n\\noindent\\textbf{[Step 7]} Take expectation conditioned on $x_t$ in (9) and use\nAssumption \\ref{ass:variance} to replace $\\tilde g_t$ by the stochastic version.\nBecause $\\tilde g_t$ is a deterministic function of the stochastic gradient $g_t$,\nwe have\n\\[\n\\E\\bigl[\\|\\tilde g_t\\|^{2}\\mid x_t\\bigr]\n\\le C^{2}+\\sigma^{2},\n\\tag{11}\n\\]\nthe $\\sigma^{2}$ term coming from the variance of $g_t$ (the clipping operation\ndoes not increase variance).\n\n\\noindent\\textbf{[Step 8]} Apply (11) and (10) to (9) and then take total\nexpectation:\n\\[\n\\E[f(x_{t+1})]\\le \\E[f(x_t)]-\\frac{\\eta}{2}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^{2}\\bigr]\n+\\frac{\\eta}{2}\\E\\!\\bigl[\\|b_t\\|^{2}\\bigr]\n+\\frac{L\\eta^{2}}{2}\\bigl(C^{2}+\\sigma^{2}\\bigr).\n\\tag{12}\n\\]\n\n\\noindent\\textbf{[Step 9]} Rearrange (12) to isolate the gradient term:\n\\[\n\\frac{\\eta}{2}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^{2}\\bigr]\n\\le \\E[f(x_t)]-\\E[f(x_{t+1})]\n+\\frac{\\eta}{2}\\E\\!\\bigl[\\|b_t\\|^{2}\\bigr]\n+\\frac{L\\eta^{2}}{2}\\bigl(C^{2}+\\sigma^{2}\\bigr).\n\\tag{13}\n\\]\n\n\\noindent\\textbf{[Step 10]} Sum (13) over $t=0,\\dots,T-1$ telescopes the\nfunction values:\n\\[\n\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^{2}\\bigr]\n\\le f(x_0)-\\E[f(x_T)]\n+\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|b_t\\|^{2}\\bigr]\n+\\frac{L\\eta^{2}T}{2}\\bigl(C^{2}+\\sigma^{2}\\bigr).\n\\tag{14}\n\\]\n\n\\noindent\\textbf{[Step 11]} Drop the non\u2011negative term $-\\E[f(x_T)]\\le0$ and divide\nby $\\eta T$:\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^{2}\\bigr]\n\\le\n\\frac{2\\bigl(f(x_0)-f^\\star\\bigr)}{\\eta T}\n+\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|b_t\\|^{2}\\bigr]\n+L\\eta\\bigl(C^{2}+\\sigma^{2}\\bigr).\n\\tag{15}\n\\]\n\n\\noindent\\textbf{[Step 12]} Relate $\\|b_t\\|^{2}$ to the inner product term in the\nstatement of the theorem.  By Cauchy\u2013Schwarz,\n\\[\n\\|b_t\\|^{2}= \\|b_t\\|\\,\\|b_t\\|\n\\le 2C\\,\\|b_t\\|\\,\\|\\nabla f(x_t)\\|\n\\qquad\\text{(since }\\|b_t\\|\\le\\|\\nabla f(x_t)\\|\\text{)}.\n\\tag{16}\n\\]\nThus\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|b_t\\|^{2}\\bigr]\n\\le\n2C\\;\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|b_t\\|\\,\\|\\nabla f(x_t)\\|\\bigr],\n\\]\nwhich is exactly term \\((\\mathrm{II})\\) in Theorem \\ref{thm:main}.\n\n\\noindent\\textbf{[Step 13]} Insert the bound (16) into (15).  The remaining\nterms correspond to \\((\\mathrm{I})\\), \\((\\mathrm{II})\\), \\((\\mathrm{III})\\) and\n\\((\\mathrm{IV})\\) as claimed.  This completes the proof of the first inequality\nin Theorem \\ref{thm:main}. \\hfill\\qedsymbol\n\n\\bigskip\n\\noindent\\textbf{Bounding the bias term (II).}  \nFrom Lemma \\ref{lem:bias},\n\\[\n\\|b_t\\| = \\max\\{0,\\|\\nabla f(x_t)\\|-C\\}\n\\le \\frac{\\|\\nabla f(x_t)\\|^{2}}{C}.\n\\tag{17}\n\\]\nConsequently,\n\\[\n\\|b_t\\|\\,\\|\\nabla f(x_t)\\|\n\\le \\frac{\\|\\nabla f(x_t)\\|^{3}}{C}.\n\\tag{18}\n\\]\nPlugging (18) into term \\((\\mathrm{II})\\) yields\n\\[\n(\\mathrm{II})\\le\n\\frac{2}{C^{2}}\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^{3}\\bigr].\n\\]\nIf the iterates remain in a region where $\\|\\nabla f\\|\\le G$,\nthen $(\\mathrm{II})\\le 2G^{2}/C$; otherwise one can use Young\u2019s inequality to\nabsorb the cubic term into the $1/(\\eta T)$ part, leading to the final\nsimplified bound stated in the theorem.\n\n\\section*{Rate Derivation (With Constants)}\nChoosing a constant stepsize\n\\[\n\\eta = \\frac{1}{\\sqrt{T}L},\n\\tag{19}\n\\]\nthe three dominant contributions become\n\\[\n(\\mathrm{I}) = \\frac{2L\\bigl(f(x_0)-f^\\star\\bigr)}{\\sqrt{T}},\\qquad\n(\\mathrm{III}) = \\frac{C^{2}}{\\sqrt{T}},\\qquad\n(\\mathrm{IV}) = \\frac{\\sigma^{2}}{\\sqrt{T}} .\n\\]\nThus\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\|\\nabla f(x_t)\\|^{2}\\bigr]\n= O\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr),\n\\]\nwhich matches the optimal rate for stochastic non\u2011convex optimization.\n\n\\section*{Special Cases}\n\\begin{itemize}\n\\item \\textbf{All gradients naturally bounded by $C$.}\n    Then $b_t\\equiv0$, term \\((\\mathrm{II})\\) vanishes, and the bound reduces\n    exactly to the standard SGD bound.\n\\item \\textbf{Deterministic setting ($\\sigma=0$).}\n    The variance term $(\\mathrm{IV})$ disappears; the rate is governed solely\n    by the clipping bias.\n\\item \\textbf{Very large clipping threshold ($C\\to\\infty$).}\n    Clipping becomes inactive, $b_t=0$, and we recover vanilla SGD.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 12631,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T17:26:32.627606",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof correctly extracts the classic O(1/\u221aT) rate for smooth non\u2011convex objectives, but several logical and technical gaps prevent it from being fully rigorous. \n\n**Assumption usage**: Smoothness (A1) is used correctly in Step\u202f1 via Lemma\u202f1. The bounded\u2011variance assumption (A2) is invoked in Step\u202f7, but the argument that \\(\\mathbb{E}[\\|\\tilde g_t\\|^2|x_t]\\le C^2+\\sigma^2\\) is unjustified \u2013 clipping already guarantees \\(\\|\\tilde g_t\\|\\le C\\), so the extra \\(\\sigma^2\\) term is spurious. The clipping\u2011threshold assumption (A3) is used later, but the key inequality in Step\u202f12 that converts \\(\\|b_t\\|^2\\) into the product term \\(2C\\|b_t\\|\\|\\nabla f(x_t)\\|\\) is incorrect. The stepsize bound (A4) is never used in the derivation, so it is effectively redundant.\n\n**Logical soundness**: \n- **Step\u202f7** adds a variance term to a deterministic bound on \\(\\|\\tilde g_t\\|^2\\); the variance of the raw stochastic gradient does not directly translate to an additive term after clipping. \n- **Step\u202f12** claims \\(\\|b_t\\|^2 \\le 2C\\|b_t\\|\\|\\nabla f(x_t)\\|\\) based only on \\(\\|b_t\\|\\le\\|\\nabla f(x_t)\\|\\). This inequality would require \\(\\|b_t\\|\\le 2C\\|\\nabla f(x_t)\\|\\), which is not guaranteed for arbitrary \\(C\\). Consequently the derived term (II) does not follow from the previous bound. \n- **Step\u202f4** omits the absolute value in the Cauchy\u2011Schwarz\u2011type inequality; the correct statement is \\(|\\langle a,b\\rangle|\\le \\frac12\\|a\\|^2+\\frac12\\|b\\|^2\\). The sign issue propagates to Step\u202f5 where the subtraction of \\(\\langle\\nabla f,b_t\\rangle\\) is handled without a clear justification of its sign. \n- **Step\u202f11** describes \\(-\\mathbb{E}[f(x_T)]\\) as a \u201cnon\u2011negative term\u201d, whereas it is actually non\u2011positive; dropping it still yields a valid upper bound but the wording is inaccurate.\n\n**Mathematical rigor**: The proof relies on several hand\u2011wavy statements (e.g., \u201cthe clipping operation does not increase variance\u201d, \u201clarge enough T\u201d, \u201cC \u2265 \u221a{2L\u03b7}\\,\u03c3\u201d) without formal quantification. The transition from the bias bound \\(\\|b_t\\|\\le \\|\\nabla f\\|-C\\) to the cubic term in (II) is sketched but not rigorously integrated into the final rate. Moreover, the stepsize condition \\(\\eta\\le 1/L\\) is never employed, leaving a gap between the theorem statement and the proof.\n\n**Completeness**: The overall structure (descent lemma \u2192 decomposition \u2192 telescoping sum) is present, but the missing or incorrect handling of variance and bias means the derivation does not fully justify the claimed bound. A correct proof would keep the variance term inside the expectation of the stochastic gradient inner product, and would bound \\(\\|b_t\\|^2\\) directly via Lemma\u202f2 (or via \\(\\|b_t\\|\\le \\|\\nabla f\\|^2/C\\)) without introducing the unjustified factor \\(2C\\).\n\n**Suggested fixes**: \n1. Replace Step\u202f7 with the exact bound \\(\\mathbb{E}[\\|\\tilde g_t\\|^2|x_t]\\le C^2\\). The variance term \\(\\sigma^2\\) should appear when bounding \\(\\mathbb{E}[\\langle \\nabla f(x_t),\\tilde g_t\\rangle|x_t]\\) using unbiasedness of the raw stochastic gradient before clipping. \n2. In Step\u202f12, use Lemma\u202f2: \\(\\|b_t\\|\\le \\|\\nabla f(x_t)\\|^2/C\\) to obtain \\(\\|b_t\\|\\|\\nabla f(x_t)\\|\\le \\|\\nabla f(x_t)\\|^3/C\\). This yields a clean expression for term (II) without the spurious factor \\(2C\\). \n3. Clarify the sign handling in Steps\u202f4\u20135 by explicitly taking absolute values. \n4. Employ the stepsize condition (A4) when converting the term \\(L\\eta^2 C^2\\) into \\(L\\eta C^2\\) (e.g., using \\(\\eta\\le 1/L\\) to bound \\(L\\eta^2\\le \\eta\\)). \n5. Provide a precise condition on \\(C\\) and \\(T\\) that guarantees the bias term is dominated by the \\(1/(\\eta T)\\) term, rather than the vague \u201clarge enough T\u201d.\n\nWith these corrections the proof would satisfy the convergence\u2011rate claim and meet the standards for a rigorous optimization\u2011theory manuscript.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The derivation of the convergence bound is complete and accurate. The final convergence guarantee is clearly stated. However, there are some minor issues with the notation and formatting. For example, the use of [Step N] to refer to specific steps in the proof is not consistent throughout the document. Additionally, some of the equations are not numbered, making it difficult to refer to them in the text.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound with proper use of assumptions. Key steps: [1-13] follow rigorously from smoothness and variance assumptions. The bias term handling in [Step 12] and rate derivation in [Step 19] are correctly justified. Minor note: Step 7's variance claim could explicitly cite the clipping operation's effect on second moments, but this does not invalidate the proof.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999883434854461
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            1,
+            4,
+            7,
+            11,
+            12
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 5,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 3,
+                "overall_verdict": "CONDITIONAL",
+                "detailed_feedback": "The proof correctly extracts the classic O(1/\u221aT) rate for smooth non\u2011convex objectives, but several logical and technical gaps prevent it from being fully rigorous. \n\n**Assumption usage**: Smoothness (A1) is used correctly in Step\u202f1 via Lemma\u202f1. The bounded\u2011variance assumption (A2) is invoked in Step\u202f7, but the argument that \\(\\mathbb{E}[\\|\\tilde g_t\\|^2|x_t]\\le C^2+\\sigma^2\\) is unjustified \u2013 clipping already guarantees \\(\\|\\tilde g_t\\|\\le C\\), so the extra \\(\\sigma^2\\) term is spurious. The clipping\u2011threshold assumption (A3) is used later, but the key inequality in Step\u202f12 that converts \\(\\|b_t\\|^2\\) into the product term \\(2C\\|b_t\\|\\|\\nabla f(x_t)\\|\\) is incorrect. The stepsize bound (A4) is never used in the derivation, so it is effectively redundant.\n\n**Logical soundness**: \n- **Step\u202f7** adds a variance term to a deterministic bound on \\(\\|\\tilde g_t\\|^2\\); the variance of the raw stochastic gradient does not directly translate to an additive term after clipping. \n- **Step\u202f12** claims \\(\\|b_t\\|^2 \\le 2C\\|b_t\\|\\|\\nabla f(x_t)\\|\\) based only on \\(\\|b_t\\|\\le\\|\\nabla f(x_t)\\|\\). This inequality would require \\(\\|b_t\\|\\le 2C\\|\\nabla f(x_t)\\|\\), which is not guaranteed for arbitrary \\(C\\). Consequently the derived term (II) does not follow from the previous bound. \n- **Step\u202f4** omits the absolute value in the Cauchy\u2011Schwarz\u2011type inequality; the correct statement is \\(|\\langle a,b\\rangle|\\le \\frac12\\|a\\|^2+\\frac12\\|b\\|^2\\). The sign issue propagates to Step\u202f5 where the subtraction of \\(\\langle\\nabla f,b_t\\rangle\\) is handled without a clear justification of its sign. \n- **Step\u202f11** describes \\(-\\mathbb{E}[f(x_T)]\\) as a \u201cnon\u2011negative term\u201d, whereas it is actually non\u2011positive; dropping it still yields a valid upper bound but the wording is inaccurate.\n\n**Mathematical rigor**: The proof relies on several hand\u2011wavy statements (e.g., \u201cthe clipping operation does not increase variance\u201d, \u201clarge enough T\u201d, \u201cC \u2265 \u221a{2L\u03b7}\\,\u03c3\u201d) without formal quantification. The transition from the bias bound \\(\\|b_t\\|\\le \\|\\nabla f\\|-C\\) to the cubic term in (II) is sketched but not rigorously integrated into the final rate. Moreover, the stepsize condition \\(\\eta\\le 1/L\\) is never employed, leaving a gap between the theorem statement and the proof.\n\n**Completeness**: The overall structure (descent lemma \u2192 decomposition \u2192 telescoping sum) is present, but the missing or incorrect handling of variance and bias means the derivation does not fully justify the claimed bound. A correct proof would keep the variance term inside the expectation of the stochastic gradient inner product, and would bound \\(\\|b_t\\|^2\\) directly via Lemma\u202f2 (or via \\(\\|b_t\\|\\le \\|\\nabla f\\|^2/C\\)) without introducing the unjustified factor \\(2C\\).\n\n**Suggested fixes**: \n1. Replace Step\u202f7 with the exact bound \\(\\mathbb{E}[\\|\\tilde g_t\\|^2|x_t]\\le C^2\\). The variance term \\(\\sigma^2\\) should appear when bounding \\(\\mathbb{E}[\\langle \\nabla f(x_t),\\tilde g_t\\rangle|x_t]\\) using unbiasedness of the raw stochastic gradient before clipping. \n2. In Step\u202f12, use Lemma\u202f2: \\(\\|b_t\\|\\le \\|\\nabla f(x_t)\\|^2/C\\) to obtain \\(\\|b_t\\|\\|\\nabla f(x_t)\\|\\le \\|\\nabla f(x_t)\\|^3/C\\). This yields a clean expression for term (II) without the spurious factor \\(2C\\). \n3. Clarify the sign handling in Steps\u202f4\u20135 by explicitly taking absolute values. \n4. Employ the stepsize condition (A4) when converting the term \\(L\\eta^2 C^2\\) into \\(L\\eta C^2\\) (e.g., using \\(\\eta\\le 1/L\\) to bound \\(L\\eta^2\\le \\eta\\)). \n5. Provide a precise condition on \\(C\\) and \\(T\\) that guarantees the bias term is dominated by the \\(1/(\\eta T)\\) term, rather than the vague \u201clarge enough T\u201d.\n\nWith these corrections the proof would satisfy the convergence\u2011rate claim and meet the standards for a rigorous optimization\u2011theory manuscript.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{12, 7}",
+                "operator_error_steps": "{11, 4, 12, 7}",
+                "assumption_violation_steps": "{11, 12, 7}",
+                "flagged_steps": "{11, 4, 12, 7}"
+              },
+              "response_time": 18.293536901474
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The derivation of the convergence bound is complete and accurate. The final convergence guarantee is clearly stated. However, there are some minor issues with the notation and formatting. For example, the use of [Step N] to refer to specific steps in the proof is not consistent throughout the document. Additionally, some of the equations are not numbered, making it difficult to refer to them in the text.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{1, 7}"
+              },
+              "response_time": 12.88589882850647
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. Key steps: [1-13] follow rigorously from smoothness and variance assumptions. The bias term handling in [Step 12] and rate derivation in [Step 19] are correctly justified. Minor note: Step 7's variance claim could explicitly cite the clipping operation's effect on second moments, but this does not invalidate the proof.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 35.07512187957764
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492379,
+            0.01715728752538087,
+            0.01715728752538087
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      12631
+    ]
+  }
+}

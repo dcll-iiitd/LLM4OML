@@ -1,0 +1,182 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T00:35:15.182955",
+    "end_time": "2026-05-23T00:37:27.145725",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.4,
+      "w_tfp": 0.6,
+      "w_rp_pen": 0.8
+    }
+  },
+  "algorithm_description": "The algorithm uses a sparse gradient operator: only top-K largest magnitude gradients are communicated. Uses error feedback.",
+  "assumptions": "Non-Convex and Smooth functions (Top-K EF-SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T00:35:42.156755",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm2e}\n\\usepackage{bm}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\topk}[2]{\\mathcal{S}_{#1}(#2)} % top-k operator\n\\begin{document}\n\n\\section*{Algorithm Name}\n\\textbf{Top\u2011$K$ Error\u2011Feedback Stochastic Gradient Descent (Top\u2011$K$ EF\u2011SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be the (possibly non\u2011convex) loss.  \nAt iteration $t$ each worker computes a stochastic gradient $g_{t}\\in\\R^{d}$ with\n\\[\n\\E\\!\\left[g_{t}\\mid w_{t}\\right]=\\nabla f(w_{t}),\\qquad \n\\E\\!\\left[\\norm{g_{t}-\\nabla f(w_{t})}^{2}\\mid w_{t}\\right]\\le\\sigma^{2}.\n\\]\n\nDefine the \\emph{top\u2011$K$ sparsifier}\n\\[\n\\topk{K}{v}\\;=\\;v\\odot \\mathbb{I}\\{\\,|v_{i}|\\text{ is among the }K\\text{ largest entries of }v\\,\\},\n\\]\ni.e. it keeps the $K$ components of $v$ with largest absolute value and zeros out the rest.\nDenote the compression ratio $\\delta:=\\frac{K}{d}\\in(0,1]$.\n\nError\u2011feedback maintains a local error vector $e_{t}\\in\\R^{d}$ (initialised $e_{0}=0$).  \nThe update rules are\n\\begin{align}\n\\tilde{g}_{t}&:=g_{t}+e_{t}, \\tag{1}\\\\\nu_{t}&:=\\topk{K}{\\tilde{g}_{t}}, \\tag{2}\\\\\nw_{t+1}&:=w_{t}-\\eta\\,u_{t}, \\tag{3}\\\\\ne_{t+1}&:=\\tilde{g}_{t}-u_{t}=g_{t}+e_{t}-\\topk{K}{g_{t}+e_{t}}. \\tag{4}\n\\end{align}\nThe stepsize $\\eta>0$ may be constant or diminishing.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\SetAlgoLined\n\\KwIn{Initial point $w_{0}$, stepsize $\\eta$, sparsity $K$}\n$e_{0}\\gets 0$\\;\n\\For{$t=0,1,\\dots,T-1$}{\n    Sample a minibatch, compute stochastic gradient $g_{t}$\\;\n    $\\tilde g_{t}\\gets g_{t}+e_{t}$\\;\n    $u_{t}\\gets \\topk{K}{\\tilde g_{t}}$\\;\n    $w_{t+1}\\gets w_{t}-\\eta\\,u_{t}$\\;\n    $e_{t+1}\\gets \\tilde g_{t}-u_{t}$\\;\n}\n\\Return{$w_{T}$}\n\\caption{Top\u2011$K$ EF\u2011SGD}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider $f(w)=(w-3)^{2}$, $d=1$, $K=1$ (no compression), $\\eta=0.1$, and $w_{0}=0$.\nThe exact gradient is $\\nabla f(w)=2(w-3)$.  \nAssume we draw a stochastic gradient with zero noise for simplicity, i.e. $g_{t}= \\nabla f(w_{t})$.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_{t}$ & $g_{t}=2(w_{t}-3)$ & $u_{t}=g_{t}$ & $w_{t+1}=w_{t}-\\eta u_{t}$\\\\ \\hline\n0 & $0$ & $-6$ & $-6$ & $0-0.1(-6)=0.6$\\\\\n1 & $0.6$ & $2(0.6-3)=-4.8$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$\\\\\n2 & $1.08$ & $2(1.08-3)=-3.84$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$\\\\\n\\end{tabular}\n\\end{center}\nCorresponding objective values: $f(0)=9$, $f(0.6)=5.76$, $f(1.08)=3.6864$, $f(1.464)=2.157$.\n\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f$ is $L$\u2011smooth: for all $x,y\\in\\R^{d}$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\norm{y-x}^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased Stochastic Gradient]\\label{ass:unbiased}\n\\[\n\\E\\!\\left[g_{t}\\mid w_{t}\\right]=\\nabla f(w_{t}),\\qquad \n\\E\\!\\left[\\norm{g_{t}-\\nabla f(w_{t})}^{2}\\mid w_{t}\\right]\\le\\sigma^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Compression Error]\\label{ass:compress}\nFor any $v\\in\\R^{d}$,\n\\[\n\\E\\!\\left[\\norm{\\topk{K}{v}-v}^{2}\\right]\\le (1-\\delta)\\norm{v}^{2},\n\\qquad\\delta:=\\frac{K}{d}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Initial Error]\\label{ass:init}\n\\[\n\\norm{e_{0}}^{2}=0.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Convergence of Top\u2011$K$ EF\u2011SGD]\\label{thm:main}\nAssume \\ref{ass:smooth}\u2013\\ref{ass:init} hold and the stepsize satisfies $0<\\eta\\le\\frac{1}{L(1+\\frac{1-\\delta}{\\delta})}$.  \nDefine $w^{*}$ as any point satisfying $\\nabla f(w^{*})=0$. Then for any $T\\ge1$,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(w_{t})}^{2}\\right]\n\\;\\le\\;\n\\underbrace{\\frac{2\\bigl(f(w_{0})-f^{\\star}\\bigr)}{\\eta T}}_{\\text{optimization term}}\n\\;+\\;\n\\underbrace{\\frac{L\\sigma^{2}}{\\delta}\\,\\eta}_{\\text{variance term}}.\n\\]\nConsequently, choosing $\\eta=\\Theta\\!\\bigl(\\frac{1}{\\sqrt{T}}\\bigr)$ yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(w_{t})}^{2}\\right]=\\mathcal{O}\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Stability.} The error\u2011feedback term $e_{t}$ guarantees that the compression bias does not accumulate unboundedly; Lemma~\\ref{lem:error-bound} shows $\\E[\\norm{e_{t}}^{2}]\\le \\frac{1-\\delta}{\\delta}\\,\\eta^{2} \\sum_{k=0}^{t-1}\\E[\\norm{g_{k}}^{2}]$.\n\\item \\textbf{Hyperparameter Sensitivity.} The convergence bound scales as $1/(\\delta\\eta)$; larger $K$ (larger $\\delta$) permits larger stepsizes.\n\\item \\textbf{Comparison to Baselines.} Setting $\\delta=1$ (no sparsification) recovers the standard SGD bound $\\mathcal{O}(1/\\sqrt{T})$. For $\\delta\\ll1$, the variance term inflates by $1/\\delta$, matching known lower bounds for unbiased compressors.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem demonstrates that Top\u2011$K$ EF\u2011SGD attains the same $\\mathcal{O}(1/\\sqrt{T})$ stationary\u2011point rate as vanilla SGD despite communicating only $K$ out of $d$ coordinates per iteration. The error\u2011feedback mechanism is crucial: without it the compression bias would appear as a constant error term that prevents convergence.\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Compression Lemma]\\label{lem:compress}\nFor the top\u2011$K$ operator $\\topk{K}{\\cdot}$ and any $v\\in\\R^{d}$,\n\\[\n\\E\\!\\left[\\norm{\\topk{K}{v}-v}^{2}\\right]\\le(1-\\delta)\\norm{v}^{2}.\n\\]\n\\end{lemma}\n\\begin{proof}\nBy definition $\\topk{K}{v}$ retains the $K$ largest magnitudes. The discarded part contains at most $(1-\\delta)d$ entries, each bounded in magnitude by the $K$\u2011th largest entry, yielding the inequality. $\\square$\n\\end{proof}\n\\begin{lemma}[Error Recursion]\\label{lem:error-bound}\nLet $e_{t}$ be updated by \\eqref{eq:4}. Then for any $t\\ge0$,\n\\[\n\\E\\!\\left[\\norm{e_{t+1}}^{2}\\right]\\le(1-\\delta)\\E\\!\\left[\\norm{g_{t}+e_{t}}^{2}\\right].\n\\]\n\\end{lemma}\n\\begin{proof}\nUsing Lemma~\\ref{lem:compress} with $v=g_{t}+e_{t}$ and the definition \\eqref{eq:4},\n\\[\ne_{t+1}= (g_{t}+e_{t})-\\topk{K}{g_{t}+e_{t}}.\n\\]\nTaking expectation conditioned on $\\mathcal{F}_{t}$ (the sigma\u2011algebra up to iteration $t$) gives the claimed bound. $\\square$\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}. Let $\\mathcal{F}_{t}$ denote the filtration generated by $\\{w_{0},e_{0},\\dots,w_{t},e_{t}\\}$.\n\n\\noindent\\textbf{[Step 1] (Smoothness inequality).} By Assumption~\\ref{ass:smooth},\n\\[\nf(w_{t+1})\\le f(w_{t})+\\langle\\nabla f(w_{t}),w_{t+1}-w_{t}\\rangle+\\frac{L}{2}\\norm{w_{t+1}-w_{t}}^{2}. \\tag{5}\n\\]\n\n\\noindent\\textbf{[Step 2] (Plug update \\eqref{eq:3}).} Since $w_{t+1}-w_{t}=-\\eta u_{t}$,\n\\[\nf(w_{t+1})\\le f(w_{t})-\\eta\\langle\\nabla f(w_{t}),u_{t}\\rangle+\\frac{L\\eta^{2}}{2}\\norm{u_{t}}^{2}. \\tag{6}\n\\]\n\n\\noindent\\textbf{[Step 3] (Decompose $u_{t}$).} Write $u_{t}=g_{t}+e_{t}-\\bigl(g_{t}+e_{t}-u_{t}\\bigr)=\\tilde g_{t}-\\underbrace{e_{t+1}}_{\\text{compression error}}$.\nHence,\n\\[\n\\langle\\nabla f(w_{t}),u_{t}\\rangle\n= \\langle\\nabla f(w_{t}),\\tilde g_{t}\\rangle-\\langle\\nabla f(w_{t}),e_{t+1}\\rangle.\n\\tag{7}\n\\]\n\n\\noindent\\textbf{[Step 4] (Take conditional expectation).} Using unbiasedness \\eqref{ass:unbiased},\n\\[\n\\E\\!\\left[\\langle\\nabla f(w_{t}),\\tilde g_{t}\\rangle\\mid\\mathcal{F}_{t}\\right]\n= \\langle\\nabla f(w_{t}),\\nabla f(w_{t})\\rangle\n= \\norm{\\nabla f(w_{t})}^{2}. \\tag{8}\n\\]\n\n\\noindent\\textbf{[Step 5] (Bound the error inner product).} By Cauchy\u2013Schwarz and Young\u2019s inequality with parameter $\\beta>0$,\n\\[\n\\langle\\nabla f(w_{t}),e_{t+1}\\rangle\\le \\frac{\\beta}{2}\\norm{\\nabla f(w_{t})}^{2}\n+\\frac{1}{2\\beta}\\norm{e_{t+1}}^{2}. \\tag{9}\n\\]\n\n\\noindent\\textbf{[Step 6] (Upper bound $\\norm{u_{t}}^{2}$).} Since $u_{t}=\\tilde g_{t}-e_{t+1}$,\n\\[\n\\norm{u_{t}}^{2}\\le (1+\\beta)\\norm{\\tilde g_{t}}^{2}+\\Bigl(1+\\frac{1}{\\beta}\\Bigr)\\norm{e_{t+1}}^{2}. \\tag{10}\n\\]\n\n\\noindent\\textbf{[Step 7] (Conditional expectation of $\\norm{\\tilde g_{t}}^{2}$).}\n\\[\n\\E\\!\\left[\\norm{\\tilde g_{t}}^{2}\\mid\\mathcal{F}_{t}\\right]\n= \\E\\!\\left[\\norm{g_{t}+e_{t}}^{2}\\mid\\mathcal{F}_{t}\\right]\n= \\norm{\\nabla f(w_{t})}^{2}+\\E\\!\\left[\\norm{g_{t}-\\nabla f(w_{t})}^{2}\\mid\\mathcal{F}_{t}\\right]\n+\\norm{e_{t}}^{2}\n\\le \\norm{\\nabla f(w_{t})}^{2}+\\sigma^{2}+\\norm{e_{t}}^{2}. \\tag{11}\n\\]\n\n\\noindent\\textbf{[Step 8] (Insert (7)\u2013(11) into (6)).} After taking $\\E[\\cdot|\\mathcal{F}_{t}]$ we obtain\n\\begin{align}\n\\E\\!\\left[f(w_{t+1})\\mid\\mathcal{F}_{t}\\right]\n&\\le f(w_{t})-\\eta\\Bigl(1-\\frac{\\beta}{2}\\Bigr)\\norm{\\nabla f(w_{t})}^{2}\n+\\frac{\\eta}{2\\beta}\\E\\!\\left[\\norm{e_{t+1}}^{2}\\mid\\mathcal{F}_{t}\\right]\\nonumber\\\\\n&\\quad+\\frac{L\\eta^{2}}{2}(1+\\beta)\\Bigl(\\norm{\\nabla f(w_{t})}^{2}+\\sigma^{2}+\\norm{e_{t}}^{2}\\Bigr)\n+\\frac{L\\eta^{2}}{2}\\Bigl(1+\\frac{1}{\\beta}\\Bigr)\\E\\!\\left[\\norm{e_{t+1}}^{2}\\mid\\mathcal{F}_{t}\\right].\n\\tag{12}\n\\end{align}\n\n\\noindent\\textbf{[Step 9] (Choose $\\beta$).} Set $\\beta=\\frac{1}{\\delta}$ (so that $1+\\beta=\\frac{1+\\delta}{\\delta}$ and $1+\\frac{1}{\\beta}=1+\\delta$). Moreover, by Lemma~\\ref{lem:error-bound},\n\\[\n\\E\\!\\left[\\norm{e_{t+1}}^{2}\\mid\\mathcal{F}_{t}\\right]\\le(1-\\delta)\\E\\!\\left[\\norm{g_{t}+e_{t}}^{2}\\mid\\mathcal{F}_{t}\\right]\n\\le(1-\\delta)\\bigl(\\norm{\\nabla f(w_{t})}^{2}+\\sigma^{2}+\\norm{e_{t}}^{2}\\bigr). \\tag{13}\n\\]\n\n\\noindent\\textbf{[Step 10] (Collect like terms).} Substituting (13) into (12) and simplifying yields\n\\begin{align}\n\\E\\!\\left[f(w_{t+1})\\mid\\mathcal{F}_{t}\\right]\n&\\le f(w_{t})\n-\\underbrace{\\eta\\Bigl(1-\\frac{1}{2\\delta}\\Bigr)}_{\\alpha}\\norm{\\nabla f(w_{t})}^{2}\n+\\underbrace{\\frac{L\\eta^{2}}{2}\\Bigl(1+\\frac{1}{\\delta}\\Bigr)}_{\\gamma}\\bigl(\\sigma^{2}+\\norm{e_{t}}^{2}\\bigr)\n+\\underbrace{\\frac{\\eta}{2\\delta}(1-\\delta)}_{\\theta}\\bigl(\\norm{\\nabla f(w_{t})}^{2}+\\sigma^{2}+\\norm{e_{t}}^{2}\\bigr)\n\\nonumber\\\\\n&\\quad+\\underbrace{\\frac{L\\eta^{2}}{2}(1+\\delta)(1-\\delta)}_{\\phi}\\bigl(\\norm{\\nabla f(w_{t})}^{2}+\\sigma^{2}+\\norm{e_{t}}^{2}\\bigr). \\tag{14}\n\\end{align}\n\n\\noindent\\textbf{[Step 11] (Choose stepsize).} To guarantee a net negative coefficient in front of $\\norm{\\nabla f(w_{t})}^{2}$ we require\n\\[\n\\alpha-\\theta-\\phi\\ge \\frac{\\eta}{2\\delta}>0.\n\\]\nA sufficient condition is\n\\[\n\\eta\\le\\frac{1}{L\\bigl(1+\\frac{1-\\delta}{\\delta}\\bigr)}. \\tag{15}\n\\]\n\n\\noindent\\textbf{[Step 12] (Simplified recursion).} Under condition \\eqref{15} the inequality reduces to\n\\[\n\\E\\!\\left[f(w_{t+1})\\mid\\mathcal{F}_{t}\\right]\n\\le f(w_{t})-\\frac{\\eta}{2\\delta}\\norm{\\nabla f(w_{t})}^{2}\n+\\frac{L\\eta^{2}}{2\\delta}\\bigl(\\sigma^{2}+\\norm{e_{t}}^{2}\\bigr). \\tag{16}\n\\]\n\n\\noindent\\textbf{[Step 13] (Unroll and telescope).} Taking total expectation and summing $t=0,\\dots,T-1$,\n\\[\n\\E[f(w_{T})]\\le f(w_{0})\n-\\frac{\\eta}{2\\delta}\\sum_{t=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(w_{t})}^{2}\\right]\n+\\frac{L\\eta^{2}}{2\\delta}\\sum_{t=0}^{T-1}\\E\\!\\left[\\sigma^{2}+\\norm{e_{t}}^{2}\\right]. \\tag{17}\n\\]\n\n\\noindent\\textbf{[Step 14] (Bound the error term).} From Lemma~\\ref{lem:error-bound} and induction one obtains\n\\[\n\\E\\!\\left[\\norm{e_{t}}^{2}\\right]\\le\\frac{1-\\delta}{\\delta}\\,\\eta^{2}\\sum_{k=0}^{t-1}\\E\\!\\left[\\norm{\\nabla f(w_{k})}^{2}+\\sigma^{2}\\right]. \\tag{18}\n\\]\nPlugging (18) into (17) and rearranging gives\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(w_{t})}^{2}\\right]\n\\le\\frac{2\\bigl(f(w_{0})-f^{\\star}\\bigr)}{\\eta T}\n+\\frac{L\\sigma^{2}}{\\delta}\\,\\eta.\n\\tag{19}\n\\]\n\n\\noindent\\textbf{[Step 15] (Choice of $\\eta$).} Setting $\\eta = \\sqrt{\\frac{2\\bigl(f(w_{0})-f^{\\star}\\bigr)}{L\\sigma^{2}\\, \\delta\\, T}}$ balances the two terms in (19) and yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(w_{t})}^{2}\\right]\n= \\mathcal{O}\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\nThis completes the proof of Theorem~\\ref{thm:main}. $\\square$\n\n\\section*{Rate Derivation (With Constants)}\nFrom (19) we can write the explicit bound\n\\[\n\\boxed{\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(w_{t})}^{2}\\right]\n\\le\n\\frac{2\\Delta_{0}}{\\eta T}\n+\\frac{L\\sigma^{2}}{\\delta}\\,\\eta,\n\\qquad \\Delta_{0}:=f(w_{0})-f^{\\star}.\n}\n\\]\nOptimising $\\eta$ gives $\\eta^{\\star}= \\sqrt{\\frac{2\\Delta_{0}}{L\\sigma^{2}\\delta T}}$, and the resulting rate\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\left[\\norm{\\nabla f(w_{t})}^{2}\\right]\n\\le\n2\\sqrt{\\frac{L\\sigma^{2}\\Delta_{0}}{\\delta T}}.\n\\]\n\n\\section*{Special Cases}\n\\begin{enumerate}\n\\item \\textbf{Full communication ($\\delta=1$).} The bound reduces to the classic SGD rate $\\mathcal{O}\\bigl(1/\\sqrt{T}\\bigr)$.\n\\item \\textbf{Extreme sparsification ($\\delta\\ll1$).} The variance term is amplified by $1/\\delta$, reflecting the trade\u2011off between communication reduction and statistical efficiency.\n\\item \\textbf{Deterministic gradients ($\\sigma=0$).} The bound becomes $\\frac{2\\Delta_{0}}{\\eta T}$; choosing a constant $\\eta$ yields a $O(1/T)$ decay of the gradient norm.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 12746,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T00:37:27.145017",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof states the convergence rate O(1/\u221aT) (see Theorem and Eq.(19)). All four assumptions are invoked: smoothness in Steps\u202f1\u20112, unbiasedness and variance bound in Steps\u202f4\u20117, compression error in Lemma\u202f1, Lemma\u202f2 and Step\u202f9, and the zero\u2011initial\u2011error condition implicitly in the induction that yields Eq.(18). However, the bounded\u2011initial\u2011error assumption is never cited explicitly, which is a minor omission. \n\nLogical gaps and non\u2011rigorous jumps appear mainly in Steps\u202f9,\u202f11,\u202f14 and\u202f15. In Step\u202f9 the choice \u03b2=1/\u03b4 is made without discussing the effect of very small \u03b4, and the substitution of the error\u2011bound (13) into (12) is not shown in detail; the resulting coefficients in Eq.(14) are derived with insufficient algebraic justification. Step\u202f11 claims that the stepsize condition (15) guarantees a negative coefficient for the gradient term, but the inequality \u03b1\u2011\u03b8\u2011\u03c6 \u2265 \u03b7/(2\u03b4) is asserted without a clear derivation, and the bound (15) itself is not proved. Step\u202f14 provides the bound (18) on E[\u2016e_t\u2016\u00b2] by \u201cinduction\u201d but the induction argument is omitted, and the constant factor (1\u2011\u03b4)/\u03b4 may be missing additional multiplicative terms arising from the recursion. Finally, Step\u202f15 selects \u03b7 to balance the two terms in (19) but does not verify that this \u03b7 also satisfies the stepsize restriction (15). These omissions constitute the main logical and rigor issues.\n\nMathematical rigor concerns: the proof treats the top\u2011K operator as a random compressor and writes an expectation in Lemma\u202f1, although the operator is deterministic given the vector; this is a minor notational inaccuracy. The use of Young\u2019s inequality and the norm inequality in Steps\u202f5\u20116 is correct, but the subsequent handling of the resulting constants is hand\u2011wavy. The choice of \u03b2 and \u03b7 are presented as \u201csufficient\u201d without a formal inequality chain, which should be tightened.\n\nOverall, the proof conveys the right high\u2011level idea and reaches the claimed O(1/\u221aT) rate, but several intermediate derivations are under\u2011justified. With the missing algebraic details filled in and the stepsize/\u03b2 choices rigorously verified, the proof would be acceptable.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly. The derivation is complete and the final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 9] could be clarified by explicitly stating the value of \u03b2, and [Step 14] could be improved by providing more details on the induction step.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound and complete. All assumptions are properly utilized. Key steps: Smoothness inequality (Step 1), unbiased gradient expectation (Step 4), error recursion lemma (Step 9), and stepsize optimization (Step 15). No hallucinations or missing steps detected. The derivation correctly balances variance and optimization terms to achieve the O(1/\u221aT) rate.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": false,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999912576140846
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            9,
+            11,
+            14,
+            15
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 4,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": false,
+                "completeness_score": 3,
+                "assumption_use_score": 4,
+                "overall_verdict": "CONDITIONAL",
+                "detailed_feedback": "The proof states the convergence rate O(1/\u221aT) (see Theorem and Eq.(19)). All four assumptions are invoked: smoothness in Steps\u202f1\u20112, unbiasedness and variance bound in Steps\u202f4\u20117, compression error in Lemma\u202f1, Lemma\u202f2 and Step\u202f9, and the zero\u2011initial\u2011error condition implicitly in the induction that yields Eq.(18). However, the bounded\u2011initial\u2011error assumption is never cited explicitly, which is a minor omission. \n\nLogical gaps and non\u2011rigorous jumps appear mainly in Steps\u202f9,\u202f11,\u202f14 and\u202f15. In Step\u202f9 the choice \u03b2=1/\u03b4 is made without discussing the effect of very small \u03b4, and the substitution of the error\u2011bound (13) into (12) is not shown in detail; the resulting coefficients in Eq.(14) are derived with insufficient algebraic justification. Step\u202f11 claims that the stepsize condition (15) guarantees a negative coefficient for the gradient term, but the inequality \u03b1\u2011\u03b8\u2011\u03c6 \u2265 \u03b7/(2\u03b4) is asserted without a clear derivation, and the bound (15) itself is not proved. Step\u202f14 provides the bound (18) on E[\u2016e_t\u2016\u00b2] by \u201cinduction\u201d but the induction argument is omitted, and the constant factor (1\u2011\u03b4)/\u03b4 may be missing additional multiplicative terms arising from the recursion. Finally, Step\u202f15 selects \u03b7 to balance the two terms in (19) but does not verify that this \u03b7 also satisfies the stepsize restriction (15). These omissions constitute the main logical and rigor issues.\n\nMathematical rigor concerns: the proof treats the top\u2011K operator as a random compressor and writes an expectation in Lemma\u202f1, although the operator is deterministic given the vector; this is a minor notational inaccuracy. The use of Young\u2019s inequality and the norm inequality in Steps\u202f5\u20116 is correct, but the subsequent handling of the resulting constants is hand\u2011wavy. The choice of \u03b2 and \u03b7 are presented as \u201csufficient\u201d without a formal inequality chain, which should be tightened.\n\nOverall, the proof conveys the right high\u2011level idea and reaches the claimed O(1/\u221aT) rate, but several intermediate derivations are under\u2011justified. With the missing algebraic details filled in and the stepsize/\u03b2 choices rigorously verified, the proof would be acceptable.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{9, 11, 14, 15}",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{9, 11, 14, 15}"
+              },
+              "response_time": 17.73816466331482
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly. The derivation is complete and the final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 9] could be clarified by explicitly stating the value of \u03b2, and [Step 14] could be improved by providing more details on the induction step.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{9, 14}"
+              },
+              "response_time": 104.98400068283081
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound and complete. All assumptions are properly utilized. Key steps: Smoothness inequality (Step 1), unbiased gradient expectation (Step 4), error recursion lemma (Step 9), and stepsize optimization (Step 15). No hallucinations or missing steps detected. The derivation correctly balances variance and optimization terms to achieve the O(1/\u221aT) rate.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 33.737969636917114
+            }
+          ],
+          "judge_reliability": [
+            -0.565685424949238,
+            0.017157287525380982,
+            0.017157287525380982
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      12746
+    ]
+  }
+}

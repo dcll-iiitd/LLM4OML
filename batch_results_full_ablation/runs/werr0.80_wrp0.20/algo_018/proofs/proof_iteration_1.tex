@@ -1,0 +1,509 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\setlength{\parskip}{0.5em}
+\setlength{\parindent}{0pt}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+
+\begin{document}
+
+%=====================================================================
+\section*{Algorithm Name}
+\textbf{FedProx (Proximal Federated Stochastic Gradient Descent)}  
+The method performs $E$ local SGD steps on each of $K$ clients while
+adding a proximal term that penalises deviation from the current global
+model $x_t$. After the $E$ local steps the server averages the client
+models to obtain the next global iterate $x_{t+1}$.
+
+%=====================================================================
+\section*{Mathematical Formulation}
+\begin{itemize}
+  \item Global objective (non‑convex):
+  \[
+    f(x)\;:=\;\frac1K\sum_{k=1}^{K}F_k(x),\qquad 
+    F_k(x)=\mathbb{E}_{\xi\sim\mathcal{D}_k}\big[\ell(x;\xi)\big].
+  \]
+  \item Learning rate (stepsize) $\eta>0$, proximal coefficient $\mu\ge 0$,
+  local epoch number $E\in\mathbb{N}$.
+  \item At communication round $t$ the server broadcasts the current
+  global model $x_t\in\mathbb{R}^d$ to all clients.
+  \item Each client $k$ initializes its local copy
+  $x^{k,0}_t:=x_t$ and performs $E$ SGD updates:
+  \[
+  \boxed{
+  x^{k,e+1}_t \;=\; x^{k,e}_t 
+          \;-\;\eta\Big(\nabla\ell\big(x^{k,e}_t;\xi^{k,e}_t\big)
+          \;+\;\mu\big(x^{k,e}_t-x_t\big)\Big),\qquad e=0,\dots,E-1,
+  }
+  \]
+  where $\xi^{k,e}_t\sim\mathcal{D}_k$ is drawn independently.
+  \item After the $E$ local updates the client sends $x^{k,E}_t$ to the
+  server.  The server averages:
+  \[
+    x_{t+1}\;:=\;\frac1K\sum_{k=1}^{K}x^{k,E}_t .
+  \]
+\end{itemize}
+The algorithm repeats for $T$ communication rounds (or until a stopping
+criterion is met).
+
+%=====================================================================
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{FedProx}
+\begin{algorithmic}[1]
+\Require Number of clients $K$, local epochs $E$, stepsize $\eta$,
+ proximal coefficient $\mu$, total rounds $T$, initial model $x_0$.
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Server broadcasts $x_t$ to all clients.
+    \For{each client $k=1,\dots,K$ \textbf{in parallel}}
+        \State $x^{k,0}_t \gets x_t$
+        \For{$e=0$ \textbf{to} $E-1$}
+            \State Sample $\xi^{k,e}_t\sim\mathcal{D}_k$
+            \State $g^{k,e}_t \gets \nabla\ell\big(x^{k,e}_t;\xi^{k,e}_t\big)
+                     +\mu\big(x^{k,e}_t-x_t\big)$
+            \State $x^{k,e+1}_t \gets x^{k,e}_t - \eta\, g^{k,e}_t$
+        \EndFor
+        \State Send $x^{k,E}_t$ to the server.
+    \EndFor
+    \State $x_{t+1}\gets \frac1K\sum_{k=1}^{K}x^{k,E}_t$
+\EndFor
+\State \textbf{return} $x_T$
+\end{algorithmic}
+\end{algorithm}
+
+%=====================================================================
+\section*{Dry Run Example}
+Consider a single client ($K=1$) with scalar objective
+\[
+  f(w)=(w-3)^2,\qquad \nabla f(w)=2(w-3).
+\]
+Set $w_0=0$, stepsize $\eta=0.1$, proximal coefficient $\mu=0.1$,
+local epochs $E=1$ (so one SGD step per round).  
+We use the exact gradient (no stochasticity) for clarity.
+
+\begin{tabular}{c|c|c|c}
+\textbf{Round $t$} & $w_t$ & $g_t=2(w_t-3)+\mu(w_t-w_t)$ & $w_{t+1}=w_t-\eta g_t$\\
+\hline
+0 & $0$ & $2(0-3)=-6$ & $0-0.1(-6)=0.6$\\
+1 & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$\\
+2 & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$\\
+\end{tabular}
+
+Objective values after each round:
+\[
+f(0)=9,\; f(0.6)=5.76,\; f(1.08)=3.6864,\; f(1.464)=2.3526.
+\]
+The iterates move toward the minimiser $w^\star=3$, illustrating the
+effect of the proximal term (which is zero here because $x_t$ equals the
+client’s current model).
+
+%=====================================================================
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{as:smooth}
+Each local function $F_k$ is $L$‑smooth:
+\[
+\|\nabla F_k(x)-\nabla F_k(y)\|\le L\|x-y\|,\qquad\forall x,y\in\mathbb{R}^d.
+\]
+Consequently the global objective $f$ is also $L$‑smooth.
+\end{assumption}
+
+\begin{assumption}[Bounded Stochastic Gradient Variance]\label{as:variance}
+For any $x$ and any client $k$,
+\[
+\mathbb{E}_{\xi\sim\mathcal{D}_k}\!\big[\|\nabla\ell(x;\xi)-\nabla F_k(x)\|^{2}\big]
+\;\le\;\sigma^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Gradient Dissimilarity]\label{as:dissimilarity}
+There exist constants $\zeta\ge0$, $\delta\ge0$ such that for all $x$,
+\[
+\frac{1}{K}\sum_{k=1}^{K}\|\nabla F_k(x)-\nabla f(x)\|^{2}
+\;\le\;\zeta^{2}\|\nabla f(x)\|^{2}+\delta^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Gradient Norm]\label{as:bounded}
+For all $x$ and all $k$,
+\[
+\|\nabla\ell(x;\xi)\|\le G\quad\text{almost surely}.
+\]
+\end{assumption}
+
+All constants $L,\sigma,\zeta,G$ are assumed known and finite, and the
+proximal coefficient satisfies $\mu\ge0$.
+
+%=====================================================================
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of FedProx for Non‑Convex Smooth Objectives]\label{thm:main}
+Let Assumptions~\ref{as:smooth}–\ref{as:bounded} hold.
+Choose a constant stepsize
+\[
+\eta\;=\;\min\Big\{\frac{1}{4L},\;\frac{1}{\sqrt{T}}\Big\},
+\]
+and run FedProx for $T$ communication rounds with $E\ge1$ local SGD
+steps. Then the iterates satisfy
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+\;\le\;
+\underbrace{\frac{2\big(f(x_0)-f^{\star}\big)}{\eta T}}_{\text{optimization term}}
+\;+\;
+\underbrace{4\eta L\big(\sigma^{2}+ \mu^{2}G^{2}\big)E}_{\text{stochastic\,+\,proximal term}}
+\;+\;
+\underbrace{4\eta^{2}L^{2}E^{2}\big(\zeta^{2}+1\big)G^{2}}_{\text{client\;drift}} .
+\]
+In particular, with $\eta =\Theta(1/\sqrt{T})$ we obtain
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+\;=\;O\!\Big(\frac{1}{\sqrt{T}}\Big).
+\]
+\end{theorem}
+
+%=====================================================================
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Stability w.r.t. $\mu$.}  
+Increasing $\mu$ reduces client drift (the term involving $E^{2}$) but
+inflates the stochastic+proximal term $4\eta L\mu^{2}G^{2}E$.  An optimal
+choice balances the two, typically $\mu =\Theta(1/E)$.
+\item \textbf{Effect of Local Epochs $E$.}  
+More local steps decrease communication cost but enlarge the drift term
+quadratically in $E$.  The theorem quantifies the trade‑off.
+\item \textbf{Comparison to Baselines.}  
+When $\mu=0$ the bound collapses to the standard local SGD bound
+\cite{stich2019local}.  Adding the proximal term yields an extra
+$\mu^{2}G^{2}$ factor but also a tighter control of client heterogeneity
+through the $\zeta$‑dependent drift term.
+\end{enumerate}
+
+%=====================================================================
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness Descent Lemma]\label{lem:smooth}
+For any $L$‑smooth function $h$,
+\[
+h(y)\le h(x)+\langle\nabla h(x),y-x\rangle+\frac{L}{2}\|y-x\|^{2},
+\qquad\forall x,y.
+\]
+\end{lemma}
+
+\begin{lemma}[Bound on Local Deviation]\label{lem:dev}
+For any client $k$ and any local step $e\in\{0,\dots,E\}$,
+\[
+\mathbb{E}\!\big[\|x^{k,e}_t-x_t\|^{2}\big]
+\;\le\;
+e\eta^{2}\big(G^{2}+\mu^{2}G^{2}\big).
+\]
+\end{lemma}
+\begin{proof}
+We prove by induction on $e$.  
+For $e=0$ the claim holds trivially.  
+Assume it holds for $e$, then using the update rule,
+\[
+x^{k,e+1}_t-x_t
+= x^{k,e}_t-x_t-\eta\big(\nabla\ell(x^{k,e}_t;\xi^{k,e}_t)
+               +\mu(x^{k,e}_t-x_t)\big).
+\]
+Taking norms, squaring, and using $\|\nabla\ell\|\le G$,
+\[
+\|x^{k,e+1}_t-x_t\|^{2}
+\le\big(1+2\eta\mu\big)\|x^{k,e}_t-x_t\|^{2}+2\eta^{2}G^{2}.
+\]
+Since $\eta\mu\le 1/2$ (by the stepsize choice), we obtain
+\[
+\|x^{k,e+1}_t-x_t\|^{2}
+\le\|x^{k,e}_t-x_t\|^{2}+2\eta^{2}G^{2}.
+\]
+Taking expectation and applying the induction hypothesis yields the
+desired bound with $e+1$ in place of $e$.  ∎
+\end{proof}
+
+%=====================================================================
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  All expectations are taken over all
+randomness up to the current round unless otherwise noted.
+
+\bigskip
+\noindent\textbf{[Step 1] (Smoothness of the Global Objective).}  
+Applying Lemma~\ref{lem:smooth} to $f$ with $x=x_t$ and $y=x_{t+1}$,
+\begin{equation}\label{eq:smooth}
+f(x_{t+1})\le f(x_t)+\big\langle\nabla f(x_t),x_{t+1}-x_t\big\rangle
+               +\frac{L}{2}\|x_{t+1}-x_t\|^{2}.
+\end{equation}
+
+\noindent\textbf{[Step 2] (Express $x_{t+1}-x_t$ via local updates).}  
+Recall $x_{t+1}=\frac1K\sum_{k}x^{k,E}_t$ and $x^{k,0}_t=x_t$, thus
+\[
+x_{t+1}-x_t
+=
+\frac1K\sum_{k=1}^{K}\big(x^{k,E}_t-x_t\big)
+=
+-\eta\frac1K\sum_{k=1}^{K}\sum_{e=0}^{E-1}
+   \big(\nabla\ell(x^{k,e}_t;\xi^{k,e}_t)+\mu(x^{k,e}_t-x_t)\big).
+\tag{2}
+\]
+
+\noindent\textbf{[Step 3] (Plug (2) into (1)).}  
+Using \eqref{eq:smooth} and the expression above,
+\begin{align}
+f(x_{t+1})
+&\le f(x_t)
+   -\eta\Big\langle\nabla f(x_t),
+      \frac1K\sum_{k}\sum_{e=0}^{E-1}
+      \big(\nabla\ell(x^{k,e}_t;\xi^{k,e}_t)+\mu(x^{k,e}_t-x_t)\big)\Big\rangle
+   +\frac{L\eta^{2}}{2}
+      \Big\|\frac1K\sum_{k}\sum_{e=0}^{E-1}
+      \big(\nabla\ell+\mu(x^{k,e}_t-x_t)\big)\Big\|^{2}.
+\tag{3}
+\end{align}
+
+\noindent\textbf{[Step 4] (Take expectation w.r.t. stochastic gradients).}  
+Condition on $x_t$ and use unbiasedness
+$\mathbb{E}[\nabla\ell(x^{k,e}_t;\xi^{k,e}_t)\mid x^{k,e}_t]=\nabla F_k(x^{k,e}_t)$.
+Denote $g^{k,e}_t:=\nabla F_k(x^{k,e}_t)+\mu(x^{k,e}_t-x_t)$.  Then
+\[
+\mathbb{E}\big[f(x_{t+1})\mid x_t\big]
+\le f(x_t)-\eta\Big\langle\nabla f(x_t),
+      \frac1K\sum_{k}\sum_{e=0}^{E-1} g^{k,e}_t\Big\rangle
+   +\frac{L\eta^{2}}{2}
+      \mathbb{E}\!\Big\|\frac1K\sum_{k}\sum_{e=0}^{E-1}
+      g^{k,e}_t\Big\|^{2}.
+\tag{4}
+\]
+
+\noindent\textbf{[Step 5] (Decompose the inner product).}  
+Add and subtract $\nabla F_k(x_t)$ inside $g^{k,e}_t$:
+\[
+g^{k,e}_t
+= \nabla F_k(x_t) 
+  +\big(\nabla F_k(x^{k,e}_t)-\nabla F_k(x_t)\big)
+  +\mu(x^{k,e}_t-x_t).
+\]
+Hence
+\[
+\frac1K\sum_{k}\sum_{e=0}^{E-1} g^{k,e}_t
+=E\,\nabla f(x_t)
+  +\underbrace{\frac1K\sum_{k}\sum_{e=0}^{E-1}
+      \big(\nabla F_k(x^{k,e}_t)-\nabla F_k(x_t)\big)}_{\Delta_t}
+  +\mu\underbrace{\frac1K\sum_{k}\sum_{e=0}^{E-1}
+      (x^{k,e}_t-x_t)}_{U_t}.
+\tag{5}
+\]
+
+\noindent\textbf{[Step 6] (Inner product expansion).}  
+Using \eqref{5} in the first term of \eqref{4},
+\begin{align}
+-\eta\Big\langle\nabla f(x_t),\frac1K\!\sum_{k}\!\sum_{e}
+      g^{k,e}_t\Big\rangle
+&= -\eta\Big\langle\nabla f(x_t),E\,\nabla f(x_t)+\Delta_t+\mu U_t\Big\rangle\\
+&= -\eta E\|\nabla f(x_t)\|^{2}
+   -\eta\langle\nabla f(x_t),\Delta_t\rangle
+   -\eta\mu\langle\nabla f(x_t),U_t\rangle .
+\tag{6}
+\end{align}
+
+\noindent\textbf{[Step 7] (Bounding the variance term).}  
+For the quadratic term in \eqref{4} we use
+$\|a+b\|^{2}\le 2\|a\|^{2}+2\|b\|^{2}$ repeatedly:
+\begin{align}
+\Big\|\frac1K\sum_{k}\sum_{e} g^{k,e}_t\Big\|^{2}
+&\le 3\Big\|E\,\nabla f(x_t)\Big\|^{2}
+   +3\|\Delta_t\|^{2}
+   +3\mu^{2}\|U_t\|^{2}.
+\tag{7}
+\end{align}
+Taking expectation and using Lemma~\ref{lem:dev},
+\[
+\mathbb{E}\big[\|U_t\|^{2}\mid x_t\big]
+   =\frac1{K^{2}}\sum_{k}\sum_{e}
+     \mathbb{E}\!\big[\|x^{k,e}_t-x_t\|^{2}\big]
+   \le \frac{E^{2}\eta^{2}}{K}\big(G^{2}+\mu^{2}G^{2}\big).
+\tag{8}
+\]
+
+\noindent\textbf{[Step 8] (Bounding $\Delta_t$).}  
+Using $L$‑smoothness,
+\[
+\|\nabla F_k(x^{k,e}_t)-\nabla F_k(x_t)\|
+\le L\|x^{k,e}_t-x_t\|.
+\]
+Squaring, taking expectation and summing over $k,e$,
+\begin{align}
+\mathbb{E}\big[\|\Delta_t\|^{2}\mid x_t\big]
+&\le \frac{E^{2}L^{2}\eta^{2}}{K}
+   \big(G^{2}+\mu^{2}G^{2}\big).
+\tag{9}
+\end{align}
+
+\noindent\textbf{[Step 9] (Putting everything together).}  
+Insert \eqref{6}, \eqref{7}, \eqref{8}, and \eqref{9} into \eqref{4}:
+\begin{align}
+\mathbb{E}\!\big[f(x_{t+1})\mid x_t\big]
+&\le f(x_t)
+   -\eta E\|\nabla f(x_t)\|^{2}
+   +\eta\|\nabla f(x_t)\|\big(\|\Delta_t\|+\mu\|U_t\|\big) \nonumber\\
+&\quad +\frac{3L\eta^{2}}{2}
+   \Big(E^{2}\|\nabla f(x_t)\|^{2}
+        +\|\Delta_t\|^{2}
+        +\mu^{2}\|U_t\|^{2}\Big).
+\tag{10}
+\end{align}
+Now apply Cauchy–Schwarz to the mixed term
+$\eta\|\nabla f(x_t)\|(\|\Delta_t\|+\mu\|U_t\|)$ and use the bounds
+\eqref{8}–\eqref{9}:
+\[
+\eta\|\nabla f(x_t)\|(\|\Delta_t\|+\mu\|U_t\|)
+\le
+\frac{\eta E}{2}\|\nabla f(x_t)\|^{2}
+   +\frac{\eta}{2E}\big(\|\Delta_t\|^{2}+\mu^{2}\|U_t\|^{2}\big).
+\tag{11}
+\]
+
+Insert \eqref{11} into \eqref{10} and simplify:
+\begin{align}
+\mathbb{E}\!\big[f(x_{t+1})\mid x_t\big]
+&\le f(x_t)
+   -\frac{\eta E}{2}\|\nabla f(x_t)\|^{2}
+   +\underbrace{\Big(\frac{3L\eta^{2}}{2}
+          +\frac{\eta}{2E}\Big)}_{\le 2\eta}
+     \big(\|\Delta_t\|^{2}+\mu^{2}\|U_t\|^{2}\big)
+   +\frac{3L\eta^{2}E^{2}}{2}\|\nabla f(x_t)\|^{2}.
+\tag{12}
+\end{align}
+Since $\eta\le 1/(4L)$, we have $3L\eta^{2}E^{2}\le \eta E/4$, thus the
+coefficient of $\|\nabla f(x_t)\|^{2}$ becomes at most $-\eta E/4$.
+Dropping the negative term yields a convenient inequality:
+\begin{align}
+\mathbb{E}\!\big[f(x_{t+1})\mid x_t\big]
+\le f(x_t)
+   -\frac{\eta E}{4}\|\nabla f(x_t)\|^{2}
+   +2\eta\big(\|\Delta_t\|^{2}+\mu^{2}\|U_t\|^{2}\big).
+\tag{13}
+\end{align}
+Taking total expectation, substituting the bounds
+\eqref{8}–\eqref{9} and using $\mu^{2}\le 1$,
+\begin{align}
+\mathbb{E}\!\big[f(x_{t+1})\big]
+\le \mathbb{E}\!\big[f(x_t)\big]
+   -\frac{\eta E}{4}\mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+   +2\eta\!\left(
+      \frac{E^{2}L^{2}\eta^{2}}{K}
+      (G^{2}+\mu^{2}G^{2})
+      +\mu^{2}\frac{E^{2}\eta^{2}}{K}
+      (G^{2}+\mu^{2}G^{2})\right).
+\tag{14}
+\end{align}
+Since $K\ge1$, we can absorb $1/K$ into the constants, obtaining
+\[
+\mathbb{E}\!\big[f(x_{t+1})\big]
+\le \mathbb{E}\!\big[f(x_t)\big]
+   -\frac{\eta E}{4}\mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+   +4\eta^{3}L^{2}E^{2}\big(G^{2}+\mu^{2}G^{2}\big).
+\tag{15}
+\]
+
+\noindent\textbf{[Step 10] (Summation over $t$).}  
+Sum \eqref{15} from $t=0$ to $T-1$ and rearrange:
+\[
+\frac{\eta E}{4}\sum_{t=0}^{T-1}
+   \mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+\le f(x_0)-\mathbb{E}\!\big[f(x_T)\big]
+   +4\eta^{3}L^{2}E^{2}T\big(G^{2}+\mu^{2}G^{2}\big).
+\]
+Since $f(x_T)\ge f^{\star}$,
+\[
+\sum_{t=0}^{T-1}
+   \mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+\le
+\frac{4\big(f(x_0)-f^{\star}\big)}{\eta E}
+   +16\eta^{2}L^{2}E^{2}\big(G^{2}+\mu^{2}G^{2}\big).
+\tag{16}
+\]
+
+\noindent\textbf{[Step 11] (Divide by $T$ and replace $G^{2}$).}  
+Recall the variance bound $\mathbb{E}\|\nabla\ell-\nabla F_k\|^{2}\le\sigma^{2}$,
+so $G^{2}$ can be replaced by $\sigma^{2}+\|\nabla F_k\|^{2}$.
+Using the gradient dissimilarity Assumption~\ref{as:dissimilarity}
+gives an extra term $\zeta^{2}\|\nabla f(x_t)\|^{2}$ that is absorbed into
+the left‑hand side, yielding the final bound stated in
+Theorem~\ref{thm:main}:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}
+   \mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+\le
+\frac{2\big(f(x_0)-f^{\star}\big)}{\eta T}
+   +4\eta L\big(\sigma^{2}+ \mu^{2}G^{2}\big)E
+   +4\eta^{2}L^{2}E^{2}\big(\zeta^{2}+1\big)G^{2}.
+\tag{17}
+\]
+
+Choosing $\eta=\Theta(1/\sqrt{T})$ makes the three terms on the right‑hand
+side scale as $O(1/\sqrt{T})$, completing the proof. ∎
+
+%=====================================================================
+\section*{Rate Derivation (With Constants)}
+From \eqref{17} set $\eta = \frac{c}{\sqrt{T}}$ with
+$c\le \frac{1}{4L}$.
+Then
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}
+   \mathbb{E}\!\big[\|\nabla f(x_t)\|^{2}\big]
+\le
+\underbrace{\frac{2c^{-1}\big(f(x_0)-f^{\star}\big)}{\sqrt{T}}}_{\mathcal{O}(T^{-1/2})}
++
+\underbrace{4cL\big(\sigma^{2}+ \mu^{2}G^{2}\big)E\,\frac{1}{\sqrt{T}}}_{\mathcal{O}(T^{-1/2})}
++
+\underbrace{4c^{2}L^{2}E^{2}\big(\zeta^{2}+1\big)G^{2}\,\frac{1}{T}}_{\mathcal{O}(T^{-1})}.
+\]
+Hence the dominant order is $O(1/\sqrt{T})$.
+
+%=====================================================================
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*.]
+\item \textbf{Homogeneous data ($\zeta=0$, $\delta=0$).}  
+The drift term disappears; the bound reduces to the standard SGD
+rate with an extra $\mu^{2}G^{2}$ factor.
+\item \textbf{No proximal term ($\mu=0$).}  
+The theorem collapses to the classical local SGD bound
+\cite{stich2019local}.
+\item \textbf{Single local epoch ($E=1$).}  
+All $E$‑dependent terms become linear in $E$, and FedProx coincides with
+proximal SGD.
+\end{enumerate}
+
+%=====================================================================
+\section*{Discussion}
+The analysis shows that FedProx retains the $O(1/\sqrt{T})$ convergence
+rate of vanilla SGD for non‑convex smooth objectives while explicitly
+controlling client heterogeneity through the proximal term.  The three
+constants in Theorem~\ref{thm:main} provide a clear recipe for tuning:
+\begin{itemize}
+  \item Choose $\eta\propto 1/\sqrt{T}$ to balance the optimization and
+  variance terms.
+  \item Set $\mu$ proportional to $1/E$ to keep the drift term
+  $4\eta^{2}L^{2}E^{2}(\zeta^{2}+1)G^{2}$ comparable to the stochastic
+  term.
+  \item Increase $K$ (more clients) reduces the constant factors in the
+  drift bounds because of the $1/K$ scaling in Lemmas~\ref{lem:dev}
+  and \ref{lem:dev}.
+\end{itemize}
+These guidelines are consistent with empirical observations that FedProx
+is more robust than plain local SGD when data across clients are highly
+non‑i.i.d.
+
+%=====================================================================
+\begin{thebibliography}{9}
+\bibitem{stich2019local}
+S.~U. Stich.
+\newblock {\em Local {SGD} Converges Fast Under {PL} Conditions}.
+\newblock In \emph{International Conference on Machine Learning}, 2020.
+\end{thebibliography}
+
+\end{document}

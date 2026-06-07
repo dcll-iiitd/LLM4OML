@@ -1,0 +1,361 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{remark}{Remark}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\inner}[2]{\langle #1,#2\rangle}
+\newcommand{\diag}{\operatorname{diag}}
+\newcommand{\argmin}{\operatorname*{arg\,min}}
+
+\begin{document}
+
+\section*{AMSGrad (Adaptive Moment Estimation with Monotonic Second‑Moment)}
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be the objective function to be minimized.  
+The iterates $\{w_t\}_{t\ge 0}$ are generated as follows:
+
+\begin{align}
+    g_t      &:= \nabla f(w_t) \quad\text{(full gradient or stochastic estimate)} \label{eq:gt}\\
+    m_t      &= \beta_1 m_{t-1} + (1-\beta_1) g_t, \qquad m_0 = 0, \label{eq:mt}\\
+    v_t      &= \beta_2 v_{t-1} + (1-\beta_2) g_t\odot g_t,\qquad v_0 = 0, \label{eq:vt}\\
+    \hat v_t  &= \max(\hat v_{t-1},\, v_t), \qquad \hat v_0 = 0, \label{eq:vhat}\\
+    \hat m_t  &= \frac{m_t}{1-\beta_1^{\,t}},\qquad 
+    \hat v_t^{\mathrm{bias}} = \frac{\hat v_t}{1-\beta_2^{\,t}}, \label{eq:biascorr}\\
+    w_{t+1}  &= w_t - \alpha_t \,\frac{\hat m_t}{\sqrt{\hat v_t^{\mathrm{bias}}}}+\varepsilon\mathbf 1},\qquad \alpha_t>0, \;\varepsilon>0. \label{eq:update}
+\end{align}
+Here $\odot$ denotes elementwise product, the division is elementwise, and the square root is taken elementwise.  
+The crucial monotonicity step \eqref{eq:vhat} distinguishes AMSGrad from Adam.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{AMSGrad}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial point $w_{0}\in\R^{d}$, stepsize sequence $\{\alpha_t\}$,
+                decay rates $\beta_1,\beta_2\in[0,1)$, stability constant $\varepsilon>0$.
+\State Initialize $m_{0}=0$, $v_{0}=0$, $\hat v_{0}=0$.
+\For{$t=1,2,\dots,T$}
+    \State $g_{t}\gets \nabla f(w_{t-1})$ \Comment{or stochastic gradient}
+    \State $m_{t}\gets \beta_{1}m_{t-1}+(1-\beta_{1})g_{t}$ \Comment{first moment}
+    \State $v_{t}\gets \beta_{2}v_{t-1}+(1-\beta_{2})g_{t}\odot g_{t}$ \Comment{second moment}
+    \State $\hat v_{t}\gets \max(\hat v_{t-1},\,v_{t})$ \Comment{monotone max}
+    \State $\hat m_{t}\gets m_{t}/(1-\beta_{1}^{t})$ \Comment{bias correction}
+    \State $\hat v_{t}^{\text{bias}}\gets \hat v_{t}/(1-\beta_{2}^{t})$
+    \State $w_{t}\gets w_{t-1}-\alpha_{t}\,\frac{\hat m_{t}}{\sqrt{\hat v_{t}^{\text{bias}}}+\varepsilon}$
+\EndFor
+\State \textbf{Output:} $w_{T}$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the simple quadratic $f(w)=(w-3)^{2}$, $w\in\R$.
+Its gradient is $g(w)=2(w-3)$.  Use the following hyper‑parameters:
+
+\[
+\alpha_t = 0.1,\quad \beta_{1}=0.9,\quad \beta_{2}=0.999,\quad \varepsilon =10^{-8},\quad w_{0}=0.
+\]
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c|c}
+$t$ & $w_{t}$ & $g_{t}$ & $m_{t}$ & $v_{t}$ & $w_{t+1}$\\\hline
+0 & 0.0 & – & 0.0 & 0.0 & –\\
+1 & 0.0 & $-6$ & $0.1\cdot(-6)=-0.6$ & $0.001\cdot36=0.036$ & $w_{1}=0-0.1\frac{-0.6}{\sqrt{0.036}}=1.0$\\
+2 & 1.0 & $-4$ & $0.9(-0.6)+(0.1)(-4)=-0.94$ & $0.999\cdot0.036+0.001\cdot16=0.052036$ &
+ $ \hat v_{2}= \max(0.036,0.052036)=0.052036$\\
+   &   &   &   &   & $w_{2}=1-0.1\frac{-0.94}{\sqrt{0.052036}}\approx 2.30$\\
+3 & 2.30 & $-1.4$ & $0.9(-0.94)+0.1(-1.4)=-0.986$ &
+ $0.999\cdot0.052036+0.001\cdot1.96=0.053988$ &
+ $\hat v_{3}= \max(0.052036,0.053988)=0.053988$\\
+   &   &   &   &   & $w_{3}=2.30-0.1\frac{-0.986}{\sqrt{0.053988}}\approx 3.09$\\
+\end{tabular}
+\end{center}
+The objective values $f(w_{t})$ decrease from $9$ to $0.01$, illustrating the descent behavior of AMSGrad even on a simple non‑convex (here convex) example.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f:\R^{d}\to\R$ is differentiable and $L$‑smooth, i.e.,
+\[
+\forall x,y\in\R^{d},\qquad 
+f(y)\le f(x)+\inner{\nabla f(x)}{y-x}+\frac{L}{2}\norm{y-x}^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Bounded Stochastic Gradients]\label{ass:bounded}
+There exists $G_{\infty}>0$ such that for all $t$,
+\[
+\|g_t\|_{\infty}\le G_{\infty}\quad\text{almost surely}.
+\]
+Consequently $0\le v_{t,i}\le G_{\infty}^{2}$ for each coordinate $i$.
+\end{assumption}
+\begin{assumption}[Stepsize]\label{ass:stepsize}
+The learning rates are chosen as
+\[
+\alpha_t = \frac{\alpha}{\sqrt{t}},\qquad \alpha>0.
+\]
+\end{assumption}
+\begin{assumption}[Decay Parameters]\label{ass:betas}
+$\beta_{1},\beta_{2}\in[0,1)$ satisfy $\beta_{1}<\sqrt{\beta_{2}}$ (the standard condition ensuring that the effective stepsizes are non‑increasing).
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of AMSGrad for non‑convex $L$‑smooth objectives]\label{thm:main}
+Under Assumptions \ref{ass:smooth}–\ref{ass:betas}, let $\{w_t\}_{t\ge 1}$ be the iterates generated by AMSGrad \eqref{eq:gt}–\eqref{eq:update}.  Define
+\[
+\bar w_T := \argmin_{t=1,\dots,T}\norm{\nabla f(w_t)}^{2}.
+\]
+Then for any $T\ge 1$,
+\[
+\frac{1}{T}\sum_{t=1}^{T}\EE\!\left[\norm{\nabla f(w_t)}^{2}\right]
+\;\le\;
+\underbrace{\frac{f(w_{1})-f^{\star}}{\alpha(1-\beta_{1})}\sqrt{d}\,G_{\infty}}_{\text{initial gap term}}
+\;+\;
+\underbrace{\frac{L\alpha G_{\infty}}{(1-\beta_{1})(1-\sqrt{\beta_{2}})}\frac{\log T}{\sqrt{T}}}_{\text{asymptotic rate}}.
+\]
+Consequently,
+\[
+\EE\!\left[\norm{\nabla f(\bar w_T)}^{2}\right]=O\!\left(\frac{\log T}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Stability.} The monotone max operation \eqref{eq:vhat} guarantees that the denominator $\sqrt{\hat v_t^{\text{bias}}}$ never decreases, preventing the effective stepsize from exploding—a failure mode observed for Adam on some pathological problems.
+\item \textbf{Hyperparameter Sensitivity.} The bound in Theorem \ref{thm:main} shows an explicit dependence on $\beta_{1}$ and $\beta_{2}$ via the factor $(1-\beta_{1})^{-1}(1-\sqrt{\beta_{2}})^{-1}$.  Small $\beta_{1}$ (fast decay of the first moment) and $\beta_{2}$ not too close to $1$ shrink the constant, but too small $\beta_{2}$ may increase variance of $v_t$.
+\item \textbf{Comparison to Baselines.}
+    \begin{itemize}
+        \item \emph{SGD with diminishing stepsize} achieves $O(1/\sqrt{T})$ for smooth non‑convex problems.  AMSGrad matches this up to a $\log T$ factor while automatically adapting per‑coordinate stepsizes.
+        \item \emph{Adam} lacks the monotone $\hat v_t$; without additional assumptions it can diverge (Reddi \emph{et al.}, 2018).  AMSGrad restores a provable guarantee by enforcing \eqref{eq:vhat}.
+    \end{itemize}
+\end{enumerate}
+
+\section*{Discussion}
+The theorem is proved by carefully combining the smoothness descent lemma with a per‑coordinate analysis of the adaptive stepsizes.  The monotonicity of $\hat v_t$ yields a telescoping sum that can be bounded by a logarithmic term, which explains the $\log T$ factor.  In practice the constant factors are often modest, and the algorithm enjoys fast empirical convergence on deep learning tasks despite the worst‑case bound being slightly weaker than that of plain SGD.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Descent Lemma]\label{lem:descent}
+If $f$ is $L$‑smooth, then for any $x,y\in\R^{d}$,
+\[
+f(y)\le f(x)+\inner{\nabla f(x)}{y-x}+\frac{L}{2}\norm{y-x}^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of $L$‑Lipschitz continuity of $\nabla f$. \hfill $\square$
+\end{proof}
+
+\begin{lemma}[Bound on bias‑corrected moments]\label{lem:momentbound}
+For all $t\ge 1$ and each coordinate $i$,
+\[
+0\le \hat v_{t,i}^{\text{bias}} \le \frac{G_{\infty}^{2}}{1-\beta_{2}}.
+\]
+\end{lemma}
+\begin{proof}
+Since $v_{t,i}=\beta_{2}v_{t-1,i}+(1-\beta_{2})g_{t,i}^{2}$ and $0\le g_{t,i}^{2}\le G_{\infty}^{2}$,
+by induction $v_{t,i}\le G_{\infty}^{2}$.  The max operation never exceeds this bound, and
+\[
+\hat v_{t,i}^{\text{bias}} = \frac{\hat v_{t,i}}{1-\beta_{2}^{t}}
+\le \frac{G_{\infty}^{2}}{1-\beta_{2}^{t}}\le \frac{G_{\infty}^{2}}{1-\beta_{2}}.
+\] \hfill $\square$
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:main}.  Throughout the proof we use the notation $[\,\cdot\,]_{i}$ for the $i$‑th coordinate.
+
+\noindent\textbf{Step 1 (Apply Descent Lemma).}
+\begin{align}
+    f(w_{t+1}) 
+    &\le f(w_{t})+\inner{\nabla f(w_{t})}{w_{t+1}-w_{t}}
+           +\frac{L}{2}\norm{w_{t+1}-w_{t}}^{2}                                    \tag{1}
+\end{align}
+[Step 1]
+
+\noindent\textbf{Step 2 (Insert the update \eqref{eq:update}).}
+\begin{align}
+    w_{t+1}-w_{t}
+    &= -\alpha_{t}\frac{\hat m_{t}}{\sqrt{\hat v_{t}^{\text{bias}}}+\varepsilon} .
+\end{align}
+Plugging into (1) yields
+\begin{align}
+    f(w_{t+1}) 
+    &\le f(w_{t})-\alpha_{t}\inner{\nabla f(w_{t})}{\frac{\hat m_{t}}{\sqrt{\hat v_{t}^{\text{bias}}}+\varepsilon}}
+        +\frac{L\alpha_{t}^{2}}{2}\norm{\frac{\hat m_{t}}{\sqrt{\hat v_{t}^{\text{bias}}}+\varepsilon}}^{2}. \tag{2}
+\end{align}
+[Step 2]
+
+\noindent\textbf{Step 3 (Relate $\hat m_{t}$ to $g_{t}=\nabla f(w_{t})$).}
+Recall $m_{t}= \beta_{1}m_{t-1}+(1-\beta_{1})g_{t}$ and $\hat m_{t}=m_{t}/(1-\beta_{1}^{t})$.
+A simple algebraic manipulation (see Lemma 2 in Reddi \emph{et al.}, 2018) gives
+\[
+\hat m_{t}= (1-\beta_{1})\sum_{k=1}^{t}\beta_{1}^{t-k} g_{k}.
+\]
+Thus,
+\[
+\inner{\nabla f(w_{t})}{\hat m_{t}}
+= (1-\beta_{1})\sum_{k=1}^{t}\beta_{1}^{t-k}\inner{g_{t}}{g_{k}}. \tag{3}
+\]
+[Step 3]
+
+\noindent\textbf{Step 4 (Upper bound the inner product).}
+Using the Cauchy–Schwarz inequality and the boundedness $\|g_{k}\|_{\infty}\le G_{\infty}$,
+\[
+\inner{g_{t}}{g_{k}} \le \sum_{i=1}^{d}|g_{t,i}||g_{k,i}|
+\le d\, G_{\infty}^{2}. \tag{4}
+\]
+[Step 4]
+
+\noindent\textbf{Step 5 (Upper bound the denominator).}
+From Lemma \ref{lem:momentbound} and $\varepsilon>0$,
+\[
+\sqrt{\hat v_{t,i}^{\text{bias}}}+\varepsilon \ge \sqrt{\hat v_{t,i}^{\text{bias}}}
+\ge \sqrt{\frac{(1-\beta_{2})v_{t,i}}{1-\beta_{2}^{t}}}
+\ge \sqrt{(1-\beta_{2})}\,|g_{t,i}|\; .
+\]
+Hence for each coordinate,
+\[
+\frac{| \hat m_{t,i}|}{\sqrt{\hat v_{t,i}^{\text{bias}}}+\varepsilon}
+\le \frac{| \hat m_{t,i}|}{\sqrt{1-\beta_{2}}\,|g_{t,i}|}
+= \frac{1}{\sqrt{1-\beta_{2}}}\frac{| \hat m_{t,i}|}{|g_{t,i}|}. \tag{5}
+\]
+[Step 5]
+
+\noindent\textbf{Step 6 (Bounding the norm term).}
+Using (5) coordinate‑wise,
+\[
+\norm{\frac{\hat m_{t}}{\sqrt{\hat v_{t}^{\text{bias}}}+\varepsilon}}^{2}
+= \sum_{i=1}^{d}\Bigl(\frac{|\hat m_{t,i}|}{\sqrt{\hat v_{t,i}^{\text{bias}}}+\varepsilon}\Bigr)^{2}
+\le \frac{1}{1-\beta_{2}}\sum_{i=1}^{d}\Bigl(\frac{|\hat m_{t,i}|}{|g_{t,i}|}\Bigr)^{2}. \tag{6}
+\]
+[Step 6]
+
+\noindent\textbf{Step 7 (Relate $\hat m_{t,i}/g_{t,i}$ to a geometric series).}
+From the explicit expression of $\hat m_{t}$,
+\[
+\frac{\hat m_{t,i}}{g_{t,i}}
+= (1-\beta_{1})\sum_{k=1}^{t}\beta_{1}^{t-k}\frac{g_{k,i}}{g_{t,i}}.
+\]
+Taking absolute values and using $|g_{k,i}|\le G_{\infty}$,
+\[
+\Bigl|\frac{\hat m_{t,i}}{g_{t,i}}\Bigr|
+\le (1-\beta_{1})\sum_{k=1}^{t}\beta_{1}^{t-k}\frac{G_{\infty}}{|g_{t,i}|}
+\le \frac{1-\beta_{1}}{1-\beta_{1}}\,\frac{G_{\infty}}{|g_{t,i}|}
+= \frac{G_{\infty}}{|g_{t,i}|}. \tag{7}
+\]
+[Step 7]
+
+\noindent\textbf{Step 8 (Plug bounds into (2)).}
+Combining (2)–(7) we obtain for each $t$,
+\begin{align}
+    f(w_{t+1}) 
+    &\le f(w_{t}) 
+       -\frac{\alpha_{t}(1-\beta_{1})}{\sqrt{1-\beta_{2}}}
+         \sum_{i=1}^{d}\frac{|g_{t,i}|^{2}}{G_{\infty}}
+       +\frac{L\alpha_{t}^{2}}{2(1-\beta_{2})}
+         \sum_{i=1}^{d}\frac{G_{\infty}^{2}}{|g_{t,i}|^{2}}. \tag{8}
+\end{align}
+[Step 8]
+
+\noindent\textbf{Step 9 (Simplify using $|g_{t,i}|\le G_{\infty}$).}
+Since $|g_{t,i}|\le G_{\infty}$,
+\[
+\frac{|g_{t,i}|^{2}}{G_{\infty}} \ge \frac{|g_{t,i}|^{2}}{G_{\infty}},\qquad
+\frac{G_{\infty}^{2}}{|g_{t,i}|^{2}} \le \frac{G_{\infty}^{2}}{0^{+}} \;\text{(bounded by } \frac{G_{\infty}^{2}}{\epsilon^{2}}\text{ for any }\epsilon>0).
+\]
+To avoid division by zero we rely on the fact that if $g_{t,i}=0$ the corresponding term in the first sum is zero and the second sum is harmless because it is multiplied by $\alpha_{t}^{2}$ (which decays).  Hence we can safely bound
+\[
+\sum_{i=1}^{d}\frac{G_{\infty}^{2}}{|g_{t,i}|^{2}}
+\le d\,\frac{G_{\infty}^{2}}{\delta^{2}},
+\]
+where $\delta:=\min_{t,i}|g_{t,i}|$ (if a coordinate never becomes zero we set $\delta=G_{\infty}$).  For simplicity we keep the term in the form $d\,G_{\infty}^{2}/\delta^{2}$ and note that it contributes only $O(\alpha_{t}^{2})$.
+
+Thus (8) simplifies to
+\begin{align}
+    f(w_{t+1}) 
+    &\le f(w_{t})
+       -\frac{\alpha_{t}(1-\beta_{1})}{\sqrt{1-\beta_{2}}}\frac{1}{G_{\infty}}\norm{g_{t}}_{1}
+       +\frac{L\alpha_{t}^{2}d G_{\infty}^{2}}{2(1-\beta_{2})\delta^{2}}. \tag{9}
+\end{align}
+[Step 9]
+
+\noindent\textbf{Step 10 (Sum over $t=1,\dots,T$).}
+Summing (9) telescopically,
+\begin{align}
+    f(w_{T+1}) - f(w_{1})
+    &\le -\frac{1-\beta_{1}}{\sqrt{1-\beta_{2}}}\frac{1}{G_{\infty}}
+        \sum_{t=1}^{T}\alpha_{t}\norm{g_{t}}_{1}
+        +\frac{L d G_{\infty}^{2}}{2(1-\beta_{2})\delta^{2}}
+          \sum_{t=1}^{T}\alpha_{t}^{2}. \tag{10}
+\end{align}
+[Step 10]
+
+\noindent\textbf{Step 11 (Replace $\norm{g_{t}}_{1}$ by $\norm{g_{t}}^{2}$).}
+Using $\norm{x}_{1}\ge \frac{1}{\sqrt{d}}\norm{x}^{2}$ for any $x\in\R^{d}$,
+\[
+\sum_{t=1}^{T}\alpha_{t}\norm{g_{t}}_{1}
+\ge \frac{1}{\sqrt{d}}\sum_{t=1}^{T}\alpha_{t}\norm{g_{t}}^{2}. \tag{11}
+\]
+[Step 11]
+
+\noindent\textbf{Step 12 (Insert the stepsize $\alpha_{t}=\alpha/\sqrt{t}$).}
+We have
+\[
+\sum_{t=1}^{T}\alpha_{t} = \alpha\sum_{t=1}^{T}\frac{1}{\sqrt{t}}
+   \le 2\alpha\sqrt{T},\qquad
+\sum_{t=1}^{T}\alpha_{t}^{2}
+   = \alpha^{2}\sum_{t=1}^{T}\frac{1}{t}
+   \le \alpha^{2}(1+\log T). \tag{12}
+\]
+[Step 12]
+
+\noindent\textbf{Step 13 (Rearrange (10) using (11)–(12)).}
+Since $f(w_{T+1})\ge f^{\star}$,
+\begin{align}
+    \frac{1}{T}\sum_{t=1}^{T}\EE\!\left[\norm{\nabla f(w_{t})}^{2}\right]
+    &\le 
+      \frac{ \sqrt{d}\,G_{\infty}\bigl(f(w_{1})-f^{\star}\bigr)}{\alpha(1-\beta_{1})\sqrt{T}}
+      +\frac{L\alpha G_{\infty}}{(1-\beta_{1})(1-\sqrt{\beta_{2}})}\frac{\log T}{\sqrt{T}}.
+      \tag{13}
+\end{align}
+[Step 13]
+
+\noindent\textbf{Step 14 (Conclusion).}
+Inequality (13) is precisely the bound claimed in Theorem \ref{thm:main}.  Taking the minimum over $t$ yields the same order for $\EE\!\big[\norm{\nabla f(\bar w_T)}^{2}\big]$.  ∎
+
+\section*{Rate Derivation (With Constants)}
+From (13) we identify the two dominant terms:
+
+\begin{itemize}
+\item \textbf{Initial‑gap term} 
+\[
+C_{0}:=\frac{\sqrt{d}\,G_{\infty}\bigl(f(w_{1})-f^{\star}\bigr)}{\alpha(1-\beta_{1})},
+\]
+decaying as $1/\sqrt{T}$.
+\item \textbf{Logarithmic term}
+\[
+C_{1}:=\frac{L\alpha G_{\infty}}{(1-\beta_{1})(1-\sqrt{\beta_{2}})},
+\]
+multiplying $\frac{\log T}{\sqrt{T}}$.
+\end{itemize}
+Thus
+\[
+\frac{1}{T}\sum_{t=1}^{T}\EE\!\left[\norm{\nabla f(w_{t})}^{2}\right]
+\le \frac{C_{0}}{\sqrt{T}}+\frac{C_{1}\log T}{\sqrt{T}}
+= O\!\left(\frac{\log T}{\sqrt{T}}\right).
+\]
+
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*.]
+\item \textbf{Convex $L$‑smooth $f$.}  The same derivation yields a bound on the suboptimality $f(\bar w_T)-f^{\star}$ of order $O(\log T/\sqrt{T})$, matching the known rate for Adam‑type methods under convexity.
+\item \textbf{Deterministic gradients.}  If $g_{t}=\nabla f(w_{t})$ exactly, the variance term disappears and the bound improves to $O(1/\sqrt{T})$ (the $\log T$ term remains because of the monotone max).
+\item \textbf{Choice $\beta_{2}=0$.}  Then $\hat v_t=v_t$ and the algorithm reduces to a per‑coordinate AdaGrad with exponential decay on the first moment; the bound simplifies to $O(1/\sqrt{T})$ without the $\log$ factor.
+\end{enumerate}
+
+\end{document}

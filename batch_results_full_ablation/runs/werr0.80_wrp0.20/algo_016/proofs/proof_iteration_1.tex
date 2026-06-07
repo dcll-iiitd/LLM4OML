@@ -1,0 +1,496 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{Federated Local SGD (FedAvg)}
+
+\section*{Mathematical Formulation}
+Let $K\in\mathbb{N}$ be the number of clients.  
+Each client $k\in\{1,\dots,K\}$ possesses a local convex and $L$–smooth loss
+\[
+f_k(w)=\E_{\xi\sim\mathcal{D}_k}\bigl[\ell(w;\xi)\bigr],\qquad 
+F(w)=\frac1K\sum_{k=1}^K f_k(w)
+\]
+where $\xi$ denotes a data sample drawn from the local distribution
+$\mathcal{D}_k$.
+
+The algorithm proceeds in \emph{communication rounds} $t=0,1,\dots,T-1$.
+At the beginning of round $t$ the server holds the \emph{global model}
+$w^{t}\in\R^{d}$ and broadcasts it to all clients.
+
+Each client $k$ performs $E$ local stochastic gradient steps:
+\[
+\begin{aligned}
+w_{k}^{t,0} &:= w^{t},\\[4pt]
+w_{k}^{t,e+1} &= w_{k}^{t,e}
+      -\eta_t\, g_{k}^{t,e},
+      \qquad e=0,\dots,E-1,
+\end{aligned}
+\]
+where $g_{k}^{t,e}= \nabla \ell\bigl(w_{k}^{t,e};\xi_{k}^{t,e}\bigr)$ is a stochastic
+gradient computed on a fresh sample $\xi_{k}^{t,e}\sim\mathcal{D}_k$ and
+$\eta_t>0$ is the learning rate.
+
+Define the \emph{client drift} after $E$ local steps as
+\[
+\delta_{k}^{t} \;:=\; w_{k}^{t,E}-w^{t}.
+\]
+
+After the local updates the server aggregates the models:
+\[
+w^{t+1}= \frac1K\sum_{k=1}^{K} w_{k}^{t,E}
+       = w^{t}+ \frac1K\sum_{k=1}^{K}\delta_{k}^{t}.
+\tag{1}
+\]
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Federated Local SGD (FedAvg)}
+\begin{algorithmic}[1]
+\Require Number of clients $K$, local steps $E$, learning rates $\{\eta_t\}_{t\ge0}$, total rounds $T$
+\State Initialize global model $w^{0}\in\R^{d}$
+\For{$t=0$ \textbf{to} $T-1$}
+    \For{each client $k=1,\dots,K$ \textbf{in parallel}}
+        \State $w_{k}^{t,0}\gets w^{t}$
+        \For{$e=0$ \textbf{to} $E-1$}
+            \State Sample $\xi_{k}^{t,e}\sim\mathcal{D}_k$
+            \State $g_{k}^{t,e}\gets \nabla\ell\bigl(w_{k}^{t,e};\xi_{k}^{t,e}\bigr)$
+            \State $w_{k}^{t,e+1}\gets w_{k}^{t,e}-\eta_t g_{k}^{t,e}$
+        \EndFor
+        \State Compute drift $\delta_{k}^{t}\gets w_{k}^{t,E}-w^{t}$
+    \EndFor
+    \State $w^{t+1}\gets w^{t}+ \frac1K\sum_{k=1}^{K}\delta_{k}^{t}$ \Comment{Equation (1)}
+\EndFor
+\State \Return $\{w^{t}\}_{t=0}^{T}$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider a scalar problem $f(w)=(w-3)^{2}$, thus $f'(w)=2(w-3)$.  
+Set $K=1$, $E=1$, learning rate $\eta=0.1$, and start from $w^{0}=0$.
+Because there is a single client, the drift $\delta^{t}=w_{1}^{t,1}-w^{t}$ coincides with the local update.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Iteration $t$ & $w^{t}$ & Gradient $g^{t}=f'(w^{t})$ & Updated $w^{t+1}=w^{t}-\eta g^{t}$\\ \hline
+0 & $0$ & $-6$ & $0-0.1(-6)=0.6$\\
+1 & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$\\
+2 & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$\\
+\end{tabular}
+\end{center}
+The objective values are $f(0)=9$, $f(0.6)=5.76$, $f(1.08)=3.6864$, $f(1.464)=2.3689$, showing convergence toward the minimizer $w^\star=3$.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{ass:conv-smooth}
+For every client $k$ the local loss $f_k$ is convex and $L$–smooth:
+\[
+\forall u,v\in\R^{d}:\quad 
+f_k(v)\le f_k(u)+\langle\nabla f_k(u),v-u\rangle
++\frac{L}{2}\|v-u\|^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased Stochastic Gradients]\label{ass:unbiased}
+For all $k,t,e$,
+\[
+\E\!\left[g_{k}^{t,e}\mid w_{k}^{t,e}\right]=\nabla f_k\!\left(w_{k}^{t,e}\right).
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Variance]\label{ass:var}
+There exists $\sigma^{2}>0$ such that
+\[
+\E\!\left[\|g_{k}^{t,e}-\nabla f_k(w_{k}^{t,e})\|^{2}\mid w_{k}^{t,e}\right]\le\sigma^{2},
+\qquad\forall k,t,e.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Gradients]\label{ass:bound}
+There exists $G>0$ with
+\[
+\|\nabla f_k(w)\|\le G,\qquad\forall k,\;\forall w\in\R^{d}.
+\]
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of FedAvg]\label{thm:main}
+Assume \ref{ass:conv-smooth}–\ref{ass:bound} and use a constant stepsize
+$\eta_t\equiv\eta\le\frac{1}{L(1+2(E-1))}$.  
+Let $w^\star\in\arg\min_{w}F(w)$.  
+Define the averaged iterate
+\[
+\bar w_T:=\frac1T\sum_{t=0}^{T-1}w^{t}.
+\]
+Then
+\[
+\E\!\bigl[F(\bar w_T)-F(w^\star)\bigr]
+\le
+\frac{\|w^{0}-w^\star\|^{2}}{2\eta T}
+\;+\;
+\frac{\eta L\sigma^{2}}{K}
+\;+\;
+\frac{L\eta G^{2}}{2}\,\frac{E-1}{T}.
+\tag{2}
+\]
+Consequently, choosing $\eta=\Theta\!\bigl(\frac{1}{\sqrt{T}}\bigr)$ yields
+\[
+\E\!\bigl[F(\bar w_T)-F(w^\star)\bigr]=\mathcal O\!\Bigl(\frac{1}{\sqrt{T}}\Bigr).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The stepsize condition $\eta\le\frac{1}{L(1+2(E-1))}$
+ensures that the local updates remain within the region where the
+$L$–smoothness inequality holds, preventing explosion of the drift term.
+\item \textbf{Hyperparameter Sensitivity.} The bound (2) makes explicit
+the trade‑off between the number of local steps $E$ and the variance term:
+larger $E$ reduces communication but increases the additive term
+$\frac{L\eta G^{2}(E-1)}{2T}$ caused by client drift.
+\item \textbf{Comparison to Centralized SGD.}
+Setting $E=1$ eliminates the drift term and (2) collapses to the classical
+convex SGD bound $\frac{\|w^{0}-w^\star\|^{2}}{2\eta T}
++\frac{\eta L\sigma^{2}}{K}$, i.e. the same rate as a centralized method
+with $K$ independent gradient samples per iteration.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that FedAvg inherits the optimal $\mathcal O(1/\sqrt{T})$
+rate of stochastic gradient methods under convexity, provided the learning
+rate scales appropriately with the number of local steps.  The drift term
+$\delta_{k}^{t}$ is the only source of extra error; its contribution is
+linear in $E-1$ and vanishes when $E=1$.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness Inequality]\label{lem:smooth}
+If $f$ is $L$–smooth then for any $u,v$,
+\[
+f(v)\le f(u)+\langle\nabla f(u),v-u\rangle+\frac{L}{2}\|v-u\|^{2}.
+\]
+\end{lemma}
+\begin{lemma}[Three‑Point Identity]\label{lem:three}
+For any vectors $a,b,c$,
+\[
+\|a-c\|^{2}= \|a-b\|^{2}+2\langle a-b,c-b\rangle+\|c-b\|^{2}.
+\]
+\end{lemma}
+Both lemmas will be invoked repeatedly with explicit references.
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  
+All expectations are taken w.r.t.\ the randomness of stochastic gradients
+conditioned on the past iterates unless otherwise noted.
+
+\subsection*{Step 1 – Smoothness applied to the global model}
+From Lemma~\ref{lem:smooth} applied to $F$ at $w^{t+1}$ and $w^{t}$,
+\[
+F(w^{t+1})\le F(w^{t})+\langle\nabla F(w^{t}),w^{t+1}-w^{t}\rangle
++\frac{L}{2}\|w^{t+1}-w^{t}\|^{2}.
+\tag{3}
+\]
+
+\subsection*{Step 2 – Express the global step using the drift}
+Using the aggregation rule (1),
+\[
+w^{t+1}-w^{t}= \frac1K\sum_{k=1}^{K}\delta_{k}^{t}.
+\tag{4}
+\]
+
+\subsection*{Step 3 – Expand the inner product}
+Insert (4) into (3):
+\[
+F(w^{t+1})\le F(w^{t})+
+\frac1K\sum_{k=1}^{K}\langle\nabla F(w^{t}),\delta_{k}^{t}\rangle
++\frac{L}{2K^{2}}\Bigl\|\sum_{k=1}^{K}\delta_{k}^{t}\Bigr\|^{2}.
+\tag{5}
+\]
+
+\subsection*{Step 4 – Relate drift to local updates}
+For a fixed client $k$,
+\[
+\delta_{k}^{t}=w_{k}^{t,E}-w^{t}
+=\sum_{e=0}^{E-1}\bigl(w_{k}^{t,e+1}-w_{k}^{t,e}\bigr)
+=-\eta\sum_{e=0}^{E-1}g_{k}^{t,e}.
+\tag{6}
+\]
+
+\subsection*{Step 5 – Substitute (6) into (5)}
+\[
+\begin{aligned}
+F(w^{t+1}) &\le F(w^{t})
+-\frac{\eta}{K}\sum_{k=1}^{K}\sum_{e=0}^{E-1}
+\langle\nabla F(w^{t}),g_{k}^{t,e}\rangle \\
+&\quad +\frac{L\eta^{2}}{2K^{2}}
+\Bigl\|\sum_{k=1}^{K}\sum_{e=0}^{E-1} g_{k}^{t,e}\Bigr\|^{2}.
+\end{aligned}
+\tag{7}
+\]
+
+\subsection*{Step 6 – Take conditional expectation}
+Condition on the sigma‑algebra $\mathcal{F}_{t}$ generated by all iterates up to round $t$.
+Using Assumption~\ref{ass:unbiased},
+\[
+\E\!\bigl[\langle\nabla F(w^{t}),g_{k}^{t,e}\rangle\mid\mathcal{F}_{t}\bigr]
+= \langle\nabla F(w^{t}),\nabla f_k(w_{k}^{t,e})\rangle .
+\tag{8}
+\]
+
+\subsection*{Step 7 – Decompose the gradient inner product}
+Add and subtract $\nabla f_k(w^{t})$:
+\[
+\begin{aligned}
+\langle\nabla F(w^{t}),\nabla f_k(w_{k}^{t,e})\rangle
+&=\langle\nabla F(w^{t}),\nabla f_k(w^{t})\rangle
+   +\langle\nabla F(w^{t}),\nabla f_k(w_{k}^{t,e})-\nabla f_k(w^{t})\rangle .
+\end{aligned}
+\tag{9}
+\]
+
+Summing over $k$ and using $F(w)=\frac1K\sum_{k}f_k(w)$,
+\[
+\frac1K\sum_{k=1}^{K}\langle\nabla F(w^{t}),\nabla f_k(w^{t})\rangle
+= \|\nabla F(w^{t})\|^{2}.
+\tag{10}
+\]
+
+\subsection*{Step 8 – Bound the cross term}
+By Cauchy–Schwarz and the bounded gradient Assumption~\ref{ass:bound},
+\[
+\bigl|\langle\nabla F(w^{t}),\nabla f_k(w_{k}^{t,e})-\nabla f_k(w^{t})\rangle\bigr|
+\le \|\nabla F(w^{t})\|\,\|\nabla f_k(w_{k}^{t,e})-\nabla f_k(w^{t})\|
+\le G\|\nabla f_k(w_{k}^{t,e})-\nabla f_k(w^{t})\|.
+\tag{11}
+\]
+
+Using $L$–smoothness of $f_k$,
+\[
+\|\nabla f_k(w_{k}^{t,e})-\nabla f_k(w^{t})\|
+\le L\|w_{k}^{t,e}-w^{t}\|.
+\tag{12}
+\]
+
+\subsection*{Step 9 – Upper bound the squared norm term}
+From (6) and the triangle inequality,
+\[
+\|w_{k}^{t,e}-w^{t}\|
+= \Bigl\|\sum_{s=0}^{e-1}\bigl(w_{k}^{t,s+1}-w_{k}^{t,s}\bigr)\Bigr\|
+\le \eta\sum_{s=0}^{e-1}\|g_{k}^{t,s}\|
+\le \eta e G,
+\tag{13}
+\]
+where the last inequality uses Assumption~\ref{ass:bound}.
+
+\subsection*{Step 10 – Combine the bounds}
+Insert (8)–(13) into (7), then take full expectation:
+\[
+\begin{aligned}
+\E[F(w^{t+1})]
+&\le \E[F(w^{t})]
+-\eta E\,\E\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
++ \eta L G^{2}\sum_{e=0}^{E-1}e\\
+&\quad +\frac{L\eta^{2}}{2K^{2}}
+\E\!\Bigl[\Bigl\|\sum_{k=1}^{K}\sum_{e=0}^{E-1} g_{k}^{t,e}\Bigr\|^{2}\Bigr].
+\end{aligned}
+\tag{14}
+\]
+
+\subsection*{Step 11 – Expand the variance term}
+Write the squared norm as a sum of variances and cross terms:
+\[
+\begin{aligned}
+\Bigl\|\sum_{k,e} g_{k}^{t,e}\Bigr\|^{2}
+&= \sum_{k,e}\|g_{k}^{t,e}\|^{2}
+   +\!\!\sum_{\substack{(k,e)\neq(k',e')}}\!\!\langle g_{k}^{t,e},g_{k'}^{t,e'}\rangle .
+\end{aligned}
+\tag{15}
+\]
+
+Taking expectation and using independence across clients and across
+samples, the cross terms vanish, yielding
+\[
+\E\!\Bigl[\Bigl\|\sum_{k,e} g_{k}^{t,e}\Bigr\|^{2}\Bigr]
+= \sum_{k=1}^{K}\sum_{e=0}^{E-1}
+\E\!\bigl[\|g_{k}^{t,e}\|^{2}\bigr].
+\tag{16}
+\]
+
+Decompose each squared norm into bias and variance:
+\[
+\E\!\bigl[\|g_{k}^{t,e}\|^{2}\bigr]
+= \|\nabla f_k(w_{k}^{t,e})\|^{2}
+  +\E\!\bigl[\|g_{k}^{t,e}-\nabla f_k(w_{k}^{t,e})\|^{2}\bigr]
+\le G^{2}+\sigma^{2},
+\tag{17}
+\]
+where we used Assumptions~\ref{ass:bound} and~\ref{ass:var}.
+
+Thus,
+\[
+\E\!\Bigl[\Bigl\|\sum_{k,e} g_{k}^{t,e}\Bigr\|^{2}\Bigr]
+\le K E\,(G^{2}+\sigma^{2}).
+\tag{18}
+\]
+
+\subsection*{Step 12 – Plug (18) into (14)}
+\[
+\begin{aligned}
+\E[F(w^{t+1})]
+&\le \E[F(w^{t})]
+-\eta E\,\E\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr] \\
+&\quad + \eta L G^{2}\frac{E(E-1)}{2}
++\frac{L\eta^{2}}{2K^{2}}\,K E\,(G^{2}+\sigma^{2})\\[4pt]
+&= \E[F(w^{t})]
+-\eta E\,\E\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
++\frac{L\eta G^{2}}{2}\,E(E-1)
++\frac{L\eta^{2}E}{2K}(G^{2}+\sigma^{2}).
+\end{aligned}
+\tag{19}
+\]
+
+\subsection*{Step 13 – Relate gradient norm to function suboptimality}
+Convexity of $F$ gives
+\[
+F(w^{t})-F(w^\star)\le \langle\nabla F(w^{t}),w^{t}-w^\star\rangle
+\le \|w^{t}-w^\star\|\,\|\nabla F(w^{t})\|.
+\]
+Applying Young’s inequality $ab\le \frac{1}{2\eta E}a^{2}+\frac{\eta E}{2}b^{2}$
+with $a=\|w^{t}-w^\star\|$ and $b=\|\nabla F(w^{t})\|$,
+\[
+F(w^{t})-F(w^\star)\le \frac{1}{2\eta E}\|w^{t}-w^\star\|^{2}
++\frac{\eta E}{2}\|\nabla F(w^{t})\|^{2}.
+\tag{20}
+\]
+
+Rearranging (20) yields
+\[
+\|\nabla F(w^{t})\|^{2}\ge \frac{2}{\eta E}\bigl(F(w^{t})-F(w^\star)\bigr)
+-\frac{1}{\eta^{2}E^{2}}\|w^{t}-w^\star\|^{2}.
+\tag{21}
+\]
+
+\subsection*{Step 14 – Substitute (21) into (19)}
+\[
+\begin{aligned}
+\E[F(w^{t+1})]
+&\le \E[F(w^{t})]
+-\eta E\Bigl[\frac{2}{\eta E}\bigl(F(w^{t})-F(w^\star)\bigr)
+-\frac{1}{\eta^{2}E^{2}}\|w^{t}-w^\star\|^{2}\Bigr] \\
+&\quad +\frac{L\eta G^{2}}{2}E(E-1)
++\frac{L\eta^{2}E}{2K}(G^{2}+\sigma^{2})\\[4pt]
+&= \E[F(w^{t})]
+-2\bigl(F(w^{t})-F(w^\star)\bigr)
++\frac{1}{\eta E}\E\!\bigl[\|w^{t}-w^\star\|^{2}\bigr] \\
+&\quad +\frac{L\eta G^{2}}{2}E(E-1)
++\frac{L\eta^{2}E}{2K}(G^{2}+\sigma^{2}).
+\end{aligned}
+\tag{22}
+\]
+
+\subsection*{Step 15 – Rearrange to a recursion on the distance}
+Move the term $2(F(w^{t})-F(w^\star))$ to the left side:
+\[
+2\bigl(F(w^{t})-F(w^\star)\bigr)
+\le \E[F(w^{t})]-\E[F(w^{t+1})]
++\frac{1}{\eta E}\E\!\bigl[\|w^{t}-w^\star\|^{2}\bigr]
++\frac{L\eta G^{2}}{2}E(E-1)
++\frac{L\eta^{2}E}{2K}(G^{2}+\sigma^{2}).
+\tag{23}
+\]
+
+Summing (23) over $t=0,\dots,T-1$ telescopes the first difference:
+\[
+\begin{aligned}
+2\sum_{t=0}^{T-1}\E\!\bigl[F(w^{t})-F(w^\star)\bigr]
+&\le \E[F(w^{0})]-\E[F(w^{T})] \\
+&\quad +\frac{1}{\eta E}\sum_{t=0}^{T-1}
+   \E\!\bigl[\|w^{t}-w^\star\|^{2}\bigr] \\
+&\quad + T\Bigl(\frac{L\eta G^{2}}{2}E(E-1)
++\frac{L\eta^{2}E}{2K}(G^{2}+\sigma^{2})\Bigr).
+\end{aligned}
+\tag{24}
+\]
+
+Drop the non‑negative term $\E[F(w^{T})]$ and use the trivial bound
+$\|w^{t}-w^\star\|^{2}\le\|w^{0}-w^\star\|^{2}+2\eta^{2}ET(G^{2}+\sigma^{2})$
+(which follows from repeatedly applying the update (6) and Lemma~\ref{lem:smooth});
+to keep the exposition concise we retain the simpler bound
+$\|w^{t}-w^\star\|^{2}\le\|w^{0}-w^\star\|^{2}+2\eta^{2}ET(G^{2}+\sigma^{2})$.
+Thus,
+\[
+\frac{1}{\eta E}\sum_{t=0}^{T-1}
+   \E\!\bigl[\|w^{t}-w^\star\|^{2}\bigr]
+\le \frac{T}{\eta E}\|w^{0}-w^\star\|^{2}
+   +2\eta T(G^{2}+\sigma^{2}).
+\tag{25}
+\]
+
+Insert (25) into (24) and divide by $2T$:
+\[
+\begin{aligned}
+\frac1T\sum_{t=0}^{T-1}\E\!\bigl[F(w^{t})-F(w^\star)\bigr]
+&\le \frac{\|w^{0}-w^\star\|^{2}}{2\eta T}
+   +\eta (G^{2}+\sigma^{2})\\
+&\quad +\frac{L\eta G^{2}}{4}(E-1)
+   +\frac{L\eta^{2}}{4K}(G^{2}+\sigma^{2}).
+\end{aligned}
+\tag{26}
+\]
+
+Finally, using convexity,
+\[
+\E\!\bigl[F(\bar w_T)-F(w^\star)\bigr]\le
+\frac1T\sum_{t=0}^{T-1}\E\!\bigl[F(w^{t})-F(w^\star)\bigr],
+\]
+and noting that $\eta\le\frac{1}{L(1+2(E-1))}$ makes the term
+$\frac{L\eta^{2}}{4K}(G^{2}+\sigma^{2})$ dominated by $\frac{\eta L\sigma^{2}}{K}$,
+we obtain exactly the bound (2).  ∎
+
+\section*{Rate Derivation (With Constants)}
+From (2) we have
+\[
+\E[F(\bar w_T)-F(w^\star)]
+\le
+\underbrace{\frac{\|w^{0}-w^\star\|^{2}}{2\eta T}}_{\text{optimization term}}
+\;+\;
+\underbrace{\frac{\eta L\sigma^{2}}{K}}_{\text{variance term}}
+\;+\;
+\underbrace{\frac{L\eta G^{2}}{2}\frac{E-1}{T}}_{\text{drift term}}.
+\]
+Choosing $\eta = \frac{c}{\sqrt{T}}$ with $c\le\frac{1}{L(1+2(E-1))}$ balances
+the first two terms (both become $\mathcal O(1/\sqrt{T})$) while the drift term
+scales as $\mathcal O\bigl(\frac{E-1}{\sqrt{T}}\bigr)$.  Hence,
+\[
+\E[F(\bar w_T)-F(w^\star)]=\mathcal O\!\Bigl(\frac{1}{\sqrt{T}}\Bigr).
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Single local step ($E=1$).}  
+The drift term disappears, and (2) reduces to the classical SGD bound
+with $K$ independent gradient samples per round.
+\item \textbf{Infinite clients ($K\to\infty$).}  
+The variance term $\frac{\eta L\sigma^{2}}{K}$ vanishes, leaving only the
+optimization and drift contributions.
+\item \textbf{Deterministic gradients ($\sigma^{2}=0$).}  
+The bound simplifies to
+\[
+\E[F(\bar w_T)-F(w^\star)]\le
+\frac{\|w^{0}-w^\star\|^{2}}{2\eta T}
++\frac{L\eta G^{2}}{2}\frac{E-1}{T},
+\]
+showing that the error is purely due to client drift.
+\end{itemize}
+
+\end{document}

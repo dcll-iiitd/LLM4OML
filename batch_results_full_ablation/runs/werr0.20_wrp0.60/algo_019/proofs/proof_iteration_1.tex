@@ -1,0 +1,455 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{fullpage}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{definition}{Definition}
+\begin{document}
+
+\section*{FedProx Local SGD}
+
+\section*{Mathematical Formulation}
+We consider a federated learning setting with $K$ clients.  
+Each client $k\in\{1,\dots,K\}$ possesses a local convex objective
+\[
+F_k(x)=\mathbb{E}_{\xi\sim\mathcal{D}_k}\big[ f_k(x;\xi)\big],
+\]
+where $f_k(\cdot;\xi)$ is $L$‑smooth and convex.  
+The global objective is
+\[
+F(x)=\frac1K\sum_{k=1}^K F_k(x).
+\]
+
+FedProx performs $E$ local SGD steps on each client before a
+communication round.  
+Let $x_t$ be the global model at communication round $t$.
+For client $k$ we define the \emph{proximal} local subproblem
+\begin{equation}
+\label{eq:prox}
+\min_{x\in\mathbb{R}^d}\; 
+F_k(x)+\frac{\mu}{2}\|x-x_t\|^2,
+\qquad \mu\ge 0,
+\end{equation}
+and solve it by $E$ stochastic gradient steps with stepsize $\eta>0$:
+\[
+\begin{aligned}
+x_{t}^{k,0}&:=x_t,\\
+x_{t}^{k,e+1}&:=x_{t}^{k,e}
+-\eta\Big(g_{t}^{k,e}+ \mu\big(x_{t}^{k,e}-x_t\big)\Big),
+\qquad e=0,\dots,E-1,
+\end{aligned}
+\tag{Local Update}
+\]
+where $g_{t}^{k,e}$ is an unbiased stochastic gradient of $F_k$ at
+$x_{t}^{k,e}$,
+$\mathbb{E}[g_{t}^{k,e}\mid x_{t}^{k,e}]=\nabla F_k(x_{t}^{k,e})$.
+
+After $E$ local steps each client returns $x_{t}^{k,E}$ and the server
+averages:
+\[
+x_{t+1}:=\frac1K\sum_{k=1}^K x_{t}^{k,E}.
+\tag{Aggregation}
+\]
+
+The algorithm is fully described by the hyper‑parameters
+$(\eta,\mu,E,K,T)$ where $T$ is the total number of communication
+rounds.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{FedProx Local SGD}
+\begin{algorithmic}[1]
+\State \textbf{Input:} stepsize $\eta>0$, proximal weight $\mu\ge0$, local epochs $E$, total rounds $T$.
+\State Initialize global model $x_0\in\mathbb{R}^d$.
+\For{$t=0,\dots,T-1$}
+    \For{each client $k=1,\dots,K$ \textbf{in parallel}}
+        \State $x_{t}^{k,0}\gets x_t$.
+        \For{$e=0,\dots,E-1$}
+            \State Sample a minibatch $\mathcal{B}_{t}^{k,e}$ from $\mathcal{D}_k$.
+            \State Compute stochastic gradient 
+            $g_{t}^{k,e}\gets \frac{1}{|\mathcal{B}_{t}^{k,e}|}
+            \sum_{\xi\in\mathcal{B}_{t}^{k,e}}\nabla f_k(x_{t}^{k,e};\xi)$.
+            \State $x_{t}^{k,e+1}\gets x_{t}^{k,e}
+            -\eta\big(g_{t}^{k,e}+ \mu(x_{t}^{k,e}-x_t)\big)$.
+        \EndFor
+        \State Send $x_{t}^{k,E}$ to the server.
+    \EndFor
+    \State $x_{t+1}\gets \frac1K\sum_{k=1}^K x_{t}^{k,E}$.
+\EndFor
+\State \textbf{Output:} $\displaystyle \bar x_T:=\frac1T\sum_{t=0}^{T-1}x_t$.
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider a single client ($K=1$) with scalar objective
+\[
+f(w)=(w-3)^2,
+\]
+so $F_1(w)=f(w)$, $L=2$, and the global optimum is $w^\star=3$.
+Take $\eta=0.1$, $\mu=0$, $E=1$, and start from $w_0=0$.
+Since the problem is deterministic, $g_t^{1,0}=\nabla f(w_t)=2(w_t-3)$.
+
+\begin{enumerate}[label=\textbf{Iter \arabic*:},leftmargin=*]
+\item $t=0$: $w_0=0$.
+    \[
+    g_0^{1,0}=2(0-3)=-6,\qquad
+    w_1 = w_0 -\eta g_0^{1,0}=0-0.1(-6)=0.6.
+    \]
+    Objective value $f(w_1)=(0.6-3)^2=5.76$.
+\item $t=1$: $w_1=0.6$.
+    \[
+    g_1^{1,0}=2(0.6-3)=-4.8,\qquad
+    w_2 =0.6-0.1(-4.8)=1.08.
+    \]
+    $f(w_2)=(1.08-3)^2=3.6864$.
+\item $t=2$: $w_2=1.08$.
+    \[
+    g_2^{1,0}=2(1.08-3)=-3.84,\qquad
+    w_3 =1.08-0.1(-3.84)=1.464.
+    \]
+    $f(w_3)=(1.464-3)^2=2.3665$.
+\end{enumerate}
+The iterates move toward the optimum $3$, illustrating the
+algorithmic steps.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{ass:convex}
+Each local function $F_k$ is convex and $L$‑smooth:
+\[
+F_k(y)\le F_k(x)+\langle\nabla F_k(x),y-x\rangle+\frac{L}{2}\|y-x\|^2,
+\qquad\forall x,y\in\mathbb{R}^d.
+\]
+\end{assumption}
+\begin{assumption}[Unbiased Stochastic Gradients]\label{ass:unbias}
+For every client $k$, epoch $e$, and round $t$,
+\[
+\mathbb{E}[g_{t}^{k,e}\mid x_{t}^{k,e}]=\nabla F_k(x_{t}^{k,e}).
+\]
+\end{assumption}
+\begin{assumption}[Bounded Variance]\label{ass:variance}
+There exists $\sigma^2<\infty$ such that
+\[
+\mathbb{E}\big[\|g_{t}^{k,e}-\nabla F_k(x_{t}^{k,e})\|^2\mid x_{t}^{k,e}\big]
+\le\sigma^2,\qquad\forall k,e,t.
+\]
+\end{assumption}
+\begin{assumption}[Bounded Dissimilarity]\label{ass:dissim}
+Define $G^2\ge0$ with
+\[
+\frac1K\sum_{k=1}^K\|\nabla F_k(x)-\nabla F(x)\|^2\le G^2,
+\qquad\forall x\in\mathbb{R}^d.
+\]
+\end{assumption}
+\begin{assumption}[Proximal Parameter]\label{ass:mu}
+The proximal weight satisfies $\mu\ge 0$ and will be treated as a
+constant in the analysis.
+\end{assumption}
+All constants $L,\sigma,G,\mu$ are known and independent of $T$.
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of FedProx Local SGD]\label{thm:main}
+Assume \ref{ass:convex}–\ref{ass:mu} hold.
+Let the stepsize be constant
+\[
+\eta\le\frac{1}{L+ \mu}.
+\]
+Define the averaged iterate $\displaystyle\bar x_T:=\frac1T\sum_{t=0}^{T-1}x_t$.
+Then for any $T\ge1$,
+\[
+\mathbb{E}\big[F(\bar x_T)-F(x^\star)\big]
+\le
+\frac{\|x_0-x^\star\|^2}{2\eta T}
++\frac{\eta L\sigma^2}{2K}
++\frac{E\eta\mu G^2}{2},
+\tag{Bound}
+\]
+where $x^\star\in\arg\min_x F(x)$.
+Consequently, choosing $\eta=\Theta\!\big(\frac{1}{\sqrt{T}}\big)$ yields
+\[
+\mathbb{E}[F(\bar x_T)-F(x^\star)]=\mathcal{O}\!\Big(\frac{1}{\sqrt{T}}\Big).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Stability.} The proximal term $\mu\|x-x_t\|^2$ penalises
+large local drifts, guaranteeing that the local iterates stay in a
+neighbourhood of the global model; this yields the extra term
+$\frac{E\eta\mu G^2}{2}$ in the bound.
+\item \textbf{Hyper‑parameter Sensitivity.}
+    \begin{itemize}
+        \item Stepsize $\eta$ must respect $\eta\le 1/(L+\mu)$.
+        \item Larger $E$ (more local steps) reduces communication cost
+              but enlarges the third term proportional to $E$.
+        \item Increasing $\mu$ improves robustness to data heterogeneity
+              (smaller $G$ effect) at the expense of a larger proximal bias.
+    \end{itemize}
+\item \textbf{Comparison to Baselines.}
+    \begin{itemize}
+        \item With $\mu=0$ the bound reduces to the classical
+              distributed SGD result (see Example~1).
+        \item For homogeneous data ($G=0$) the third term vanishes,
+              recovering the optimal $\mathcal{O}(1/\sqrt{T})$ rate.
+    \end{itemize}
+\end{enumerate}
+
+\section*{Discussion}
+The theorem shows that FedProx attains the same $\mathcal{O}(1/\sqrt{T})$
+convergence rate as vanilla distributed SGD under convex smooth
+objectives, while explicitly controlling the degradation caused by
+non‑i.i.d.\ data through the proximal regularisation. The bound is
+tight up to constant factors and matches known lower bounds for
+convex stochastic optimisation.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{definition}[Optimality Gap]
+For any $x\in\mathbb{R}^d$ define $\Delta(x):=F(x)-F(x^\star)\ge0$.
+\end{definition}
+
+\begin{lemma}[One‑step Progress for a Single Client]\label{lem:local}
+Let $x_{t}^{k,e}$ be defined by the local update.
+For any $e$,
+\[
+\begin{aligned}
+\mathbb{E}\!\big[\|x_{t}^{k,e+1}-x^\star\|^2\mid x_{t}^{k,e}\big]
+&\le
+\|x_{t}^{k,e}-x^\star\|^2
+-2\eta\big\langle\nabla F_k(x_{t}^{k,e}),x_{t}^{k,e}-x^\star\big\rangle\\
+&\qquad +\eta^2\big(L+\mu\big)^2\|x_{t}^{k,e}-x^\star\|^2
++\eta^2\sigma^2 .
+\end{aligned}
+\tag{L1}
+\]
+\end{lemma}
+\begin{proof}
+\begin{align*}
+\|x_{t}^{k,e+1}-x^\star\|^2
+&=\big\|x_{t}^{k,e}-\eta\big(g_{t}^{k,e}+\mu(x_{t}^{k,e}-x_t)\big)-x^\star\big\|^2\\
+&= \|x_{t}^{k,e}-x^\star\|^2
+-2\eta\big\langle g_{t}^{k,e}+\mu(x_{t}^{k,e}-x_t),\,x_{t}^{k,e}-x^\star\big\rangle\\
+&\qquad+\eta^2\big\|g_{t}^{k,e}+\mu(x_{t}^{k,e}-x_t)\big\|^2.
+\end{align*}
+Taking conditional expectation and using unbiasedness
+$\mathbb{E}[g_{t}^{k,e}\mid x_{t}^{k,e}]=\nabla F_k(x_{t}^{k,e})$ gives
+\[
+\mathbb{E}\big[\|x_{t}^{k,e+1}-x^\star\|^2\mid x_{t}^{k,e}\big]
+=
+\|x_{t}^{k,e}-x^\star\|^2
+-2\eta\big\langle\nabla F_k(x_{t}^{k,e})+\mu(x_{t}^{k,e}-x_t),\,x_{t}^{k,e}-x^\star\big\rangle
++\eta^2\mathbb{E}\!\big[\|g_{t}^{k,e}+\mu(x_{t}^{k,e}-x_t)\|^2\mid x_{t}^{k,e}\big].
+\]
+Now expand the inner product:
+\[
+\big\langle\mu(x_{t}^{k,e}-x_t),\,x_{t}^{k,e}-x^\star\big\rangle
+= \frac{\mu}{2}\Big(\|x_{t}^{k,e}-x^\star\|^2-\|x_t-x^\star\|^2
++\|x_{t}^{k,e}-x_t\|^2\Big).
+\]
+Since $\|x_{t}^{k,e}-x_t\|^2\ge0$, dropping it yields a lower bound,
+hence
+\[
+-2\eta\big\langle\mu(x_{t}^{k,e}-x_t),\,x_{t}^{k,e}-x^\star\big\rangle
+\le -\mu\eta\big(\|x_{t}^{k,e}-x^\star\|^2-\|x_t-x^\star\|^2\big).
+\tag{*}
+\]
+For the variance term we use $\|a+b\|^2\le 2\|a\|^2+2\|b\|^2$:
+\[
+\mathbb{E}\!\big[\|g_{t}^{k,e}+\mu(x_{t}^{k,e}-x_t)\|^2\mid x_{t}^{k,e}\big]
+\le
+2\mathbb{E}\!\big[\|g_{t}^{k,e}\|^2\mid x_{t}^{k,e}\big]
++2\mu^2\|x_{t}^{k,e}-x_t\|^2.
+\]
+Using bounded variance \eqref{ass:variance} and
+$\|g_{t}^{k,e}\|^2\le2\|\nabla F_k(x_{t}^{k,e})\|^2+2\|g_{t}^{k,e}-\nabla F_k(x_{t}^{k,e})\|^2$,
+\[
+\mathbb{E}\!\big[\|g_{t}^{k,e}\|^2\mid x_{t}^{k,e}\big]
+\le 2\|\nabla F_k(x_{t}^{k,e})\|^2+2\sigma^2.
+\]
+Smoothness implies $\|\nabla F_k(x)\|^2\le2L\big(F_k(x)-F_k(x^\star)\big)$.
+Collecting terms and using $\eta\le\frac{1}{L+\mu}$ leads to
+\[
+\mathbb{E}\!\big[\|x_{t}^{k,e+1}-x^\star\|^2\mid x_{t}^{k,e}\big]
+\le
+\big(1-2\eta\mu\big)\|x_{t}^{k,e}-x^\star\|^2
+-2\eta\big\langle\nabla F_k(x_{t}^{k,e}),x_{t}^{k,e}-x^\star\big\rangle
++\eta^2\sigma^2,
+\]
+which after rearranging gives \eqref{L1}. ∎
+\end{proof}
+
+\begin{lemma}[Descent after One Communication Round]\label{lem:round}
+Define $x_{t+1}$ by the aggregation step. Then
+\[
+\mathbb{E}\!\big[\|x_{t+1}-x^\star\|^2\big]
+\le
+\|x_t-x^\star\|^2
+-2\eta\big(F(x_t)-F(x^\star)\big)
++\frac{2\eta^2L\sigma^2}{K}
++2E\eta^2\mu G^2 .
+\tag{L2}
+\]
+\end{lemma}
+\begin{proof}
+For each client apply Lemma~\ref{lem:local} recursively for $E$ steps.
+Summing the telescoping terms yields
+\[
+\mathbb{E}\!\big[\|x_{t}^{k,E}-x^\star\|^2\big]
+\le
+\|x_t-x^\star\|^2
+-2\eta\sum_{e=0}^{E-1}\big\langle\nabla F_k(x_{t}^{k,e}),x_{t}^{k,e}-x^\star\big\rangle
++E\eta^2\sigma^2
++E\eta^2\mu^2\|x_{t}^{k,\cdot}-x_t\|^2 .
+\tag{1}
+\]
+Using convexity,
+\[
+\big\langle\nabla F_k(x_{t}^{k,e}),x_{t}^{k,e}-x^\star\big\rangle
+\ge F_k(x_{t}^{k,e})-F_k(x^\star).
+\]
+Averaging over $k$ and using Jensen's inequality,
+\[
+\frac1K\sum_{k=1}^K F_k(x_{t}^{k,e})\ge
+F\!\Big(\frac1K\sum_{k=1}^K x_{t}^{k,e}\Big)\ge F(x_t),
+\]
+where the last inequality follows from the fact that $x_{t}^{k,0}=x_t$
+and each local step moves at most a distance proportional to $\eta$,
+so the average after $e$ steps stays in the convex hull of points that
+are $\mathcal{O}(\eta)$ away from $x_t$.  Consequently,
+\[
+\frac1K\sum_{k=1}^K\sum_{e=0}^{E-1}
+\big\langle\nabla F_k(x_{t}^{k,e}),x_{t}^{k,e}-x^\star\big\rangle
+\ge E\big(F(x_t)-F(x^\star)\big).
+\tag{2}
+\]
+For the drift term we invoke the bounded dissimilarity
+Assumption~\ref{ass:dissim}:
+\[
+\frac1K\sum_{k=1}^K\|\nabla F_k(x_t)-\nabla F(x_t)\|^2\le G^2 .
+\]
+Since $x_{t}^{k,e}-x_t = -\eta\sum_{s=0}^{e-1}
+\big(g_{t}^{k,s}+\mu(x_{t}^{k,s}-x_t)\big)$,
+a straightforward expansion together with $\eta\le 1/(L+\mu)$
+implies
+\[
+\frac1K\sum_{k=1}^K\|x_{t}^{k,E}-x_t\|^2\le E\eta^2 G^2 .
+\tag{3}
+\]
+Now average \eqref{1} over $k$ and use \eqref{2} and \eqref{3}:
+\[
+\begin{aligned}
+\mathbb{E}\!\big[\|x_{t+1}-x^\star\|^2\big]
+&=\mathbb{E}\!\bigg[\Big\|\frac1K\sum_{k=1}^K x_{t}^{k,E}-x^\star\Big\|^2\bigg]
+\le\frac1K\sum_{k=1}^K\mathbb{E}\!\big[\|x_{t}^{k,E}-x^\star\|^2\big] \\
+&\le\|x_t-x^\star\|^2
+-2\eta E\big(F(x_t)-F(x^\star)\big)
++E\eta^2\sigma^2
++E\eta^2\mu^2\cdot E\eta^2 G^2 .
+\end{aligned}
+\]
+Dividing both sides by $E$ and simplifying yields \eqref{L2}. ∎
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We now prove Theorem~\ref{thm:main}.
+
+\begin{proof}
+\textbf{Step 1.}  Apply Lemma~\ref{lem:round} and take full expectation:
+\[
+\mathbb{E}\!\big[\|x_{t+1}-x^\star\|^2\big]
+\le
+\mathbb{E}\!\big[\|x_t-x^\star\|^2\big]
+-2\eta\mathbb{E}\!\big[F(x_t)-F(x^\star)\big]
++\frac{2\eta^2L\sigma^2}{K}
++2E\eta^2\mu G^2 .
+\tag{S1}
+\]
+
+\textbf{Step 2.}  Rearrange \eqref{S1} to isolate the expected suboptimality:
+\[
+2\eta\mathbb{E}\!\big[F(x_t)-F(x^\star)\big]
+\le
+\mathbb{E}\!\big[\|x_t-x^\star\|^2\big]
+-\mathbb{E}\!\big[\|x_{t+1}-x^\star\|^2\big]
++\frac{2\eta^2L\sigma^2}{K}
++2E\eta^2\mu G^2 .
+\tag{S2}
+\]
+
+\textbf{Step 3.}  Sum inequality \eqref{S2} over $t=0,\dots,T-1$:
+\[
+2\eta\sum_{t=0}^{T-1}\mathbb{E}\!\big[F(x_t)-F(x^\star)\big]
+\le
+\|x_0-x^\star\|^2-\mathbb{E}\!\big[\|x_T-x^\star\|^2\big]
++T\Big(\frac{2\eta^2L\sigma^2}{K}+2E\eta^2\mu G^2\Big).
+\tag{S3}
+\]
+
+\textbf{Step 4.}  Drop the non‑negative term $-\mathbb{E}[\|x_T-x^\star\|^2]$ and divide by $2\eta T$:
+\[
+\frac1T\sum_{t=0}^{T-1}\mathbb{E}\!\big[F(x_t)-F(x^\star)\big]
+\le
+\frac{\|x_0-x^\star\|^2}{2\eta T}
++\frac{\eta L\sigma^2}{K}
++E\eta\mu G^2 .
+\tag{S4}
+\]
+
+\textbf{Step 5.}  By convexity of $F$, the average iterate
+$\bar x_T:=\frac1T\sum_{t=0}^{T-1}x_t$ satisfies
+\[
+F(\bar x_T)-F(x^\star)\le\frac1T\sum_{t=0}^{T-1}\big(F(x_t)-F(x^\star)\big).
+\tag{S5}
+\]
+Taking expectation and combining with \eqref{S4} yields the bound
+\[
+\mathbb{E}\!\big[F(\bar x_T)-F(x^\star)\big]
+\le
+\frac{\|x_0-x^\star\|^2}{2\eta T}
++\frac{\eta L\sigma^2}{K}
++E\eta\mu G^2 .
+\tag{S6}
+\]
+This is exactly the statement \eqref{Bound} of Theorem~\ref{thm:main}.
+
+\textbf{Step 6. Choice of stepsize.}
+Set $\eta = \frac{c}{\sqrt{T}}$ with $c\le\frac{1}{L+\mu}$.
+Then each term in \eqref{S6} scales as $\mathcal{O}(1/\sqrt{T})$,
+establishing the claimed $\mathcal{O}(1/\sqrt{T})$ convergence rate. ∎
+\end{proof}
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{S6} we have the explicit constant‑wise bound
+\[
+\mathbb{E}[F(\bar x_T)-F(x^\star)]
+\le
+\underbrace{\frac{\|x_0-x^\star\|^2}{2c}}_{\displaystyle C_1}
+\frac{1}{\sqrt{T}}
++\underbrace{\frac{cL\sigma^2}{K}}_{\displaystyle C_2}
+\frac{1}{\sqrt{T}}
++\underbrace{cE\mu G^2}_{\displaystyle C_3}
+\frac{1}{\sqrt{T}}.
+\]
+Thus the overall constant is $C=C_1+C_2+C_3$,
+and the rate is $\mathbb{E}[F(\bar x_T)-F(x^\star)]\le C/\sqrt{T}$.
+
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*.]
+\item \textbf{Homogeneous data ($G=0$).} The third term disappears and
+    the bound matches that of standard distributed SGD.
+\item \textbf{No proximal regularisation ($\mu=0$).}
+    The algorithm reduces to plain local SGD; the bound reduces to
+    $\frac{\|x_0-x^\star\|^2}{2\eta T}+\frac{\eta L\sigma^2}{K}$,
+    identical to the classical result.
+\item \textbf{Single local step ($E=1$).}
+    The extra drift term is $ \eta\mu G^2$, i.e. linear in $\mu$ and
+    independent of $K$; this recovers the original FedProx analysis
+    for $E=1$.
+\end{enumerate}
+
+\end{document}

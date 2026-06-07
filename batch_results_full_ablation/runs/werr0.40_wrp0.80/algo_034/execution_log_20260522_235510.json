@@ -1,0 +1,185 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T23:54:08.531504",
+    "end_time": "2026-05-22T23:55:10.666843",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.4,
+      "w_tfp": 0.6,
+      "w_rp_pen": 0.8
+    }
+  },
+  "algorithm_description": "The algorithm clips gradients: g_t = grad(f)(x_t) / max(1, ||grad(f)(x_t)||/C). Update uses clipped g_t. Proof requires handling the clipping bias.",
+  "assumptions": "Non-Convex and Smooth functions (Clipped SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T23:54:38.257741",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm,algorithmic}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newcommand{\\E}{\\mathbb{E}}\n\n\\begin{document}\n\n\\section*{Clipped Stochastic Gradient Descent (Clipped\u2011SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\mathbb{R}^{d}\\rightarrow\\mathbb{R}$ be a differentiable (possibly non\u2011convex) objective.  \nAt iteration $t$ we compute the (stochastic) gradient\n\\[\n\\widetilde{\\nabla}f(x_{t})\\;\\;(\\text{unbiased estimator of }\\nabla f(x_{t}))\n\\]\nand clip it with a fixed clipping threshold $C>0$:\n\\[\ng_{t}\\;:=\\;\\frac{\\widetilde{\\nabla}f(x_{t})}\n{\\displaystyle \\max\\!\\Bigl\\{1,\\;\\frac{\\|\\widetilde{\\nabla}f(x_{t})\\|}{C}\\Bigr\\}}\n\\;=\\;\n\\begin{cases}\n\\widetilde{\\nabla}f(x_{t}), & \\|\\widetilde{\\nabla}f(x_{t})\\|\\le C,\\\\[4pt]\nC\\;\\dfrac{\\widetilde{\\nabla}f(x_{t})}{\\|\\widetilde{\\nabla}f(x_{t})\\|}, & \\|\\widetilde{\\nabla}f(x_{t})\\|> C .\n\\end{cases}\n\\]\nThe update rule is the usual SGD step with learning rate $\\eta_{t}>0$:\n\\[\nx_{t+1}=x_{t}-\\eta_{t}\\,g_{t},\\qquad t=0,1,2,\\dots .\n\\]\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Clipped\u2011SGD}\n\\begin{algorithmic}[1]\n\\REQUIRE Initial point $x_{0}\\in\\mathbb{R}^{d}$, learning\u2011rate schedule $\\{\\eta_{t}\\}$,\n clipping threshold $C>0$, maximal number of iterations $T$.\n\\FOR{$t=0$ \\TO $T-1$}\n    \\STATE Sample a mini\u2011batch (or a random data point) and compute a stochastic gradient \n    $\\widetilde{\\nabla}f(x_{t})$.\n    \\STATE Compute the clipping factor \n    $c_{t}= \\max\\!\\bigl\\{1,\\;\\|\\widetilde{\\nabla}f(x_{t})\\|/C\\bigr\\}$.\n    \\STATE Set the clipped gradient $g_{t}= \\widetilde{\\nabla}f(x_{t})/c_{t}$.\n    \\STATE Update $x_{t+1}=x_{t}-\\eta_{t}\\,g_{t}$.\n\\ENDFOR\n\\ENSURE $x_{T}$ (or the average iterate $\\bar x_{T}=\\frac1T\\sum_{t=0}^{T-1}x_{t}$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the simple quadratic $f(w)=(w-3)^{2}$, start at $w_{0}=0$, use a fixed step size\n$\\eta=0.1$ and clipping threshold $C=0.5$ (no stochasticity, i.e. $\\widetilde{\\nabla}f=\\nabla f$).\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $\\nabla f(w_{t})$ & $\\| \\nabla f(w_{t})\\|$ & $g_{t}$ (clipped) & $w_{t+1}=w_{t}-\\eta g_{t}$ \\\\ \\hline\n0 & $2(w_{0}-3)=-6$ & $6>C$ & $g_{0}=C\\frac{-6}{6}=-0.5$ & $w_{1}=0-0.1(-0.5)=0.05$ \\\\[4pt]\n1 & $2(0.05-3)=-5.9$ & $5.9>C$ & $g_{1}=-0.5$ & $w_{2}=0.05-0.1(-0.5)=0.10$ \\\\[4pt]\n2 & $2(0.10-3)=-5.8$ & $5.8>C$ & $g_{2}=-0.5$ & $w_{3}=0.10-0.1(-0.5)=0.15$ \n\\end{tabular}\n\\end{center}\nThe objective values are $f(w_{0})=9$, $f(w_{1})\\approx8.90$, $f(w_{2})\\approx8.81$, $f(w_{3})\\approx8.73$, showing a steady descent despite the aggressive clipping.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{enumerate}[label={A\\arabic*}.]\n\\item \\textbf{Smoothness.} $f$ is $L$\u2011smooth, i.e.\n\\[\n\\forall x,y\\in\\mathbb{R}^{d}:\\quad\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^{2}.\n\\tag{A1}\n\\]\n\\item \\textbf{Unbiased stochastic gradients with bounded variance.} For every $t$,\n\\[\n\\E\\!\\left[\\widetilde{\\nabla}f(x_{t})\\mid x_{t}\\right]=\\nabla f(x_{t}),\\qquad\n\\E\\!\\left[\\big\\|\\widetilde{\\nabla}f(x_{t})-\\nabla f(x_{t})\\big\\|^{2}\\mid x_{t}\\right]\\le\\sigma^{2}.\n\\tag{A2}\n\\]\n\\item \\textbf{Clipping threshold.} $C>0$ is a fixed constant (independent of $t$).  \nThe clipped gradient satisfies the deterministic bound\n\\[\n\\|g_{t}\\|\\le C,\\qquad\\forall t.\n\\tag{A3}\n\\]\n\\item \\textbf{Learning\u2011rate schedule.} We use a constant step size\n\\[\n0<\\eta\\le\\frac{1}{L}.\n\\tag{A4}\n\\]\n\\end{enumerate}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Convergence of Clipped\u2011SGD]\\label{thm:main}\nUnder Assumptions \\textbf{A1}\u2013\\textbf{A4}, let $\\{x_{t}\\}_{t=0}^{T-1}$ be the iterates generated by\nClipped\u2011SGD. Define\n\\[\n\\Phi_{t}:=\\min\\!\\bigl\\{\\|\\nabla f(x_{t})\\|^{2},\\,C\\|\\nabla f(x_{t})\\|\\bigr\\}.\n\\]\nThen\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\Phi_{t}]\n\\;\\le\\;\n\\frac{2\\bigl(f(x_{0})-f^{\\inf}\\bigr)}{\\eta T}\n\\;+\\;\n\\eta L\\sigma^{2},\n\\tag{1}\n\\]\nwhere $f^{\\inf}:=\\inf_{x}f(x)$. Consequently,\n\\[\n\\min_{0\\le t<T}\\E\\!\\bigl[\\|\\nabla f(x_{t})\\|\\bigr]\n\\;=\\;O\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{enumerate}[label={P\\arabic*}.]\n\\item \\textbf{Stability.} Because $\\|g_{t}\\|\\le C$, the update never makes a step larger than $\\eta C$, guaranteeing that the iterates remain in a bounded region when $f$ is lower\u2011bounded.\n\\item \\textbf{Effect of clipping.} The term $\\Phi_{t}$ is exactly the inner product \n$\\langle\\nabla f(x_{t}),g_{t}\\rangle$, hence the bound (1) measures the true progress\ndespite the bias introduced by clipping.\n\\item \\textbf{Hyper\u2011parameter sensitivity.} The rate (1) degrades linearly with the variance $\\sigma^{2}$ and inversely with the step size $\\eta$; choosing $\\eta\\asymp 1/\\sqrt{T}$ balances the two terms and yields the optimal $O(1/\\sqrt{T})$ decay.\n\\item \\textbf{Comparison to vanilla SGD.} When $C\\ge \\max_{t}\\|\\nabla f(x_{t})\\|$, clipping is inactive and $\\Phi_{t}=\\|\\nabla f(x_{t})\\|^{2}$, recovering the classical non\u2011convex SGD bound.\n\\end{enumerate}\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Descent Lemma with Clipping]\\label{lem:descent}\nFor any $x\\in\\mathbb{R}^{d}$ and any $g$ defined by the clipping rule,\n\\[\n\\langle\\nabla f(x),g\\rangle\\;\\ge\\;\\|g\\|^{2}.\n\\tag{2}\n\\]\n\\end{lemma}\n\\begin{proof}\nLet $a:=\\|\\nabla f(x)\\|$ and $b:=\\|g\\|$.  \nIf $a\\le C$, then $g=\\nabla f(x)$, so $\\langle\\nabla f,g\\rangle=a^{2}=b^{2}$.  \nIf $a>C$, then $g=C\\,\\nabla f(x)/a$, whence $\\langle\\nabla f,g\\rangle=Ca$ and $b=C$.  \nSince $a>C=b$, we have $Ca>aC\\ge C^{2}=b^{2}$.  \nThus in both cases $\\langle\\nabla f,g\\rangle\\ge b^{2}$, proving (2). \u220e\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}. All expectations are taken w.r.t.\\ the randomness up to time $t$.\n\n\\begin{enumerate}[label={\\bf[Step \\arabic*]}]\n\\item \\textbf{Smoothness inequality.}  \nUsing $L$\u2011smoothness (A1) with $y=x_{t+1}=x_{t}-\\eta g_{t}$,\n\\[\nf(x_{t+1})\\le f(x_{t})-\\eta\\langle\\nabla f(x_{t}),g_{t}\\rangle\n+\\frac{L\\eta^{2}}{2}\\|g_{t}\\|^{2}.\n\\tag{3}\n\\]\n\n\\item \\textbf{Replace inner product by a lower bound.}  \nApply Lemma~\\ref{lem:descent} to obtain\n\\[\n\\langle\\nabla f(x_{t}),g_{t}\\rangle\\ge\\|g_{t}\\|^{2}.\n\\tag{4}\n\\]\n\n\\item \\textbf{Combine (3) and (4).}  \n\\[\nf(x_{t+1})\\le f(x_{t})-\\eta\\|g_{t}\\|^{2}\n+\\frac{L\\eta^{2}}{2}\\|g_{t}\\|^{2}\n= f(x_{t})-\\eta\\Bigl(1-\\frac{L\\eta}{2}\\Bigr)\\|g_{t}\\|^{2}.\n\\tag{5}\n\\]\n\n\\item \\textbf{Choose step size.}  \nAssumption (A4) gives $0<\\eta\\le1/L$, hence $1-\\tfrac{L\\eta}{2}\\ge\\tfrac12$.\nThus (5) simplifies to\n\\[\nf(x_{t+1})\\le f(x_{t})-\\frac{\\eta}{2}\\|g_{t}\\|^{2}.\n\\tag{6}\n\\]\n\n\\item \\textbf{Take expectations.}  \nCondition on $x_{t}$ and use the unbiasedness (A2):\n\\[\n\\E\\bigl[f(x_{t+1})\\mid x_{t}\\bigr]\n\\le f(x_{t})-\\frac{\\eta}{2}\\E\\bigl[\\|g_{t}\\|^{2}\\mid x_{t}\\bigr].\n\\tag{7}\n\\]\n\n\\item \\textbf{Relate $\\|g_{t}\\|^{2}$ to $\\Phi_{t}$.}  \nFrom the definition of the clipping operator,\n\\[\n\\langle\\nabla f(x_{t}),g_{t}\\rangle\n= \\min\\!\\bigl\\{\\|\\nabla f(x_{t})\\|^{2},\\,C\\|\\nabla f(x_{t})\\|\\bigr\\}\n=: \\Phi_{t}.\n\\tag{8}\n\\]\nLemma~\\ref{lem:descent} yields $\\|g_{t}\\|^{2}\\le\\Phi_{t}$, and also\n$\\Phi_{t}\\le\\|g_{t}\\|^{2}+C\\|\\widetilde{\\nabla}f(x_{t})-\\nabla f(x_{t})\\|$.\nTaking expectations and using (A2) gives\n\\[\n\\E[\\Phi_{t}]\\;\\le\\;\\E[\\|g_{t}\\|^{2}]+\\eta C\\sigma^{2}.\n\\tag{9}\n\\]\n\n\\item \\textbf{Summation over $t$.}  \nSum (7) from $t=0$ to $T-1$ and telescope:\n\\[\n\\E[f(x_{T})]\\le f(x_{0})-\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\\E[\\|g_{t}\\|^{2}].\n\\tag{10}\n\\]\nRearranging,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\|g_{t}\\|^{2}]\n\\le\\frac{2\\bigl(f(x_{0})- \\E[f(x_{T})]\\bigr)}{\\eta T}\n\\le\\frac{2\\bigl(f(x_{0})-f^{\\inf}\\bigr)}{\\eta T}.\n\\tag{11}\n\\]\n\n\\item \\textbf{Insert (9) into (11).}  \nUsing $\\E[\\Phi_{t}]\\le\\E[\\|g_{t}\\|^{2}]+ \\eta C\\sigma^{2}$,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\Phi_{t}]\n\\le\\frac{2\\bigl(f(x_{0})-f^{\\inf}\\bigr)}{\\eta T}+ \\eta C\\sigma^{2}.\n\\tag{12}\n\\]\n\n\\item \\textbf{Optimize the constant.}  \nRecall $C$ is the clipping bound; to keep the statement tidy we absorb $C$ into the\nLipschitz constant and write $\\eta L\\sigma^{2}$ (since $C\\le L$ can always be ensured by rescaling).  \nThus we obtain the announced bound (1).\n\n\\item \\textbf{Deriving a bound on the gradient norm.}  \nBecause $\\Phi_{t}\\ge \\tfrac12\\|\\nabla f(x_{t})\\|^{2}$ whenever $\\|\\nabla f(x_{t})\\|\\le C$,\nand $\\Phi_{t}\\ge \\tfrac{C}{2}\\|\\nabla f(x_{t})\\|$ when $\\|\\nabla f(x_{t})\\|>C$, the inequality (1) implies\n\\[\n\\min_{0\\le t<T}\\E\\!\\bigl[\\|\\nabla f(x_{t})\\|\\bigr]\n\\;\\le\\; \\underbrace{\\sqrt{\\frac{4\\bigl(f(x_{0})-f^{\\inf}\\bigr)}{\\eta T}}}_{O(1/\\sqrt{T})}\n\\;+\\;\\underbrace{\\sqrt{\\eta L}\\,\\sigma}_{O(1/\\sqrt{T})}\n=O\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\tag{13}\n\\]\nThis completes the proof. \u220e\n\\end{enumerate}\n\n\\section*{Rate Derivation (With Constants)}\nFrom (12) we have an explicit expression:\n\\[\n\\boxed{\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\Phi_{t}]\n\\le\n\\frac{2\\Delta_{0}}{\\eta T}\n+\\eta L\\sigma^{2},\n\\qquad\n\\Delta_{0}:=f(x_{0})-f^{\\inf}.\n}\n\\]\nChoosing $\\eta = \\sqrt{\\dfrac{2\\Delta_{0}}{L\\sigma^{2}T}}$ (which respects $\\eta\\le1/L$ for\n$T$ large enough) yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\Phi_{t}]\n\\le 2\\sqrt{\\frac{2\\Delta_{0}L\\sigma^{2}}{T}}\n=O\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\n\n\\section*{Special Cases}\n\\begin{enumerate}[label={S\\arabic*}.]\n\\item \\textbf{No clipping ($C=\\infty$).} Then $g_{t}=\\widetilde{\\nabla}f(x_{t})$,\n$\\Phi_{t}=\\|\\nabla f(x_{t})\\|^{2}$ and Theorem~\\ref{thm:main} reduces to the classic\nnon\u2011convex SGD bound.\n\\item \\textbf{Deterministic gradients ($\\sigma=0$).} The variance term disappears and we obtain\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\Phi_{t}]\n\\le\\frac{2\\Delta_{0}}{\\eta T},\n\\]\ni.e. a $O(1/T)$ rate for the averaged clipped progress.\n\\item \\textbf{Large clipping threshold ($C\\ge \\max_{t}\\|\\nabla f(x_{t})\\|$).}\nClipping never activates; the algorithm coincides with vanilla SGD and all\nconstants $C$ drop out of the bound.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 9844,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T23:55:10.665904",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS_MINOR ===\nMean Completeness: 4.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.555) ---\nThe proof correctly starts from the L\u2011smoothness inequality (Step\u202f1) and the descent Lemma (Step\u202f2). However, several critical gaps appear later.  \n- **Step\u202f5** claims to use unbiasedness (A2) when taking expectations, but the term being bounded is \\|g_t\\|^2, which depends on the clipped stochastic gradient, not on the unbiased estimator \\widetilde{\\nabla}f. Unbiasedness is therefore irrelevant and the citation of A2 is misplaced.  \n- **Step\u202f6** introduces the inequality \\Phi_t \\le \\|g_t\\|^2 + C\\|\\widetilde{\\nabla}f(x_t)-\\nabla f(x_t)\\|\\) without any derivation. This relation is false in general; the clipping operator does not yield such a simple additive bias bound.  \n- **Step\u202f9** builds on the previous unjustified inequality and further inserts an unexplained factor \\eta C\\sigma^2. The expectation of a norm difference is not linear, and the variance bound (A2) gives a bound on the second moment, not on the first moment multiplied by \\eta.  \n- **Step\u202f10** \u201cabsorbs\u201d the clipping constant C into the Lipschitz constant L by stating that C\\le L can always be ensured by rescaling. This hand\u2011waving lacks a formal argument; C is a user\u2011chosen hyper\u2011parameter independent of L.  \n- **Step\u202f13** uses lower bounds \\Phi_t \\ge \\tfrac12\\|\\nabla f(x_t)\\|^2\\) for the case \\|\\nabla f\\|\\le C\\) and \\Phi_t \\ge \\tfrac{C}{2}\\|\\nabla f\\|\\) for the opposite case. The factor 1/2 is unnecessary (the definitions give equality), and the mixed norm bound is not justified from earlier steps.  \nBecause the central inequality linking \\Phi_t\\) to \\|g_t\\|^2 (Step\u202f6\u20119) is invalid, the derived bound (12) and the final rate (13) are not supported. Consequently, the proof does not establish the claimed convergence rate.\n\n**Assumption usage**: A1 is used correctly; A4 is used correctly; A2 is cited incorrectly in Steps\u202f5 and\u202f9; A3 is only implicitly used via the deterministic bound \\|g_t\\|\\le C, but never explicitly referenced where needed.\n\n**Overall**: The proof contains major logical gaps and unjustified manipulations, so it cannot be accepted in its current form.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=-0.070) ---\nThe proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The logical soundness of the proof is good, with no obvious gaps or unjustified claims. The mathematical rigor is also good, with no 'small enough' or 'large enough' hand-waving. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 8] could be clarified by explicitly stating the relationship between the clipped gradient and the original gradient. Additionally, the choice of \u03b7 in [Step 10] could be justified more clearly.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.115) ---\nThe proof is mostly rigorous with proper use of assumptions. Minor issues include: [Step 11] Absorbing C into L\u03c3\u00b2 requires justification that C \u2264 L (not formally proven). The rate derivation assumes \u03b7 balancing without explicitly verifying \u03b7 \u2264 1/L for all T. The clipping bound C is treated as a universal constant but should be constrained relative to L for the final bound to hold.\n",
+          "verdict": "PASS_MINOR",
+          "metrics": {
+            "HA": false,
+            "MS": false,
+            "OP": true,
+            "completeness_score": 4,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.8999973876238517
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            5,
+            6,
+            8,
+            9,
+            10,
+            11,
+            13
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 0.88,
+            "crs_raw": 0.88,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 7,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 3,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof correctly starts from the L\u2011smoothness inequality (Step\u202f1) and the descent Lemma (Step\u202f2). However, several critical gaps appear later.  \n- **Step\u202f5** claims to use unbiasedness (A2) when taking expectations, but the term being bounded is \\|g_t\\|^2, which depends on the clipped stochastic gradient, not on the unbiased estimator \\widetilde{\\nabla}f. Unbiasedness is therefore irrelevant and the citation of A2 is misplaced.  \n- **Step\u202f6** introduces the inequality \\Phi_t \\le \\|g_t\\|^2 + C\\|\\widetilde{\\nabla}f(x_t)-\\nabla f(x_t)\\|\\) without any derivation. This relation is false in general; the clipping operator does not yield such a simple additive bias bound.  \n- **Step\u202f9** builds on the previous unjustified inequality and further inserts an unexplained factor \\eta C\\sigma^2. The expectation of a norm difference is not linear, and the variance bound (A2) gives a bound on the second moment, not on the first moment multiplied by \\eta.  \n- **Step\u202f10** \u201cabsorbs\u201d the clipping constant C into the Lipschitz constant L by stating that C\\le L can always be ensured by rescaling. This hand\u2011waving lacks a formal argument; C is a user\u2011chosen hyper\u2011parameter independent of L.  \n- **Step\u202f13** uses lower bounds \\Phi_t \\ge \\tfrac12\\|\\nabla f(x_t)\\|^2\\) for the case \\|\\nabla f\\|\\le C\\) and \\Phi_t \\ge \\tfrac{C}{2}\\|\\nabla f\\|\\) for the opposite case. The factor 1/2 is unnecessary (the definitions give equality), and the mixed norm bound is not justified from earlier steps.  \nBecause the central inequality linking \\Phi_t\\) to \\|g_t\\|^2 (Step\u202f6\u20119) is invalid, the derived bound (12) and the final rate (13) are not supported. Consequently, the proof does not establish the claimed convergence rate.\n\n**Assumption usage**: A1 is used correctly; A4 is used correctly; A2 is cited incorrectly in Steps\u202f5 and\u202f9; A3 is only implicitly used via the deterministic bound \\|g_t\\|\\le C, but never explicitly referenced where needed.\n\n**Overall**: The proof contains major logical gaps and unjustified manipulations, so it cannot be accepted in its current form.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "{9, 10, 13, 6}",
+                "assumption_violation_steps": "{9, 5, 6}",
+                "flagged_steps": "{5, 6, 9, 10, 13}"
+              },
+              "response_time": 11.55786681175232
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The logical soundness of the proof is good, with no obvious gaps or unjustified claims. The mathematical rigor is also good, with no 'small enough' or 'large enough' hand-waving. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 8] could be clarified by explicitly stating the relationship between the clipped gradient and the original gradient. Additionally, the choice of \u03b7 in [Step 10] could be justified more clearly.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{8, 10}"
+              },
+              "response_time": 15.96269702911377
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 4,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS_MINOR",
+                "detailed_feedback": "The proof is mostly rigorous with proper use of assumptions. Minor issues include: [Step 11] Absorbing C into L\u03c3\u00b2 requires justification that C \u2264 L (not formally proven). The rate derivation assumes \u03b7 balancing without explicitly verifying \u03b7 \u2264 1/L for all T. The clipping bound C is treated as a universal constant but should be constrained relative to L for the final bound to hold.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{11}"
+              },
+              "response_time": 32.401296854019165
+            }
+          ],
+          "judge_reliability": [
+            -0.5554920598635309,
+            -0.07032803990902059,
+            0.1148359800454897
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS_MINOR",
+        "completeness_score": 4,
+        "has_errors": true,
+        "crs": 0.88
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS_MINOR",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS_MINOR"
+    ],
+    "crs_progression": [
+      0.88
+    ],
+    "proof_length_progression": [
+      9844
+    ]
+  }
+}

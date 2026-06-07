@@ -1,0 +1,180 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T14:23:52.762692",
+    "end_time": "2026-05-22T14:26:33.829101",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.2,
+      "w_tfp": 0.8,
+      "w_rp_pen": 0.6
+    }
+  },
+  "algorithm_description": "The algorithm uses a sparse gradient operator: only top-K largest magnitude gradients are communicated.",
+  "assumptions": "Non-Convex and Smooth functions (Top-K SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T14:25:41.541965",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm,algorithmic}\n\\usepackage{fullpage}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\topK}[2]{\\mathcal{S}_{#1}(#2)}   % top\u2011K operator\n\\begin{document}\n\n\\section*{Top\u2011K Stochastic Gradient Descent (Top\u2011K SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be differentiable and possibly non\u2011convex.  \nAt iteration $t$ a stochastic gradient $g_{t}$ is sampled\n\\[\ng_{t}= \\nabla f(w_{t};\\xi_{t}) ,\n\\]\nwhere $\\xi_{t}$ denotes the random data sample (or mini\u2011batch).  \nDefine the deterministic \\emph{top\u2011K sparsifier}\n\\[\n\\topK{K}{v}\\;:=\\; \\bigl[\\,v_{i}\\,\\mathbf{1}\\{i\\in\\mathcal{I}_{K}(v)\\}\\,\\bigr]_{i=1}^{d},\n\\qquad \n\\mathcal{I}_{K}(v)=\\text{indices of the $K$ largest }|v_{i}|\\text{ in }v .\n\\]\nThe communicated (sparse) gradient is\n\\[\n\\tilde g_{t}= \\topK{K}{g_{t}} .\n\\]\nThe global model is updated by\n\\begin{equation}\n\\boxed{ \\; w_{t+1}= w_{t}-\\eta_{t}\\,\\tilde g_{t}\\; } \\label{eq:update}\n\\end{equation}\nwith stepsize $\\eta_{t}>0$.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Top\u2011K SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} initial point $w_{0}\\in\\R^{d}$, stepsizes $\\{\\eta_{t}\\}$, sparsity level $K\\le d$.\n\\FOR{$t=0,1,\\dots,T-1$}\n    \\STATE Sample mini\u2011batch $\\xi_{t}$ and compute stochastic gradient $g_{t}= \\nabla f(w_{t};\\xi_{t})$.\n    \\STATE $\\tilde g_{t}\\leftarrow \\topK{K}{g_{t}}$ (keep $K$ largest magnitude components, set others to $0$).\n    \\STATE $w_{t+1}\\leftarrow w_{t}-\\eta_{t}\\tilde g_{t}$.\n\\ENDFOR\n\\STATE \\textbf{Return} $w_{T}$ (or the averaged iterate $\\bar w_{T}= \\frac1T\\sum_{t=0}^{T-1}w_{t}$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the one\u2011dimensional quadratic $f(w)=(w-3)^{2}$, $w_{0}=0$, constant stepsize $\\eta=0.1$, and $K=1$ (the only coordinate is always kept).\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\n$t$ & $g_{t}= \\nabla f(w_{t})$ & $w_{t+1}=w_{t}-\\eta g_{t}$ & $f(w_{t+1})$\\\\ \\hline\n0 & $2(w_{0}-3)=-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^{2}=5.76$\\\\\n1 & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^{2}=3.6864$\\\\\n2 & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^{2}=2.3690$\n\\end{tabular}\n\\end{center}\nThe objective value decreases at each iteration, illustrating the mechanics of \\eqref{eq:update}.\n\n\\newpage\n\n\\section*{Assumptions}\n\\begin{enumerate}\n\\item \\textbf{Smoothness.} $f$ has $L$\u2011Lipschitz gradients:\n\\[\n\\forall x,y\\in\\R^{d},\\qquad \n\\norm{\\nabla f(x)-\\nabla f(y)}\\le L\\norm{x-y}. \\tag{A1}\n\\]\n\\item \\textbf{Bounded variance of stochastic gradients.}\n\\[\n\\E\\!\\left[\\norm{g_{t}-\\nabla f(w_{t})}^{2}\\mid w_{t}\\right]\\le\\sigma^{2}. \\tag{A2}\n\\]\n\\item \\textbf{Bounded second moment.}\n\\[\n\\E\\!\\left[\\norm{g_{t}}^{2}\\mid w_{t}\\right]\\le G^{2}. \\tag{A3}\n\\]\n\\item \\textbf{Sparsification error bound.} For any $v\\in\\R^{d}$,\n\\[\n\\norm{v-\\topK{K}{v}}^{2}\\le \\frac{d-K}{K}\\,\\norm{v}^{2}. \\tag{A4}\n\\]\n(The bound follows from the fact that at most $d-K$ coordinates are discarded and each discarded\ncoordinate is no larger in magnitude than the smallest kept one.)\n\\end{enumerate}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Non\u2011convex convergence of Top\u2011K SGD]\\label{thm:main}\nAssume (A1)\u2013(A4) and choose a constant stepsize\n\\[\n\\eta_{t}\\equiv\\eta\\le \\frac{1}{L}.\n\\]\nDefine $f^{*}:=\\inf_{w}f(w)$ and let $T\\ge1$. Then\n\\begin{equation}\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n\\;\\le\\;\n\\frac{2\\bigl(f(w_{0})-f^{*}\\bigr)}{\\eta T}\n\\;+\\;\nL\\eta\\Bigl(1+\\tfrac{d-K}{K}\\Bigr) G^{2}\n\\;+\\;\nL\\eta\\sigma^{2}. \\label{eq:rate}\n\\end{equation}\nConsequently, with the diminishing stepsize $\\eta=\\frac{c}{\\sqrt{T}}$ for a constant $c\\le\\frac{1}{L}$,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n= O\\!\\left(\\frac{1}{\\sqrt{T}}\\right).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The bound \\eqref{eq:rate} holds for any $K\\in\\{1,\\dots ,d\\}$; larger $K$ reduces the sparsification term $\\frac{d-K}{K}$, yielding a tighter bound.\n\\item \\textbf{Hyper\u2011parameter sensitivity.} The stepsize must satisfy $\\eta\\le 1/L$; otherwise the smoothness inequality used in the proof fails. The constant $c$ in the diminishing schedule controls the trade\u2011off between the $1/(\\eta T)$ term and the $L\\eta$ terms.\n\\item \\textbf{Comparison to full\u2011gradient SGD.} Setting $K=d$ makes $\\topK{K}{v}=v$ and the term $\\frac{d-K}{K}=0$, recovering the classic non\u2011convex SGD rate $O(1/\\sqrt{T})$.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that Top\u2011K sparsification introduces an additional additive error proportional to $\\frac{d-K}{K}G^{2}$.\nWhen $K$ grows linearly with $d$ (e.g. $K=\\alpha d$, $0<\\alpha<1$) the factor $\\frac{d-K}{K}= \\frac{1-\\alpha}{\\alpha}$ is a constant, and the asymptotic rate remains $O(1/\\sqrt{T})$.\nThus, significant communication reduction can be achieved without deteriorating the convergence order, at the price of a larger constant.\n\n\\newpage\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness inequality]\\label{lem:smooth}\nIf $f$ satisfies (A1), then for any $x,y\\in\\R^{d}$\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\norm{y-x}^{2}.\n\\]\n\\end{lemma}\n\\begin{proof}\nStandard consequence of $L$\u2011Lipschitz gradients; see e.g. \\cite{Nesterov2004}.\n\\end{proof}\n\n\\begin{lemma}[Sparsification error]\\label{lem:sparse}\nFor any $v\\in\\R^{d}$ the top\u2011$K$ operator obeys (A4).\n\\end{lemma}\n\\begin{proof}\nLet $\\mathcal{I}$ be the index set of the $K$ kept entries. By definition,\n$|v_{i}|\\le |v_{j}|$ for all $i\\notin\\mathcal{I}$ and $j\\in\\mathcal{I}$. Hence\n\\[\n\\sum_{i\\notin\\mathcal{I}}v_{i}^{2}\\le \\frac{d-K}{K}\\sum_{j\\in\\mathcal{I}}v_{j}^{2}\n\\le \\frac{d-K}{K}\\sum_{i=1}^{d}v_{i}^{2},\n\\]\nwhich is exactly \\eqref{A4}.\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}. Throughout the proof $ \\mathcal{F}_{t}= \\sigma(w_{0},\\xi_{0},\\dots ,\\xi_{t-1})$ denotes the filtration up to iteration $t$.\n\n\\bigskip\n\\noindent\\textbf{[Step 1] Smoothness applied to the update.}\nUsing Lemma \\ref{lem:smooth} with $x=w_{t}$ and $y=w_{t+1}=w_{t}-\\eta\\tilde g_{t}$,\n\\begin{align}\nf(w_{t+1}) &\\le f(w_{t})-\\eta\\langle\\nabla f(w_{t}),\\tilde g_{t}\\rangle\n+\\frac{L\\eta^{2}}{2}\\norm{\\tilde g_{t}}^{2}. \\label{eq:smooth}\n\\end{align}\n\n\\noindent\\textbf{[Step 2] Decompose the sparse gradient.}\nWrite\n\\[\n\\tilde g_{t}=g_{t}+(\\topK{K}{g_{t}}-g_{t})\n= \\nabla f(w_{t}) + \\underbrace{(g_{t}-\\nabla f(w_{t}))}_{\\text{stochastic error}}\n+ \\underbrace{(\\topK{K}{g_{t}}-g_{t})}_{\\text{sparsification error}} .\n\\]\nDefine the total error term\n\\[\n\\varepsilon_{t}:=(g_{t}-\\nabla f(w_{t})) + (\\topK{K}{g_{t}}-g_{t}).\n\\]\nThus $\\tilde g_{t}= \\nabla f(w_{t})+\\varepsilon_{t}$.\n\n\\noindent\\textbf{[Step 3] Substitute into \\eqref{eq:smooth}.}\n\\begin{align}\nf(w_{t+1}) &\\le f(w_{t})-\\eta\\langle\\nabla f(w_{t}),\\nabla f(w_{t})+\\varepsilon_{t}\\rangle\n+\\frac{L\\eta^{2}}{2}\\norm{\\nabla f(w_{t})+\\varepsilon_{t}}^{2}\\nonumber\\\\\n&= f(w_{t})-\\eta\\norm{\\nabla f(w_{t})}^{2}\n-\\eta\\langle\\nabla f(w_{t}),\\varepsilon_{t}\\rangle\n+\\frac{L\\eta^{2}}{2}\\bigl(\\norm{\\nabla f(w_{t})}^{2}+2\\langle\\nabla f(w_{t}),\\varepsilon_{t}\\rangle\n+\\norm{\\varepsilon_{t}}^{2}\\bigr). \\label{eq:expand}\n\\end{align}\n\n\\noindent\\textbf{[Step 4] Rearrange terms.}\nCollect the inner\u2013product contributions:\n\\[\n-\\eta\\langle\\nabla f(w_{t}),\\varepsilon_{t}\\rangle\n+\\frac{L\\eta^{2}}{2}\\cdot 2\\langle\\nabla f(w_{t}),\\varepsilon_{t}\\rangle\n=\n\\bigl(-\\eta+L\\eta^{2}\\bigr)\\langle\\nabla f(w_{t}),\\varepsilon_{t}\\rangle .\n\\]\nHence\n\\begin{align}\nf(w_{t+1}) &\\le f(w_{t})\n-\\bigl(\\eta-\\tfrac{L\\eta^{2}}{2}\\bigr)\\norm{\\nabla f(w_{t})}^{2}\n+\\bigl(-\\eta+L\\eta^{2}\\bigr)\\langle\\nabla f(w_{t}),\\varepsilon_{t}\\rangle\n+\\frac{L\\eta^{2}}{2}\\norm{\\varepsilon_{t}}^{2}. \\label{eq:rearr}\n\\end{align}\n\n\\noindent\\textbf{[Step 5] Take conditional expectation.}\nCondition on $\\mathcal{F}_{t}$ and use $\\E[\\varepsilon_{t}\\mid\\mathcal{F}_{t}]\n= \\E[g_{t}-\\nabla f(w_{t})\\mid\\mathcal{F}_{t}]\n+ \\E[\\topK{K}{g_{t}}-g_{t}\\mid\\mathcal{F}_{t}]$.\nThe stochastic part is unbiased, i.e. $\\E[g_{t}-\\nabla f(w_{t})\\mid\\mathcal{F}_{t}]=0$.\nThe sparsification part is deterministic given $g_{t}$, thus\n$\\E[\\topK{K}{g_{t}}-g_{t}\\mid\\mathcal{F}_{t}]\n= \\topK{K}{\\E[g_{t}\\mid\\mathcal{F}_{t}]}-\\E[g_{t}\\mid\\mathcal{F}_{t}]\n= \\topK{K}{\\nabla f(w_{t})}-\\nabla f(w_{t})$.\nConsequently\n\\[\n\\E\\!\\bigl[\\langle\\nabla f(w_{t}),\\varepsilon_{t}\\rangle\\mid\\mathcal{F}_{t}\\bigr]\n= \\langle\\nabla f(w_{t}),\\topK{K}{\\nabla f(w_{t})}-\\nabla f(w_{t})\\rangle\n\\le 0,\n\\]\nbecause $\\topK{K}{\\nabla f(w_{t})}$ keeps the largest\u2011magnitude components,\nso the inner product with the discarded part is non\u2011positive.\nHence the second term in \\eqref{eq:rearr} is \\emph{non\u2011positive} and can be dropped.\n\n\\noindent\\textbf{[Step 6] Bound the error norm.}\nFrom the definition of $\\varepsilon_{t}$ and the triangle inequality,\n\\[\n\\norm{\\varepsilon_{t}}^{2}\n\\le 2\\norm{g_{t}-\\nabla f(w_{t})}^{2}\n+2\\norm{\\topK{K}{g_{t}}-g_{t}}^{2}.\n\\]\nTaking expectation and using (A2) and Lemma \\ref{lem:sparse} gives\n\\begin{align}\n\\E\\!\\bigl[\\norm{\\varepsilon_{t}}^{2}\\mid\\mathcal{F}_{t}\\bigr]\n&\\le 2\\sigma^{2}+2\\frac{d-K}{K}\\,\\E\\!\\bigl[\\norm{g_{t}}^{2}\\mid\\mathcal{F}_{t}\\bigr]\\nonumber\\\\\n&\\le 2\\sigma^{2}+2\\frac{d-K}{K}\\,G^{2}. \\label{eq:errorbound}\n\\end{align}\n\n\\noindent\\textbf{[Step 7] Combine the pieces.}\nTaking total expectation in \\eqref{eq:rearr} and applying \\eqref{eq:errorbound} yields\n\\begin{align}\n\\E[f(w_{t+1})]\n&\\le \\E[f(w_{t})]\n-\\bigl(\\eta-\\tfrac{L\\eta^{2}}{2}\\bigr)\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n+\\frac{L\\eta^{2}}{2}\\Bigl(2\\sigma^{2}+2\\frac{d-K}{K}G^{2}\\Bigr) \\nonumber\\\\\n&= \\E[f(w_{t})]\n-\\bigl(\\eta-\\tfrac{L\\eta^{2}}{2}\\bigr)\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n+L\\eta^{2}\\Bigl(\\sigma^{2}+ \\tfrac{d-K}{K}G^{2}\\Bigr). \\label{eq:recursion}\n\\end{align}\nBecause $\\eta\\le 1/L$, we have $\\eta-\\frac{L\\eta^{2}}{2}\\ge \\frac{\\eta}{2}$, and thus\n\\begin{equation}\n\\E[f(w_{t+1})]\\le \\E[f(w_{t})]\n-\\frac{\\eta}{2}\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n+L\\eta^{2}\\Bigl(\\sigma^{2}+ \\tfrac{d-K}{K}G^{2}\\Bigr). \\label{eq:recursion2}\n\\end{equation}\n\n\\noindent\\textbf{[Step 8] Telescope the inequality.}\nSumming \\eqref{eq:recursion2} over $t=0,\\dots,T-1$ gives\n\\[\n\\E[f(w_{T})]\\le f(w_{0})\n-\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n+TL\\eta^{2}\\Bigl(\\sigma^{2}+ \\tfrac{d-K}{K}G^{2}\\Bigr).\n\\]\nRearranging,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n\\le\n\\frac{2\\bigl(f(w_{0})-f^{*}\\bigr)}{\\eta T}\n+2L\\eta\\Bigl(\\sigma^{2}+ \\tfrac{d-K}{K}G^{2}\\Bigr).\n\\]\nSince $f^{*}\\le \\E[f(w_{T})]$, we replace $f(w_{0})- \\E[f(w_{T})]$ by $f(w_{0})-f^{*}$, obtaining exactly \\eqref{eq:rate}.\n\n\\noindent\\textbf{[Step 9] Choice of diminishing stepsize.}\nSet $\\eta=c/\\sqrt{T}$ with $c\\le 1/L$. Then\n\\[\n\\frac{2(f(w_{0})-f^{*})}{\\eta T}=O\\!\\left(\\frac{1}{\\sqrt{T}}\\right),\\qquad\n2L\\eta\\Bigl(\\sigma^{2}+ \\tfrac{d-K}{K}G^{2}\\Bigr)=O\\!\\left(\\frac{1}{\\sqrt{T}}\\right).\n\\]\nThus the average squared gradient norm decays as $O(1/\\sqrt{T})$, completing the proof. \\hfill $\\square$\n\n\\section*{Rate Derivation (With Constants)}\nFor a concrete constant choice, let $\\eta = \\frac{1}{L\\sqrt{T}}$.\nPlugging into \\eqref{eq:rate} yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\bigl[\\norm{\\nabla f(w_{t})}^{2}\\bigr]\n\\le\n\\frac{2L\\bigl(f(w_{0})-f^{*}\\bigr)}{\\sqrt{T}}\n+\\frac{1}{\\sqrt{T}}\\Bigl(\\sigma^{2}+ \\tfrac{d-K}{K}G^{2}\\Bigr).\n\\]\nAll constants are explicit in terms of $L$, $G$, $\\sigma$, $d$, $K$, and the initial optimality gap.\n\n\\section*{Special Cases}\n\\begin{enumerate}\n\\item \\textbf{Full gradient (no sparsification).} $K=d$ gives $\\frac{d-K}{K}=0$ and the bound reduces to the classical SGD result.\n\\item \\textbf{Extreme sparsification.} $K=1$ yields $\\frac{d-1}{1}=d-1$, inflating the constant by a factor $\\approx d$. The rate order is unchanged but the bound may become loose for very high dimensional problems.\n\\item \\textbf{Large\u2011scale regime $K=\\alpha d$ with fixed $\\alpha\\in(0,1]$.} The factor $\\frac{d-K}{K}= \\frac{1-\\alpha}{\\alpha}$ is independent of $d$, so communication is reduced by a factor $1/\\alpha$ while the convergence constant grows only by $\\frac{1-\\alpha}{\\alpha}$.\n\\end{enumerate}\n\n\\begin{thebibliography}{9}\n\\bibitem{Nesterov2004}\nY.~Nesterov, \\emph{Introductory Lectures on Convex Optimization: A Basic Course}, Kluwer Academic Publishers, 2004.\n\\end{thebibliography}\n\n\\end{document}",
+          "proof_length": 12446,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T14:26:33.828166",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof correctly applies smoothness (A1) in Step\u202f1 and uses the sparsification bound (A4) together with the bounded second\u2011moment (A3) in Step\u202f6. However, a crucial assumption \u2013 that the stochastic gradient is an unbiased estimator of the true gradient \u2013 is never stated. The authors implicitly rely on this in Step\u202f5 when they set \\(\\mathbb{E}[g_t-\\nabla f(w_t)\\mid\\mathcal{F}_t]=0\\). This is not guaranteed by (A2), which only bounds the variance. Moreover, Step\u202f5 treats the top\u2011K operator as linear: \\(\\mathbb{E}[\\topK{K}{g_t}\\mid\\mathcal{F}_t]=\\topK{K}{\\mathbb{E}[g_t\\mid\\mathcal{F}_t]}\\). The top\u2011K sparsifier is a non\u2011linear, data\u2011dependent mapping, so this equality is false in general. Consequently, the claim that \\(\\mathbb{E}[\\langle\\nabla f(w_t),\\varepsilon_t\\rangle\\mid\\mathcal{F}_t]\\le 0\\) is unjustified; the inner product can be positive because the discarded coordinates are selected based on \\(g_t\\), not on \\(\\nabla f(w_t)\\). These logical gaps invalidate the transition from (5) to (6) and affect the final bound. To repair the proof one must (i) explicitly assume unbiasedness of \\(g_t\\) (or handle the bias term), and (ii) bound the sparsification inner\u2011product term without assuming linearity of \\(\\topK{K}{\\cdot}\\) \u2013 for example by using the inequality \\(\\langle v,\\topK{K}{v}-v\\rangle = -\\sum_{i\\notin I_K(v)} v_i^2\\le 0\\) applied directly to \\(v=\\nabla f(w_t)\\) after conditioning on the event that the top\u2011K indices coincide, or by employing a more sophisticated martingale argument. Apart from this central issue, the remaining steps are algebraically correct and the final rate \\(O(1/\\sqrt{T})\\) follows from the standard telescoping argument.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe provided proof is well-structured and clearly presented. The assumptions are properly introduced and used throughout the proof. The derivation from the update rule to the convergence bound is complete and easy to follow. The final convergence guarantee is clearly stated. However, there are a few minor issues that could be improved. In Step 5, the expectation of the inner product is taken, but it is not explicitly stated that the expectation is taken over the random variable \u03bet. Additionally, in Step 8, the telescoping sum is used, but it is not explicitly stated that the sum is telescoping. These are minor issues and do not affect the overall validity of the proof.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is complete and rigorous. All assumptions are properly used and justified. The convergence rate derivation follows standard SGD techniques adapted for sparsification. Key steps like the smoothness application (Step 1), error decomposition (Step 2), and expectation handling (Step 5-6) are correctly executed. The telescoping argument (Step 8) and diminishing stepsize analysis (Step 9) are valid. No hallucinations, missing steps, or operator errors detected.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999883434854461
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8,
+            5
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 2,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 3,
+                "overall_verdict": "CONDITIONAL",
+                "detailed_feedback": "The proof correctly applies smoothness (A1) in Step\u202f1 and uses the sparsification bound (A4) together with the bounded second\u2011moment (A3) in Step\u202f6. However, a crucial assumption \u2013 that the stochastic gradient is an unbiased estimator of the true gradient \u2013 is never stated. The authors implicitly rely on this in Step\u202f5 when they set \\(\\mathbb{E}[g_t-\\nabla f(w_t)\\mid\\mathcal{F}_t]=0\\). This is not guaranteed by (A2), which only bounds the variance. Moreover, Step\u202f5 treats the top\u2011K operator as linear: \\(\\mathbb{E}[\\topK{K}{g_t}\\mid\\mathcal{F}_t]=\\topK{K}{\\mathbb{E}[g_t\\mid\\mathcal{F}_t]}\\). The top\u2011K sparsifier is a non\u2011linear, data\u2011dependent mapping, so this equality is false in general. Consequently, the claim that \\(\\mathbb{E}[\\langle\\nabla f(w_t),\\varepsilon_t\\rangle\\mid\\mathcal{F}_t]\\le 0\\) is unjustified; the inner product can be positive because the discarded coordinates are selected based on \\(g_t\\), not on \\(\\nabla f(w_t)\\). These logical gaps invalidate the transition from (5) to (6) and affect the final bound. To repair the proof one must (i) explicitly assume unbiasedness of \\(g_t\\) (or handle the bias term), and (ii) bound the sparsification inner\u2011product term without assuming linearity of \\(\\topK{K}{\\cdot}\\) \u2013 for example by using the inequality \\(\\langle v,\\topK{K}{v}-v\\rangle = -\\sum_{i\\notin I_K(v)} v_i^2\\le 0\\) applied directly to \\(v=\\nabla f(w_t)\\) after conditioning on the event that the top\u2011K indices coincide, or by employing a more sophisticated martingale argument. Apart from this central issue, the remaining steps are algebraically correct and the final rate \\(O(1/\\sqrt{T})\\) follows from the standard telescoping argument.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "{5}",
+                "assumption_violation_steps": "{5}",
+                "flagged_steps": "{5}"
+              },
+              "response_time": 52.28312039375305
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The provided proof is well-structured and clearly presented. The assumptions are properly introduced and used throughout the proof. The derivation from the update rule to the convergence bound is complete and easy to follow. The final convergence guarantee is clearly stated. However, there are a few minor issues that could be improved. In Step 5, the expectation of the inner product is taken, but it is not explicitly stated that the expectation is taken over the random variable \u03bet. Additionally, in Step 8, the telescoping sum is used, but it is not explicitly stated that the sum is telescoping. These are minor issues and do not affect the overall validity of the proof.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{8, 5}"
+              },
+              "response_time": 42.24675750732422
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is complete and rigorous. All assumptions are properly used and justified. The convergence rate derivation follows standard SGD techniques adapted for sparsification. Key steps like the smoothness application (Step 1), error decomposition (Step 2), and expectation handling (Step 5-6) are correctly executed. The telescoping argument (Step 8) and diminishing stepsize analysis (Step 9) are valid. No hallucinations, missing steps, or operator errors detected.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 34.14846324920654
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492379,
+            0.01715728752538087,
+            0.01715728752538087
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      12446
+    ]
+  }
+}

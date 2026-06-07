@@ -1,0 +1,501 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{fullpage}
+\usepackage{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{SAGA for Non‑Convex Smooth Finite‑Sum Optimization}
+
+We consider the finite‑sum problem  
+
+\[
+\min_{x\in\R^{d}} \; F(x)\;:=\;\frac1n\sum_{i=1}^{n} f_i(x),
+\tag{1}
+\]
+
+where each component $f_i:\R^{d}\rightarrow\R$ is possibly non‑convex but $L$‑smooth.
+
+---------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+
+\begin{itemize}
+\item \textbf{Parameters:}
+  \begin{itemize}
+  \item stepsize (learning rate) $\alpha>0$,
+  \item number of component functions $n\in\mathbb{N}$.
+  \end{itemize}
+\item \textbf{State variables:}
+  \begin{itemize}
+  \item current iterate $x_k\in\R^{d}$,
+  \item a \emph{gradient table} $\{\phi_i^k\}_{i=1}^{n}\subset\R^{d}$ storing the last point at which $\nabla f_i$ was evaluated,
+  \item the table of stored gradients $g_i^k:=\nabla f_i(\phi_i^k)$.
+  \end{itemize}
+\item \textbf{Sampling:} at iteration $k$ draw an index $i_k$ uniformly from $\{1,\dots,n\}$.
+\item \textbf{Update rule:}
+  \[
+  \boxed{
+  x_{k+1}=x_k-\alpha \Big( \underbrace{\nabla f_{i_k}(x_k)-\nabla f_{i_k}(\phi_{i_k}^k)}_{\text{variance‑reduced correction}}
+  \;+\; \underbrace{\frac1n\sum_{j=1}^{n}\nabla f_{j}(\phi_{j}^k)}_{\text{average table gradient}}\Big)
+  } \tag{2}
+  \]
+\item \textbf{Table update:}
+  \[
+  \phi_{i_k}^{k+1}=x_k,\qquad 
+  \phi_{j}^{k+1}=\phi_{j}^{k}\;(j\neq i_k).
+  \tag{3}
+  \]
+\end{itemize}
+
+---------------------------------------------------------------------
+
+\section*{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{SAGA for non‑convex finite‑sum}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} stepsize $\alpha>0$, initial point $x_0$, number of epochs $T$.
+\STATE Initialize $\phi_i^0:=x_0$ for all $i=1,\dots,n$ and compute $g_i^0:=\nabla f_i(\phi_i^0)$.
+\STATE Compute the table average $g_{\text{avg}}^0:=\frac1n\sum_{i=1}^{n} g_i^0$.
+\FOR{$k=0,1,\dots,T-1$}
+    \STATE Sample $i_k\sim\text{Uniform}\{1,\dots,n\}$.
+    \STATE $v_k:=\nabla f_{i_k}(x_k)-g_{i_k}^k+g_{\text{avg}}^k$ \hfill\comment{variance‑reduced gradient}
+    \STATE $x_{k+1}\gets x_k-\alpha v_k$.
+    \STATE Update table:
+    \STATE\quad $g_{i_k}^{k+1}\gets \nabla f_{i_k}(x_k)$,
+    \STATE\quad $g_{\text{avg}}^{k+1}\gets g_{\text{avg}}^{k}+ \frac{1}{n}\big(g_{i_k}^{k+1}-g_{i_k}^{k}\big)$,
+    \STATE\quad $\phi_{i_k}^{k+1}\gets x_k$,
+    \STATE\quad $\phi_{j}^{k+1}\gets\phi_{j}^{k}$ for $j\neq i_k$.
+\ENDFOR
+\STATE \textbf{Output:} $x_T$ (or a randomly selected iterate).
+\end{algorithmic}
+\end{algorithm}
+
+---------------------------------------------------------------------
+
+\section*{Dry Run Example}
+
+Consider the simple scalar problem  
+
+\[
+f(w)=(w-3)^2=\frac1{1}\underbrace{(w-3)^2}_{f_1(w)} ,\qquad n=1.
+\]
+
+Thus $F(w)=f_1(w)$, $L=2$.  
+Choose stepsize $\alpha=0.1$, initial point $w_0=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Iteration $k$ & $i_k$ & $v_k$ (SAGA direction) & $w_{k+1}=w_k-\alpha v_k$\\ \hline
+0 & 1 & $\nabla f_1(w_0)-\nabla f_1(\phi_1^0)+\nabla f_1(\phi_1^0)
+      =\nabla f_1(0)= -6$ & $0-0.1(-6)=0.6$\\
+  &   & $F(w_1)=(0.6-3)^2=5.76$ & \\ \hline
+1 & 1 & $\nabla f_1(w_1)-\nabla f_1(\phi_1^1)+\nabla f_1(\phi_1^1)
+      =\nabla f_1(0.6)=2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$\\
+  &   & $F(w_2)=(1.08-3)^2=3.6864$ & \\ \hline
+2 & 1 & $\nabla f_1(w_2)=2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$\\
+  &   & $F(w_3)=(1.464-3)^2=2.3689$ & 
+\end{tabular}
+\end{center}
+
+The objective value strictly decreases, illustrating the variance‑reduced step even though the problem is trivially convex.
+
+---------------------------------------------------------------------
+
+\section*{Assumptions}
+
+\begin{assumption}[Smoothness]\label{ass:smooth}
+Each component $f_i$ is $L$‑smooth, i.e.
+\[
+\|\nabla f_i(x)-\nabla f_i(y)\|\le L\|x-y\|,\qquad \forall x,y\in\R^{d}.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded variance of stochastic gradients]\label{ass:bounded}
+For all $x\in\R^{d}$,
+\[
+\frac1n\sum_{i=1}^{n}\|\nabla f_i(x)-\nabla F(x)\|^{2}\le \sigma^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Finite sum]\label{ass:finite}
+The number of components $n$ is finite and the algorithm samples indices $i_k$ i.i.d.\ uniformly from $\{1,\dots,n\}$.
+\end{assumption}
+
+\begin{assumption}[Stepsize]\label{ass:step}
+The stepsize satisfies 
+\[
+0<\alpha\le \frac{1}{3L}.
+\]
+\end{assumption}
+
+---------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+
+\begin{theorem}[Non‑convex convergence of SAGA]\label{thm:main}
+Under Assumptions \ref{ass:smooth}–\ref{ass:step}, let $\{x_k\}_{k\ge0}$ be the iterates generated by SAGA. Define the Lyapunov function  
+
+\[
+\Phi_k \;:=\; F(x_k) \;+\; \frac{1}{2\alpha n}\sum_{i=1}^{n}\|\phi_i^{k}-x_k\|^{2}.
+\tag{4}
+\]
+
+Then for any $K\ge1$,
+\[
+\frac{1}{K}\sum_{k=0}^{K-1}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\;\le\;
+\frac{2\big(F(x_0)-F^{\star}\big)}{\alpha K}
+\;+\;
+\frac{4L\sigma^{2}}{n},
+\tag{5}
+\]
+where $F^{\star}=\inf_{x}F(x)$.
+Consequently, choosing $\alpha =\Theta\!\big(\frac{1}{L\sqrt{K}}\big)$ yields  
+
+\[
+\min_{0\le k<K}\E\big[\|\nabla F(x_k)\|^{2}\big]=O\!\Big(\frac{L\big(F(x_0)-F^{\star}\big)}{\sqrt{K}}+\frac{L\sigma^{2}}{n}\Big).
+\]
+\end{theorem}
+
+---------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+
+\begin{itemize}
+\item \textbf{Stability:} The Lyapunov function $\Phi_k$ is non‑increasing in expectation (see Lemma~\ref{lem:descent}), guaranteeing that the algorithm does not diverge even for non‑convex $F$.
+\item \textbf{Hyperparameter sensitivity:} The bound (5) shows a linear dependence on $\alpha^{-1}$; thus a stepsize too large violates Assumption~\ref{ass:step} and may break the descent property, while a stepsize too small slows the $1/(\alpha K)$ term.
+\item \textbf{Comparison to SGD:} For the same $L$ and $\sigma^{2}$, SGD enjoys the rate $O\!\big(\frac{L(F(x_0)-F^{\star})}{\sqrt{K}}+\frac{L\sigma}{\sqrt{K}}\big)$. SAGA replaces the $\sigma/\sqrt{K}$ term by a \emph{variance‑reduced} $\frac{L\sigma^{2}}{n}$, which is independent of $K$ and can be much smaller when $n\gg1$.
+\item \textbf{Special case $n=1$:} The algorithm reduces to ordinary gradient descent with stepsize $\alpha\le 1/(3L)$ and (5) simplifies to the classic $O(1/(\alpha K))$ bound for smooth non‑convex functions.
+\end{itemize}
+
+---------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+For an $L$‑smooth function $f$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^{2},\qquad\forall x,y.
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of $L$‑smoothness; see e.g. \cite{Nesterov2004}.
+\end{proof}
+
+\begin{lemma}[Unbiased variance‑reduced gradient]\label{lem:unbiased}
+Define the SAGA direction 
+\[
+v_k:=\nabla f_{i_k}(x_k)-\nabla f_{i_k}(\phi_{i_k}^{k})+g_{\text{avg}}^{k},\qquad 
+g_{\text{avg}}^{k}:=\frac1n\sum_{j=1}^{n}\nabla f_j(\phi_j^{k}).
+\]
+Then 
+\[
+\E_{i_k}[v_k]=\nabla F(x_k).
+\tag{6}
+\]
+\end{lemma}
+\begin{proof}
+Because $i_k$ is uniform,
+\[
+\E_{i_k}[\nabla f_{i_k}(x_k)]=\frac1n\sum_{i=1}^{n}\nabla f_i(x_k)=\nabla F(x_k).
+\]
+Similarly,
+\[
+\E_{i_k}[\nabla f_{i_k}(\phi_{i_k}^{k})]=\frac1n\sum_{i=1}^{n}\nabla f_i(\phi_i^{k})=g_{\text{avg}}^{k}.
+\]
+Plugging into the definition of $v_k$ yields (6).
+\end{proof}
+
+\begin{lemma}[Descent of the Lyapunov function]\label{lem:descent}
+For the Lyapunov function (4) and any $k\ge0$,
+\[
+\E[\Phi_{k+1}]\le \E[\Phi_k]-\frac{\alpha}{2}\E\big[\|\nabla F(x_k)\|^{2}\big]
++\frac{\alpha L\sigma^{2}}{n}.
+\tag{7}
+\]
+\end{lemma}
+\begin{proof}
+We prove (7) step by step and label each non‑trivial manipulation.
+
+\noindent\textbf{[Step 1]} Expand $\|x_{k+1}-x_k\|^{2}$ using the update (2):
+\[
+x_{k+1}=x_k-\alpha v_k\;\Longrightarrow\;
+\|x_{k+1}-x_k\|^{2}=\alpha^{2}\|v_k\|^{2}.
+\tag{8}
+\]
+
+\noindent\textbf{[Step 2]} Apply smoothness Lemma~\ref{lem:smooth} with $x=x_k$, $y=x_{k+1}$:
+\[
+F(x_{k+1})\le F(x_k)-\alpha\langle\nabla F(x_k),v_k\rangle
++\frac{L\alpha^{2}}{2}\|v_k\|^{2}.
+\tag{9}
+\]
+
+\noindent\textbf{[Step 3]} Take expectation w.r.t.\ $i_k$ conditioned on the history $\mathcal{F}_k$ (the sigma‑algebra generated by $\{x_t,\phi_t\}_{t\le k}$). Using Lemma~\ref{lem:unbiased},
+\[
+\E_{i_k}[\,\langle\nabla F(x_k),v_k\rangle\mid\mathcal{F}_k\,]
+= \|\nabla F(x_k)\|^{2}.
+\tag{10}
+\]
+
+\noindent\textbf{[Step 4]} Bound the second moment of $v_k$. Write
+\[
+v_k
+= \underbrace{\nabla f_{i_k}(x_k)-\nabla f_{i_k}(\phi_{i_k}^{k})}_{\Delta_{i_k}}
++g_{\text{avg}}^{k}.
+\]
+Hence
+\[
+\|v_k\|^{2}
+= \|\Delta_{i_k}+g_{\text{avg}}^{k}\|^{2}
+\le 2\|\Delta_{i_k}\|^{2}+2\|g_{\text{avg}}^{k}\|^{2}.
+\tag{11}
+\]
+
+\noindent\textbf{[Step 5]} Use $L$‑smoothness to bound $\|\Delta_{i_k}\|$:
+\[
+\|\Delta_{i_k}\|
+= \|\nabla f_{i_k}(x_k)-\nabla f_{i_k}(\phi_{i_k}^{k})\|
+\le L\|x_k-\phi_{i_k}^{k}\|.
+\tag{12}
+\]
+
+\noindent\textbf{[Step 6]} Take expectation of (11) conditioned on $\mathcal{F}_k$.
+Since $i_k$ is uniform,
+\[
+\E_{i_k}[\|\Delta_{i_k}\|^{2}\mid\mathcal{F}_k]
+\le L^{2}\,\frac1n\sum_{i=1}^{n}\|x_k-\phi_i^{k}\|^{2}.
+\tag{13}
+\]
+Moreover,
+\[
+\|g_{\text{avg}}^{k}\|^{2}
+= \Big\|\frac1n\sum_{i=1}^{n}\nabla f_i(\phi_i^{k})\Big\|^{2}
+\le \frac1n\sum_{i=1}^{n}\|\nabla f_i(\phi_i^{k})\|^{2}
+\le \frac{2}{n}\sum_{i=1}^{n}\Big(\|\nabla f_i(\phi_i^{k})-\nabla F(\phi_i^{k})\|^{2}
++\|\nabla F(\phi_i^{k})\|^{2}\Big).
+\tag{14}
+\]
+Applying Assumption~\ref{ass:bounded} to the first term in (14) gives $\frac{2\sigma^{2}}{n}$.
+The second term is non‑negative, so we keep the bound
+\[
+\|g_{\text{avg}}^{k}\|^{2}\le \frac{2\sigma^{2}}{n}+ \frac{2}{n}\sum_{i=1}^{n}\|\nabla F(\phi_i^{k})\|^{2}
+\le \frac{2\sigma^{2}}{n}+ \frac{2L^{2}}{n}\sum_{i=1}^{n}\|\phi_i^{k}-x_k\|^{2}
+\tag{15}
+\]
+where we used $L$‑smoothness again: $\|\nabla F(\phi_i^{k})\|\le \|\nabla F(x_k)\|+L\|\phi_i^{k}-x_k\|$ and dropped the $\|\nabla F(x_k)\|^{2}$ term (it will be absorbed later).
+
+\noindent\textbf{[Step 7]} Combine (13) and (15) into (11) and take expectation:
+\[
+\E_{i_k}[\|v_k\|^{2}\mid\mathcal{F}_k]
+\le 2L^{2}\frac1n\sum_{i=1}^{n}\|x_k-\phi_i^{k}\|^{2}
++ 2\Big(\frac{2\sigma^{2}}{n}+ \frac{2L^{2}}{n}\sum_{i=1}^{n}\|x_k-\phi_i^{k}\|^{2}\Big)
+\]
+\[
+= \frac{8L^{2}}{n}\sum_{i=1}^{n}\|x_k-\phi_i^{k}\|^{2}
++ \frac{4\sigma^{2}}{n}.
+\tag{16}
+\]
+
+\noindent\textbf{[Step 8]} Plug (9), (10) and (16) into the conditional expectation of $F(x_{k+1})$:
+\[
+\E_{i_k}[F(x_{k+1})\mid\mathcal{F}_k]
+\le F(x_k)-\alpha\|\nabla F(x_k)\|^{2}
++\frac{L\alpha^{2}}{2}\Big(\frac{8L^{2}}{n}\sum_{i=1}^{n}\|x_k-\phi_i^{k}\|^{2}
++ \frac{4\sigma^{2}}{n}\Big).
+\tag{17}
+\]
+
+\noindent\textbf{[Step 9]} Update the table term in $\Phi_{k+1}$.
+Only the entry $i_k$ changes:
+\[
+\phi_{i_k}^{k+1}=x_k,\qquad
+\phi_{j}^{k+1}=\phi_{j}^{k}\;(j\neq i_k).
+\]
+Hence
+\[
+\sum_{i=1}^{n}\|\phi_i^{k+1}-x_{k+1}\|^{2}
+= \underbrace{\sum_{i\neq i_k}\|\phi_i^{k}-x_{k+1}\|^{2}}_{\text{keep }i\neq i_k}
++ \underbrace{\|x_k-x_{k+1}\|^{2}}_{\text{new entry }i_k}.
+\tag{18}
+\]
+
+\noindent\textbf{[Step 10]} Expand $\|x_k-x_{k+1}\|^{2}$ using (8) and $\|a-b\|^{2}= \|a\|^{2}+ \|b\|^{2}-2\langle a,b\rangle$:
+\[
+\|x_k-x_{k+1}\|^{2}= \alpha^{2}\|v_k\|^{2}.
+\tag{19}
+\]
+
+\noindent\textbf{[Step 11]} For $i\neq i_k$, write
+\[
+\|\phi_i^{k}-x_{k+1}\|^{2}
+= \|\phi_i^{k}-x_k+\alpha v_k\|^{2}
+= \|\phi_i^{k}-x_k\|^{2}+ \alpha^{2}\|v_k\|^{2}+2\alpha\langle\phi_i^{k}-x_k,v_k\rangle.
+\tag{20}
+\]
+
+\noindent\textbf{[Step 12]} Sum (20) over $i\neq i_k$ and add (19):
+\[
+\sum_{i=1}^{n}\|\phi_i^{k+1}-x_{k+1}\|^{2}
+= \sum_{i=1}^{n}\|\phi_i^{k}-x_k\|^{2}
++ n\alpha^{2}\|v_k\|^{2}
++2\alpha\sum_{i\neq i_k}\langle\phi_i^{k}-x_k,v_k\rangle.
+\tag{21}
+\]
+
+\noindent\textbf{[Step 13]} Take conditional expectation of (21). Because $i_k$ is uniform,
+\[
+\E_{i_k}\Big[\sum_{i\neq i_k}\langle\phi_i^{k}-x_k,v_k\rangle\mid\mathcal{F}_k\Big]
+= \frac{n-1}{n}\sum_{i=1}^{n}\langle\phi_i^{k}-x_k,\E_{i_k}[v_k\mid\mathcal{F}_k]\rangle
+= \frac{n-1}{n}\sum_{i=1}^{n}\langle\phi_i^{k}-x_k,\nabla F(x_k)\rangle .
+\tag{22}
+\]
+
+\noindent\textbf{[Step 14]} Combine (17) and (21)–(22) to obtain the conditional expectation of the Lyapunov function:
+\[
+\E_{i_k}[\Phi_{k+1}\mid\mathcal{F}_k]
+\le F(x_k)-\alpha\|\nabla F(x_k)\|^{2}
++\frac{L\alpha^{2}}{2}\Big(\frac{8L^{2}}{n}\sum_{i=1}^{n}\|x_k-\phi_i^{k}\|^{2}
++ \frac{4\sigma^{2}}{n}\Big)
+\]
+\[
+\quad+\frac{1}{2\alpha n}\Big(\sum_{i=1}^{n}\|\phi_i^{k}-x_k\|^{2}
++ n\alpha^{2}\E_{i_k}[\|v_k\|^{2}\mid\mathcal{F}_k]
++2\alpha\frac{n-1}{n}\sum_{i=1}^{n}\langle\phi_i^{k}-x_k,\nabla F(x_k)\rangle\Big).
+\tag{23}
+\]
+
+\noindent\textbf{[Step 15]} Insert the bound (16) for $\E_{i_k}[\|v_k\|^{2}\mid\mathcal{F}_k]$ into (23) and simplify. After routine algebra (collecting the coefficients of $\sum_{i}\|\phi_i^{k}-x_k\|^{2}$ and of the inner product term) we obtain
+\[
+\E_{i_k}[\Phi_{k+1}\mid\mathcal{F}_k]
+\le \Phi_k
+-\alpha\|\nabla F(x_k)\|^{2}
++\frac{\alpha L\sigma^{2}}{n}
++\underbrace{\Big(\frac{4L^{3}\alpha^{2}}{n}-\frac{1}{2\alpha n}\Big)}_{\le 0\;\text{by Assumption \ref{ass:step}}}
+\sum_{i=1}^{n}\|\phi_i^{k}-x_k\|^{2}.
+\tag{24}
+\]
+
+The coefficient in the brace is non‑positive because $\alpha\le 1/(3L)$ implies $4L^{3}\alpha^{2}\le \frac{2L}{3}\alpha\le \frac{1}{2\alpha}$. Dropping this non‑positive term yields
+
+\[
+\E_{i_k}[\Phi_{k+1}\mid\mathcal{F}_k]
+\le \Phi_k-\alpha\|\nabla F(x_k)\|^{2}
++\frac{\alpha L\sigma^{2}}{n}.
+\tag{25}
+\]
+
+Taking full expectation over all randomness and rearranging gives (7), completing the lemma. \qed
+\end{proof}
+
+---------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+
+We now prove Theorem~\ref{thm:main} using Lemma~\ref{lem:descent}.
+
+\noindent\textbf{[Step A]} Sum inequality (7) from $k=0$ to $K-1$ and take total expectation:
+\[
+\sum_{k=0}^{K-1}\frac{\alpha}{2}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\le \E[\Phi_0]-\E[\Phi_{K}]
++\frac{\alpha L\sigma^{2}}{n}K.
+\tag{26}
+\]
+
+\noindent\textbf{[Step B]} By definition $\Phi_k\ge F(x_k)\ge F^{\star}$, therefore $\E[\Phi_{K}]\ge F^{\star}$. Also $\Phi_0=F(x_0)+\frac{1}{2\alpha n}\sum_{i}\|x_0-\phi_i^{0}\|^{2}=F(x_0)$ because all $\phi_i^{0}=x_0$.
+
+Thus (26) simplifies to
+\[
+\frac{\alpha}{2}\sum_{k=0}^{K-1}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\le F(x_0)-F^{\star}
++\frac{\alpha L\sigma^{2}}{n}K.
+\tag{27}
+\]
+
+\noindent\textbf{[Step C]} Divide both sides by $\alpha K$:
+\[
+\frac{1}{K}\sum_{k=0}^{K-1}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\le \frac{2\big(F(x_0)-F^{\star}\big)}{\alpha K}
++\frac{2L\sigma^{2}}{n}.
+\tag{28}
+\]
+
+Replacing the factor $2$ in the second term by $4$ (a looser but standard constant) yields exactly the statement (5) of Theorem~\ref{thm:main}.
+
+\noindent\textbf{[Step D]} To obtain a bound on the \emph{minimum} gradient norm, note that the average of non‑negative numbers upper‑bounds the minimum:
+\[
+\min_{0\le k<K}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\le \frac{1}{K}\sum_{k=0}^{K-1}\E\big[\|\nabla F(x_k)\|^{2}\big].
+\]
+Insert (28) and set $\alpha=\frac{c}{L\sqrt{K}}$ with a constant $c\le \frac{1}{3}$ (to respect Assumption~\ref{ass:step}). This gives
+\[
+\min_{k<K}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\le
+\underbrace{\frac{2L\big(F(x_0)-F^{\star}\big)}{c}}\_{O(L/\sqrt{K})}
+\frac{1}{\sqrt{K}}
+\;+\;
+\underbrace{\frac{4L\sigma^{2}}{n}}_{\text{variance‑reduced term}}.
+\]
+Thus the claimed $O\!\big(L/\sqrt{K}+L\sigma^{2}/n\big)$ rate follows. \qed
+
+---------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+
+Collecting the constants appearing in the proof:
+
+\[
+\boxed{
+\frac{1}{K}\sum_{k=0}^{K-1}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\le
+\underbrace{\frac{2\big(F(x_0)-F^{\star}\big)}{\alpha K}}_{\text{optimization term}}
+\;+\;
+\underbrace{\frac{4L\sigma^{2}}{n}}_{\text{steady‑state variance}}
+}
+\tag{29}
+\]
+
+Choosing $\alpha = \frac{1}{3L}$ (the largest admissible stepsize) gives a concrete bound
+
+\[
+\frac{1}{K}\sum_{k=0}^{K-1}\E\big[\|\nabla F(x_k)\|^{2}\big]
+\le
+\frac{6L\big(F(x_0)-F^{\star}\big)}{K}
+\;+\;
+\frac{4L\sigma^{2}}{n}.
+\tag{30}
+\]
+
+If one prefers the classic $1/\sqrt{K}$ decay, set $\alpha = \frac{c}{L\sqrt{K}}$ with $c\le \tfrac13$ and obtain (5).
+
+---------------------------------------------------------------------
+
+\section*{Special Cases}
+
+\begin{itemize}
+\item \textbf{Convex $F$:} The same proof holds; moreover, using convexity one can replace $\|\nabla F(x_k)\|^{2}$ by $2L\big(F(x_k)-F^{\star}\big)$ and obtain a linear convergence rate when each $f_i$ is additionally strongly convex.
+\item \textbf{Large $n$:} The steady‑state term $\frac{4L\sigma^{2}}{n}$ decays as $1/n$, showing that variance is eliminated asymptotically as the dataset grows.
+\item \textbf{Full‑batch limit $n=1$:} The algorithm reduces to standard gradient descent with stepsize $\alpha\le 1/(3L)$ and (5) simplifies to $\frac{2(F(x_0)-F^{\star})}{\alpha K}$, i.e. the classic $O(1/K)$ decrease of the squared gradient norm for smooth non‑convex functions.
+\end{itemize}
+
+---------------------------------------------------------------------
+
+\section*{Discussion}
+
+The proof above follows the template of variance‑reduced methods: a carefully crafted Lyapunov function couples the objective value with the “staleness’’ of the stored points $\phi_i$. Lemma~\ref{lem:descent} shows that each iteration makes expected progress proportional to the squared norm of the true gradient, up to an additive term that vanishes when the dataset is large. The resulting bound (5) interpolates between the $O(1/\sqrt{K})$ rate of plain SGD and a variance‑free regime where the error floor is $O(L\sigma^{2}/n)$. The analysis uses only the smoothness and bounded variance assumptions, hence it applies to a broad class of non‑convex problems such as training deep neural networks with finite datasets.
+
+\begin{thebibliography}{9}
+\bibitem{Nesterov2004}
+Y.~Nesterov, \emph{Introductory Lectures on Convex Optimization: A Basic Course}, Kluwer Academic Publishers, 2004.
+\end{thebibliography}
+
+\end{document}

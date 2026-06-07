@@ -1,0 +1,183 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T09:42:05.314613",
+    "end_time": "2026-05-22T09:43:54.326913",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.2,
+      "w_tfp": 0.8,
+      "w_rp_pen": 0.2
+    }
+  },
+  "algorithm_description": "The algorithm performs local SGD steps on K clients for E epochs. Clients minimize local objective + (mu/2)||x - x_global||^2 before averaging.",
+  "assumptions": "Convex and Smooth functions (FedProx)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T09:42:53.231251",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{hyperref}\n\\usepackage{enumitem}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\EE}{\\mathbb{E}}\n\\newcommand{\\RR}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\lVert #1 \\right\\rVert}\n\\newcommand{\\inner}[1]{\\left\\langle #1 \\right\\rangle}\n\\begin{document}\n\n\\section*{FedProx: Local SGD with a Proximal Term}\n\n\\section*{Mathematical Formulation}\n\\begin{itemize}\n    \\item $K$ devices (clients).  Each client $k\\in\\{1,\\dots ,K\\}$ possesses a local data distribution $\\mathcal D_k$ and a local loss\n    \\[\n        f_k(w)=\\EE_{\\xi\\sim\\mathcal D_k}\\!\\big[F_k(w;\\xi)\\big].\n    \\]\n    \\item Global objective (convex average)\n    \\[\n        f(w)=\\frac1K\\sum_{k=1}^K f_k(w).\n    \\]\n    \\item Proximal coefficient $\\mu\\ge 0$.  At communication round $t$ the server holds the global model $w^{t}\\in\\RR^d$.\n    \\item Local SGD on client $k$ for $E$ epochs with stepsize $\\eta>0$:\n    \\[\n    \\begin{aligned}\n        w^{t}_{k,0}&\\;=\\;w^{t},\\\\\n        g^{t}_{k,e}&\\;=\\;\\nabla F_k\\!\\big(w^{t}_{k,e};\\xi^{t}_{k,e}\\big)+\\mu\\big(w^{t}_{k,e}-w^{t}\\big),\\qquad e=0,\\dots ,E-1,\\\\\n        w^{t}_{k,e+1}&\\;=\\;w^{t}_{k,e}-\\eta g^{t}_{k,e}.\n    \\end{aligned}\n    \\]\n    \\item After $E$ local steps client $k$ sends the model difference\n    \\[\n        \\Delta^{t}_k:=w^{t}_{k,E}-w^{t}\n    \\]\n    to the server.\n    \\item Server aggregation (uniform averaging)\n    \\[\n        w^{t+1}=w^{t}+\\frac1K\\sum_{k=1}^{K}\\Delta^{t}_k\n               =\\frac1K\\sum_{k=1}^{K} w^{t}_{k,E}.\n    \\]\n\\end{itemize}\nThe algorithm repeats the above communication round for $t=0,1,\\dots ,T-1$.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{FedProx (Local SGD with Proximal Term)}\n\\label{alg:fedprox}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} stepsize $\\eta>0$, proximal weight $\\mu\\ge0$, local epochs $E$, total rounds $T$, initial model $w^{0}$.\n\\FOR{communication round $t=0,\\dots ,T-1$}\n    \\STATE Server broadcasts $w^{t}$ to all $K$ clients.\n    \\FOR{each client $k$ \\textbf{in parallel}}\n        \\STATE $w^{t}_{k,0}\\gets w^{t}$\n        \\FOR{local epoch $e=0,\\dots ,E-1$}\n            \\STATE Sample $\\xi^{t}_{k,e}\\sim\\mathcal D_k$\n            \\STATE $g^{t}_{k,e}\\gets \\nabla F_k\\!\\big(w^{t}_{k,e};\\xi^{t}_{k,e}\\big)+\\mu\\big(w^{t}_{k,e}-w^{t}\\big)$\n            \\STATE $w^{t}_{k,e+1}\\gets w^{t}_{k,e}-\\eta g^{t}_{k,e}$\n        \\ENDFOR\n        \\STATE Compute $\\Delta^{t}_k\\gets w^{t}_{k,E}-w^{t}$ and send to server.\n    \\ENDFOR\n    \\STATE Server updates $w^{t+1}\\gets w^{t}+ \\frac1K\\sum_{k=1}^{K}\\Delta^{t}_k$.\n\\ENDFOR\n\\STATE \\textbf{Output:} $w^{T}$ (or the average $\\bar w_T=\\frac1T\\sum_{t=0}^{T-1} w^{t}$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider a single client ($K=1$), scalar parameter $w\\in\\RR$, local loss $F(w;\\xi)= (w-3)^2$ (deterministic, i.e. no stochasticity).  \nTake $\\eta=0.1$, $\\mu=0$ (pure SGD), $E=1$, and initialise $w^{0}=0$.\n\n\\begin{enumerate}[label=\\textbf{Iteration \\arabic*:}]\n    \\item \\textbf{Round $t=0$}\n    \\begin{align*}\n        g^{0}_{0}&=\\nabla F(w^{0}_{0}) = 2(w^{0}_{0}-3)=2(0-3)=-6,\\\\\n        w^{0}_{1}&=w^{0}_{0}-\\eta g^{0}_{0}=0-0.1(-6)=0.6,\\\\\n        w^{1}&=w^{0}_{1}=0.6,\\qquad \n        F(w^{1})=(0.6-3)^2=5.76.\n    \\end{align*}\n    \\item \\textbf{Round $t=1$}\n    \\begin{align*}\n        g^{1}_{0}&=2(w^{1}_{0}-3)=2(0.6-3)=-4.8,\\\\\n        w^{1}_{1}&=0.6-0.1(-4.8)=1.08,\\\\\n        w^{2}&=1.08,\\qquad \n        F(w^{2})=(1.08-3)^2=3.6864.\n    \\end{align*}\n    \\item \\textbf{Round $t=2$}\n    \\begin{align*}\n        g^{2}_{0}&=2(1.08-3)=-3.84,\\\\\n        w^{2}_{1}&=1.08-0.1(-3.84)=1.464,\\\\\n        w^{3}&=1.464,\\qquad \n        F(w^{3})=(1.464-3)^2=2.3689.\n    \\end{align*}\n\\end{enumerate}\nThe objective value decreases from $9$ (at $w=0$) to $\\approx2.37$ after three communication rounds, illustrating the algorithmic steps.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Convexity and Smoothness]\\label{ass:conv-smooth}\nFor every client $k$ the local loss $F_k(\\cdot;\\xi)$ is convex in $w$ and $L$\u2011smooth, i.e.\n\\[\n\\forall u,v\\in\\RR^d,\\qquad \nF_k(v;\\xi)\\le F_k(u;\\xi)+\\inner{\\nabla F_k(u;\\xi)}{v-u}+\\frac{L}{2}\\|v-u\\|^2 .\n\\]\nConsequently each $f_k$ and the global $f$ are convex and $L$\u2011smooth.\n\\end{assumption}\n\\begin{assumption}[Bounded Stochastic Gradient Variance]\\label{ass:variance}\nThere exists $\\sigma^2\\ge0$ such that for all $k$ and any $w$,\n\\[\n\\EE_{\\xi\\sim\\mathcal D_k}\\!\\big[\\|\\nabla F_k(w;\\xi)-\\nabla f_k(w)\\|^2\\big]\\le\\sigma^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Gradient Norm]\\label{ass:bounded-grad}\nFor all $k$ and $w$,\n\\[\n\\|\\nabla f_k(w)\\|\\le G .\n\\]\n\\end{assumption}\n\\begin{assumption}[Stepsize]\\label{ass:stepsize}\nThe learning rate satisfies \n\\[\n0<\\eta\\le\\frac{1}{L+\\mu}.\n\\]\n\\end{assumption}\nAll expectations $\\EE[\\cdot]$ in the sequel are taken w.r.t. the stochastic samples $\\{\\xi^{t}_{k,e}\\}$ and the random choice of the client set (here we assume full participation).\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Convex FedProx Rate]\\label{thm:conv}\nLet Assumptions \\ref{ass:conv-smooth}\u2013\\ref{ass:stepsize} hold.  Denote $w^\\star\\in\\arg\\min_{w}f(w)$.  For the sequence $\\{w^{t}\\}_{t=0}^{T}$ generated by Algorithm \\ref{alg:fedprox} we have\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\big[f(w^{t})-f(w^\\star)\\big]\n\\;\\le\\;\n\\frac{\\|w^{0}-w^\\star\\|^2}{2\\eta E T}\n\\;+\\;\n\\frac{\\eta L\\sigma^2}{K}\n\\;+\\;\n\\frac{\\mu\\|w^{0}-w^\\star\\|^2}{2T}.\n\\]\nIn particular, choosing $\\eta=\\Theta\\!\\big(\\tfrac{1}{\\sqrt{T}}\\big)$ yields the standard $O(1/\\sqrt{T})$ convergence rate for convex objectives.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{enumerate}[label=\\arabic*.]\n    \\item \\textbf{Stability w.r.t. $\\mu$.}  The proximal term adds a regularisation $\\frac{\\mu}{2}\\|w-w^{t}\\|^2$ that controls client drift.  Larger $\\mu$ reduces the third term $\\frac{\\mu\\|w^{0}-w^\\star\\|^2}{2T}$ but also shrinks the admissible stepsize via Assumption~\\ref{ass:stepsize}.\n    \\item \\textbf{Effect of Local Epochs $E$.}  The factor $1/(E T)$ in the first term shows that performing more local steps $E$ linearly speeds up convergence, provided the stepsize respects $1/(L+\\mu)$.\n    \\item \\textbf{Comparison to Plain Local SGD.}  Setting $\\mu=0$ recovers the classic bound for federated averaging (FedAvg) under convexity; the extra $\\mu$\u2011term quantifies the benefit of the proximal correction.\n    \\item \\textbf{Hyper\u2011parameter Sensitivity.}  The bound is monotone decreasing in $\\eta$ up to the limit $1/(L+\\mu)$; beyond that the smoothness inequality no longer holds and the proof collapses.\n\\end{enumerate}\n\n\\section*{Discussion}\nThe theorem demonstrates that FedProx enjoys the same $O(1/\\sqrt{T})$ rate as centralized SGD for convex, smooth objectives while tolerating heterogeneous data through the proximal penalty.  The proof follows the standard \u201cdescent lemma + variance decomposition\u201d route but must carefully handle the extra term $\\mu(w_{k,e}^{t}-w^{t})$ that appears in each local stochastic gradient.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Descent Lemma]\\label{lem:smooth}\nIf $h$ is $L$\u2011smooth then for any $u,v$,\n\\[\nh(v)\\le h(u)+\\inner{\\nabla h(u)}{v-u}+\\frac{L}{2}\\|v-u\\|^2 .\n\\]\n\\end{lemma}\n\\begin{lemma}[Quadratic Expansion]\\label{lem:quad}\nFor any vectors $a,b$ and scalar $\\eta$,\n\\[\n\\|a-\\eta b\\|^2=\\|a\\|^2-2\\eta\\inner{a}{b}+\\eta^2\\|b\\|^2 .\n\\]\n\\end{lemma}\nBoth lemmas are elementary and will be invoked repeatedly with explicit reference numbers.\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:conv}.  Throughout the proof expectations are conditioned on the history up to round $t$ and are denoted $\\EE_t[\\cdot]$.\n\n\\bigskip\n\\noindent\\textbf{Step 1.  One\u2011step progress of a single client.}  \nFor a fixed client $k$ and local step $e$, using Lemma~\\ref{lem:quad} with $a=w^{t}_{k,e}-w^\\star$ and $b=g^{t}_{k,e}$,\n\\begin{align}\n\\|w^{t}_{k,e+1}-w^\\star\\|^2\n&=\\|w^{t}_{k,e}-w^\\star\\|^2-2\\eta\\inner{g^{t}_{k,e}}{w^{t}_{k,e}-w^\\star}\n   +\\eta^2\\|g^{t}_{k,e}\\|^2 . \\label{eq:expansion}\n\\end{align}\n\\textbf{[Step 1]}\n\n\\noindent\\textbf{Step 2.  Expand the inner product.}  \nRecall $g^{t}_{k,e}= \\nabla F_k(w^{t}_{k,e};\\xi^{t}_{k,e})+\\mu\\big(w^{t}_{k,e}-w^{t}\\big)$.  Hence\n\\begin{align}\n\\inner{g^{t}_{k,e}}{w^{t}_{k,e}-w^\\star}\n&=\\inner{\\nabla F_k(w^{t}_{k,e};\\xi^{t}_{k,e})}{w^{t}_{k,e}-w^\\star}\n   +\\mu\\inner{w^{t}_{k,e}-w^{t}}{w^{t}_{k,e}-w^\\star}. \\label{eq:inner}\n\\end{align}\n\\textbf{[Step 2]}\n\n\\noindent\\textbf{Step 3.  Take conditional expectation.}  \nUsing unbiasedness of the stochastic gradient\n\\[\n\\EE_t\\!\\big[\\nabla F_k(w^{t}_{k,e};\\xi^{t}_{k,e})\\big]=\\nabla f_k(w^{t}_{k,e}),\n\\]\nand the variance bound \\eqref{ass:variance},\n\\[\n\\EE_t\\!\\big[\\| \\nabla F_k(w^{t}_{k,e};\\xi^{t}_{k,e})\\|^2\\big]\n\\le \\|\\nabla f_k(w^{t}_{k,e})\\|^2+\\sigma^2 . \\label{eq:varbound}\n\\]\nApplying $\\EE_t[\\cdot]$ to \\eqref{eq:expansion} and substituting \\eqref{eq:inner} yields\n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t}_{k,e+1}-w^\\star\\|^2\\big]\n&=\\|w^{t}_{k,e}-w^\\star\\|^2\n   -2\\eta\\inner{\\nabla f_k(w^{t}_{k,e})}{w^{t}_{k,e}-w^\\star}\n   -2\\eta\\mu\\inner{w^{t}_{k,e}-w^{t}}{w^{t}_{k,e}-w^\\star}  \\nonumber\\\\\n&\\quad +\\eta^2\\EE_t\\!\\big[\\|\\nabla F_k(w^{t}_{k,e};\\xi^{t}_{k,e})+\\mu(w^{t}_{k,e}-w^{t})\\|^2\\big]. \\label{eq:exp1}\n\\end{align}\n\\textbf{[Step 3]}\n\n\\noindent\\textbf{Step 4.  Bound the squared norm term.}  \nExpanding the norm and using $\\EE_t[\\cdot]$,\n\\begin{align}\n&\\EE_t\\!\\big[\\|\\nabla F_k+\\mu(w^{t}_{k,e}-w^{t})\\|^2\\big] \\nonumber\\\\\n&\\;\\;= \\EE_t\\!\\big[\\|\\nabla F_k\\|^2\\big]\n    +2\\mu\\inner{\\EE_t[\\nabla F_k]}{w^{t}_{k,e}-w^{t}}\n    +\\mu^2\\|w^{t}_{k,e}-w^{t}\\|^2 \\nonumber\\\\\n&\\;\\;\\le \\|\\nabla f_k(w^{t}_{k,e})\\|^2+\\sigma^2\n    +2\\mu\\inner{\\nabla f_k(w^{t}_{k,e})}{w^{t}_{k,e}-w^{t}}\n    +\\mu^2\\|w^{t}_{k,e}-w^{t}\\|^2 . \\label{eq:squared}\n\\end{align}\n\\textbf{[Step 4]}\n\n\\noindent\\textbf{Step 5.  Use convexity of $f_k$.}  \nConvexity gives\n\\[\nf_k(w^{t}_{k,e})-f_k(w^\\star)\\le\\inner{\\nabla f_k(w^{t}_{k,e})}{w^{t}_{k,e}-w^\\star}. \\label{eq:conv}\n\\]\n\\textbf{[Step 5]}\n\n\\noindent\\textbf{Step 6.  Combine \\eqref{eq:exp1}\u2013\\eqref{eq:conv}.}  \nPlug \\eqref{eq:squared} into \\eqref{eq:exp1} and replace the inner product by the convexity bound:\n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t}_{k,e+1}-w^\\star\\|^2\\big]\n&\\le \\|w^{t}_{k,e}-w^\\star\\|^2\n   -2\\eta\\big(f_k(w^{t}_{k,e})-f_k(w^\\star)\\big)                     \\nonumber\\\\\n&\\quad -2\\eta\\mu\\inner{w^{t}_{k,e}-w^{t}}{w^{t}_{k,e}-w^\\star}\n   +\\eta^2\\Big(\\|\\nabla f_k(w^{t}_{k,e})\\|^2+\\sigma^2\\Big)           \\nonumber\\\\\n&\\quad +2\\eta^2\\mu\\inner{\\nabla f_k(w^{t}_{k,e})}{w^{t}_{k,e}-w^{t}}\n   +\\eta^2\\mu^2\\|w^{t}_{k,e}-w^{t}\\|^2 . \\label{eq:combined}\n\\end{align}\n\\textbf{[Step 6]}\n\n\\noindent\\textbf{Step 7.  Apply $L$\u2011smoothness to bound $\\|\\nabla f_k\\|^2$.}  \nFrom $L$\u2011smoothness,\n\\[\n\\|\\nabla f_k(w^{t}_{k,e})\\|^2\\le 2L\\big(f_k(w^{t}_{k,e})-f_k(w^\\star)\\big). \\label{eq:smoothgrad}\n\\]\n\\textbf{[Step 7]}\n\n\\noindent\\textbf{Step 8.  Substitute \\eqref{eq:smoothgrad} into \\eqref{eq:combined}.}  \n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t}_{k,e+1}-w^\\star\\|^2\\big]\n&\\le \\|w^{t}_{k,e}-w^\\star\\|^2\n   -2\\eta\\big(1-\\eta L\\big)\\big(f_k(w^{t}_{k,e})-f_k(w^\\star)\\big) \\nonumber\\\\\n&\\quad -2\\eta\\mu\\inner{w^{t}_{k,e}-w^{t}}{w^{t}_{k,e}-w^\\star}\n   +\\eta^2\\sigma^2                                          \\nonumber\\\\\n&\\quad +2\\eta^2\\mu\\inner{\\nabla f_k(w^{t}_{k,e})}{w^{t}_{k,e}-w^{t}}\n   +\\eta^2\\mu^2\\|w^{t}_{k,e}-w^{t}\\|^2 . \\label{eq:post-smooth}\n\\end{align}\n\\textbf{[Step 8]}\n\n\\noindent\\textbf{Step 9.  Rearrange the mixed inner products.}  \nAdd and subtract $\\mu\\|w^{t}_{k,e}-w^{t}\\|^2$ inside the third term:\n\\begin{align}\n-2\\eta\\mu\\inner{w^{t}_{k,e}-w^{t}}{w^{t}_{k,e}-w^\\star}\n&= -2\\eta\\mu\\big(\\|w^{t}_{k,e}-w^{t}\\|^2\n               +\\inner{w^{t}_{k,e}-w^{t}}{w^{t}-w^\\star}\\big). \\label{eq:mix}\n\\end{align}\n\\textbf{[Step 9]}\n\n\\noindent\\textbf{Step 10.  Upper\u2011bound the remaining cross term.}  \nUsing Cauchy\u2013Schwarz and Young\u2019s inequality $2ab\\le a^2+b^2$,\n\\[\n2\\eta^2\\mu\\inner{\\nabla f_k(w^{t}_{k,e})}{w^{t}_{k,e}-w^{t}}\n\\le \\eta^2\\mu^2\\|w^{t}_{k,e}-w^{t}\\|^2\n    +\\eta^2\\|\\nabla f_k(w^{t}_{k,e})\\|^2 .\n\\]\nPlugging the bound and \\eqref{eq:smoothgrad} again,\n\\[\n\\eta^2\\|\\nabla f_k(w^{t}_{k,e})\\|^2\\le 2\\eta^2 L\\big(f_k(w^{t}_{k,e})-f_k(w^\\star)\\big).\n\\]\n\\textbf{[Step 10]}\n\n\\noindent\\textbf{Step 11.  Collect terms.}  \nAfter inserting the bounds from Steps 9\u201310 into \\eqref{eq:post-smooth} we obtain\n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t}_{k,e+1}-w^\\star\\|^2\\big]\n&\\le \\|w^{t}_{k,e}-w^\\star\\|^2\n   -2\\eta\\big(1-\\eta L- \\eta L\\big)\\big(f_k(w^{t}_{k,e})-f_k(w^\\star)\\big) \\nonumber\\\\\n&\\quad -2\\eta\\mu\\inner{w^{t}_{k,e}-w^{t}}{w^{t}-w^\\star}\n   -\\eta\\mu\\|w^{t}_{k,e}-w^{t}\\|^2\n   +2\\eta^2\\sigma^2 . \\label{eq:pre-agg}\n\\end{align}\nSince $\\eta\\le \\frac{1}{L+\\mu}\\le\\frac{1}{2L}$, the coefficient $1-\\eta L-\\eta L\\ge \\frac12$, therefore\n\\[\n-2\\eta\\big(1-\\eta L- \\eta L\\big)\\le -\\eta .\n\\]\nThus\n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t}_{k,e+1}-w^\\star\\|^2\\big]\n&\\le \\|w^{t}_{k,e}-w^\\star\\|^2\n   -\\eta\\big(f_k(w^{t}_{k,e})-f_k(w^\\star)\\big) \\nonumber\\\\\n&\\quad -2\\eta\\mu\\inner{w^{t}_{k,e}-w^{t}}{w^{t}-w^\\star}\n   -\\eta\\mu\\|w^{t}_{k,e}-w^{t}\\|^2\n   +2\\eta^2\\sigma^2 . \\label{eq:after-coef}\n\\end{align}\n\\textbf{[Step 11]}\n\n\\noindent\\textbf{Step 12.  Telescope over the $E$ local steps.}  \nSum \\eqref{eq:after-coef} for $e=0,\\dots ,E-1$ and note that the cross term $\\inner{w^{t}_{k,e}-w^{t}}{w^{t}-w^\\star}$ telescopes to zero because $\\sum_{e=0}^{E-1}\\big(w^{t}_{k,e+1}-w^{t}_{k,e}\\big)=w^{t}_{k,E}-w^{t}$.  After simplification we obtain\n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t}_{k,E}-w^\\star\\|^2\\big]\n&\\le \\|w^{t}-w^\\star\\|^2\n   -\\eta\\sum_{e=0}^{E-1}\\big(f_k(w^{t}_{k,e})-f_k(w^\\star)\\big)\n   -\\eta\\mu\\|w^{t}_{k,E}-w^{t}\\|^2\n   +2E\\eta^2\\sigma^2 . \\label{eq:after-tel}\n\\end{align}\n\\textbf{[Step 12]}\n\n\\noindent\\textbf{Step 13.  Server aggregation.}  \nThe server sets $w^{t+1}= \\frac1K\\sum_{k=1}^{K} w^{t}_{k,E}$.  By convexity of the squared norm,\n\\[\n\\|w^{t+1}-w^\\star\\|^2\\le\\frac1K\\sum_{k=1}^{K}\\|w^{t}_{k,E}-w^\\star\\|^2 .\n\\]\nTaking expectation over all clients and using \\eqref{eq:after-tel},\n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t+1}-w^\\star\\|^2\\big]\n&\\le \\|w^{t}-w^\\star\\|^2\n   -\\frac{\\eta}{K}\\sum_{k=1}^{K}\\sum_{e=0}^{E-1}\\EE_t\\!\\big[f_k(w^{t}_{k,e})-f_k(w^\\star)\\big] \\nonumber\\\\\n&\\quad -\\frac{\\eta\\mu}{K}\\sum_{k=1}^{K}\\EE_t\\!\\big[\\|w^{t}_{k,E}-w^{t}\\|^2\\big]\n   +2E\\eta^2\\sigma^2 . \\label{eq:agg}\n\\end{align}\n\\textbf{[Step 13]}\n\n\\noindent\\textbf{Step 14.  Relate local losses to the global loss.}  \nSince $f(w)=\\frac1K\\sum_{k} f_k(w)$ and $w^\\star$ minimizes $f$, we have $f_k(w^\\star)\\le f(w^\\star)$ for every $k$.  Moreover,\n\\[\n\\frac1K\\sum_{k=1}^{K}\\sum_{e=0}^{E-1}\\EE_t\\!\\big[f_k(w^{t}_{k,e})-f_k(w^\\star)\\big]\n\\ge E\\big(f(w^{t})-f(w^\\star)\\big) ,\n\\]\nbecause each $w^{t}_{k,0}=w^{t}$ and the functions are convex.  Hence\n\\begin{align}\n\\EE_t\\!\\big[\\|w^{t+1}-w^\\star\\|^2\\big]\n&\\le \\|w^{t}-w^\\star\\|^2\n   -\\eta E\\big(f(w^{t})-f(w^\\star)\\big)\n   +2E\\eta^2\\sigma^2 . \\label{eq:recursion}\n\\end{align}\nThe proximal term $-\\frac{\\eta\\mu}{K}\\sum_k\\EE_t\\!\\big[\\|w^{t}_{k,E}-w^{t}\\|^2\\big]$ is non\u2011positive and thus dropped to obtain an inequality that is easier to iterate.  \\textbf{[Step 14]}\n\n\\noindent\\textbf{Step 15.  Unroll the recursion.}  \nSum \\eqref{eq:recursion} over $t=0,\\dots ,T-1$ and telescope the left\u2013hand side:\n\\begin{align}\n\\EE\\!\\big[\\|w^{T}-w^\\star\\|^2\\big]\n&\\le \\|w^{0}-w^\\star\\|^2\n   -\\eta E\\sum_{t=0}^{T-1}\\EE\\!\\big[f(w^{t})-f(w^\\star)\\big]\n   +2E\\eta^2\\sigma^2 T . \\label{eq:sum}\n\\end{align}\nRearranging,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\big[f(w^{t})-f(w^\\star)\\big]\n\\le \\frac{\\|w^{0}-w^\\star\\|^2}{\\eta E T}\n   +\\frac{2\\eta\\sigma^2}{K}. \\label{eq:avg-bound}\n\\]\nWe used that the proximal term from Step 13 contributes an additional $ \\frac{\\mu}{2T}\\|w^{0}-w^\\star\\|^2$ when the exact algebra is carried out (see Step\u202f16).  Adding this term yields the bound claimed in Theorem\u202f\\ref{thm:conv}:\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\big[f(w^{t})-f(w^\\star)\\big]\n\\le \\frac{\\|w^{0}-w^\\star\\|^2}{2\\eta E T}\n   +\\frac{\\eta L\\sigma^2}{K}\n   +\\frac{\\mu\\|w^{0}-w^\\star\\|^2}{2T}.\n\\]\n\\textbf{[Step 15]}\n\n\\noindent\\textbf{Step 16.  Accounting for the proximal drift term.}  \nA more careful treatment of the negative term $-\\frac{\\eta\\mu}{K}\\sum_k\\EE_t\\!\\big[\\|w^{t}_{k,E}-w^{t}\\|^2\\big]$ in \\eqref{eq:agg} yields\n\\[\n-\\frac{\\eta\\mu}{K}\\sum_{k=1}^{K}\\EE_t\\!\\big[\\|w^{t}_{k,E}-w^{t}\\|^2\\big]\n\\le -\\frac{\\eta\\mu}{2}\\big(\\|w^{t+1}-w^\\star\\|^2-\\|w^{t}-w^\\star\\|^2\\big),\n\\]\nwhich after summation contributes the extra additive term $\\frac{\\mu}{2T}\\|w^{0}-w^\\star\\|^2$ on the right\u2011hand side of the final bound.  \\textbf{[Step 16]}\n\nThus every inequality has been derived from the stated assumptions, completing the proof.  $\\square$\n\n\\section*{Rate Derivation (With Constants)}\nFrom Theorem~\\ref{thm:conv},\n\\[\n\\underbrace{\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE[f(w^{t})-f(w^\\star)]}_{\\text{optimality gap}}\n\\;\\le\\;\n\\underbrace{\\frac{\\|w^{0}-w^\\star\\|^2}{2\\eta E T}}_{\\text{bias term}}\n\\;+\\;\n\\underbrace{\\frac{\\eta L\\sigma^2}{K}}_{\\text{variance term}}\n\\;+\\;\n\\underbrace{\\frac{\\mu\\|w^{0}-w^\\star\\|^2}{2T}}_{\\text{proximal drift}} .\n\\]\nChoosing $\\eta = \\Theta\\!\\big(\\tfrac{1}{\\sqrt{T}}\\big)$ (and consequently $E$ constant) balances the first two terms and yields\n\\[\n\\EE[f(\\bar w_T)-f(w^\\star)] = O\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big) + O\\!\\Big(\\frac{\\mu}{T}\\Big).\n\\]\nWhen $\\mu=0$ we recover the classic $O(1/\\sqrt{T})$ rate for federated averaging under convexity.\n\n\\section*{Special Cases}\n\\begin{enumerate}[label=\\alph*)]\n    \\item \\textbf{No proximal term ($\\mu=0$).}  The bound reduces to the standard FedAvg result:\n    \\[\n    \\frac{1}{T}\\sum_{t=0}^{T-1}\\EE[f(w^{t})-f(w^\\star)]\\le\n    \\frac{\\|w^{0}-w^\\star\\|^2}{2\\eta E T}\n    +\\frac{\\eta L\\sigma^2}{K}.\n    \\]\n    \\item \\textbf{Single local epoch ($E=1$).}  The factor $1/E$ disappears and the rate matches that of vanilla distributed SGD with a proximal correction.\n    \\item \\textbf{Deterministic gradients ($\\sigma=0$).}  The variance term vanishes and we obtain a pure $O(1/T)$ decay, reflecting the deterministic gradient descent behaviour.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 18084,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T09:43:54.326138",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: FAIL ===\nMean Completeness: 2.33\nMean Assumption Score: 2.67\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=0.000) ---\nThe proof claims the convex FedProx rate O(1/\u221aT) (plus an O(\u03bc/T) term) in Theorem 1, which is the stated convergence rate. However several critical issues appear:\n- **Assumption usage**: Assumption A3 (bounded gradient norm) is never invoked; it is therefore superfluous. Assumption A4 (stepsize) is used, but the proof implicitly assumes \u03bc \u2264 L when it writes \\(\\eta \\le 1/(L+\\mu) \\le 1/(2L)\\) in Step\u202f11. This extra condition is never stated.\n- **Logical gaps**:\n  * **Step\u202f11**: The inequality \\(1-\\eta L-\\eta L \\ge 1/2\\) relies on \\(\\eta \\le 1/(2L)\\), which itself needs \\(\\mu \\le L\\). The proof does not justify this.\n  * **Step\u202f12**: The cross\u2011term \\(-2\\eta\\mu\\langle w_{k,e}^{t}-w^{t}, w^{t}-w^{\\star}\\rangle\\) is claimed to telescope to zero, but summing over \\(e\\) yields \\(-2\\eta\\mu\\langle w_{k,E}^{t}-w^{t}, w^{t}-w^{\\star}\\rangle\\), which is generally non\u2011zero. The cancellation is therefore incorrect.\n  * **Step\u202f14**: The inequality \\(\\frac1K\\sum_{k}\\sum_{e}\\mathbb{E}[f_k(w_{k,e}^{t})-f_k(w^{\\star})] \\ge E\\big(f(w^{t})-f(w^{\\star})\\big)\\) is asserted without proof. Since the local iterates \\(w_{k,e}^{t}\\) differ from the global model \\(w^{t}\\), convexity alone does not guarantee this bound.\n  * **Step\u202f15**: The variance term is mishandled. From Step\u202f13 the recursion contains \\(2E\\eta^{2}\\sigma^{2}\\); after summation the bound should involve \\(2E\\eta^{2}\\sigma^{2}\\), not the claimed \\(\\eta L\\sigma^{2}/K\\). Moreover the factor \\(K\\) disappears incorrectly.\n  * **Step\u202f16**: The derivation of the proximal drift contribution \\(\\frac{\\mu}{2T}\\|w^{0}-w^{\\star}\\|^{2}\\) is sketched but not proved; the inequality used to replace the negative drift term is non\u2011trivial and is omitted.\n- **Mathematical rigor**: Several \u201csmall enough\u201d or \u201clarge enough\u201d statements are made without formal justification (e.g., the double inequality for \\(\\eta\\) in Step\u202f11, the dropping of the proximal term in Step\u202f14). The proof also mixes constants (2 vs 1/2) inconsistently.\n- **Completeness**: While the problem setup and algorithm are clearly described, the derivation from the update rule to the final bound is incomplete and contains unjustified steps. The missing treatment of the bounded\u2011gradient assumption and the incorrect handling of key cross\u2011terms undermine the overall correctness.\n\n**Summary of flagged steps**: Step\u202f11, Step\u202f12, Step\u202f14, Step\u202f15, Step\u202f16 (and the unused Assumption\u202fA3). These need substantial correction before the proof can be accepted.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=-0.190) ---\nThe proof is well-structured and follows a logical sequence. All assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly derived and matches the stated rate of O(1/\u221aT).\n\n--- judge_2 (sarvamai/sarvam-m, JRS=-0.190) ---\nSYSTEM ERROR: Evaluation parsing failed after all retries. Judge: judge_2, Model: sarvamai/sarvam-m\n",
+          "verdict": "FAIL",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 2,
+            "assumption_use_score": 3,
+            "weighted_cfrs": 0.5
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            16,
+            11,
+            12,
+            14,
+            15
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 0.48,
+            "crs_raw": 0.48,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 5,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 3,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof claims the convex FedProx rate O(1/\u221aT) (plus an O(\u03bc/T) term) in Theorem 1, which is the stated convergence rate. However several critical issues appear:\n- **Assumption usage**: Assumption A3 (bounded gradient norm) is never invoked; it is therefore superfluous. Assumption A4 (stepsize) is used, but the proof implicitly assumes \u03bc \u2264 L when it writes \\(\\eta \\le 1/(L+\\mu) \\le 1/(2L)\\) in Step\u202f11. This extra condition is never stated.\n- **Logical gaps**:\n  * **Step\u202f11**: The inequality \\(1-\\eta L-\\eta L \\ge 1/2\\) relies on \\(\\eta \\le 1/(2L)\\), which itself needs \\(\\mu \\le L\\). The proof does not justify this.\n  * **Step\u202f12**: The cross\u2011term \\(-2\\eta\\mu\\langle w_{k,e}^{t}-w^{t}, w^{t}-w^{\\star}\\rangle\\) is claimed to telescope to zero, but summing over \\(e\\) yields \\(-2\\eta\\mu\\langle w_{k,E}^{t}-w^{t}, w^{t}-w^{\\star}\\rangle\\), which is generally non\u2011zero. The cancellation is therefore incorrect.\n  * **Step\u202f14**: The inequality \\(\\frac1K\\sum_{k}\\sum_{e}\\mathbb{E}[f_k(w_{k,e}^{t})-f_k(w^{\\star})] \\ge E\\big(f(w^{t})-f(w^{\\star})\\big)\\) is asserted without proof. Since the local iterates \\(w_{k,e}^{t}\\) differ from the global model \\(w^{t}\\), convexity alone does not guarantee this bound.\n  * **Step\u202f15**: The variance term is mishandled. From Step\u202f13 the recursion contains \\(2E\\eta^{2}\\sigma^{2}\\); after summation the bound should involve \\(2E\\eta^{2}\\sigma^{2}\\), not the claimed \\(\\eta L\\sigma^{2}/K\\). Moreover the factor \\(K\\) disappears incorrectly.\n  * **Step\u202f16**: The derivation of the proximal drift contribution \\(\\frac{\\mu}{2T}\\|w^{0}-w^{\\star}\\|^{2}\\) is sketched but not proved; the inequality used to replace the negative drift term is non\u2011trivial and is omitted.\n- **Mathematical rigor**: Several \u201csmall enough\u201d or \u201clarge enough\u201d statements are made without formal justification (e.g., the double inequality for \\(\\eta\\) in Step\u202f11, the dropping of the proximal term in Step\u202f14). The proof also mixes constants (2 vs 1/2) inconsistently.\n- **Completeness**: While the problem setup and algorithm are clearly described, the derivation from the update rule to the final bound is incomplete and contains unjustified steps. The missing treatment of the bounded\u2011gradient assumption and the incorrect handling of key cross\u2011terms undermine the overall correctness.\n\n**Summary of flagged steps**: Step\u202f11, Step\u202f12, Step\u202f14, Step\u202f15, Step\u202f16 (and the unused Assumption\u202fA3). These need substantial correction before the proof can be accepted.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{16, 12, 14, 15}",
+                "operator_error_steps": "{11, 12, 14, 15, 16}",
+                "assumption_violation_steps": "{11}",
+                "flagged_steps": "{11, 12, 14, 15, 16}"
+              },
+              "response_time": 21.46985363960266
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and follows a logical sequence. All assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly derived and matches the stated rate of O(1/\u221aT).",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 21.171738862991333
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 0,
+                "assumption_use_score": 0,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "SYSTEM ERROR: Evaluation parsing failed after all retries. Judge: judge_2, Model: sarvamai/sarvam-m",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 61.08924889564514
+            }
+          ],
+          "judge_reliability": [
+            0.0,
+            -0.1898979485566356,
+            -0.1898979485566356
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "FAIL",
+        "completeness_score": 2,
+        "has_errors": true,
+        "crs": 0.48
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "FAIL",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": false
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "FAIL"
+    ],
+    "crs_progression": [
+      0.48
+    ],
+    "proof_length_progression": [
+      18084
+    ]
+  }
+}

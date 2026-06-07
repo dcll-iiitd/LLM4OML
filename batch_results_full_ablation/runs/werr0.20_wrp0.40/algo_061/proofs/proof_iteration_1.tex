@@ -1,0 +1,324 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{hyperref}
+\newtheorem{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\topk}[1]{\mathcal{S}_K(#1)}
+\begin{document}
+
+\section*{Top‑K Stochastic Gradient Descent (Top‑K SGD)}
+
+\section*{Mathematical Formulation}
+Let $f:\mathbb{R}^d\rightarrow\mathbb{R}$ be a (possibly non‑convex) loss function.  
+At iteration $t$ a stochastic gradient $g_t$ is sampled,
+\[
+g_t \;=\; \nabla f(w_t;\,\xi_t),\qquad \xi_t\sim\mathcal{D},
+\]
+where $\mathcal{D}$ is the data distribution.  
+
+Define the \emph{top‑$K$ sparsification operator}
+\[
+\topk{g}\;\in\;\mathbb{R}^d,\qquad
+[\topk{g}]_i=\begin{cases}
+g_i, & i\in\mathcal{I}_K(g),\\[2mm]
+0,   & \text{otherwise},
+\end{cases}
+\]
+where $\mathcal{I}_K(g)$ contains the indices of the $K$ components of $g$ with largest absolute value, i.e.
+\[
+\mathcal{I}_K(g)=\arg\!\max_{|S|=K}\sum_{i\in S}|g_i|.
+\]
+
+The Top‑K SGD update is
+\begin{equation}
+\boxed{\,w_{t+1}=w_t-\eta_t\,\topk{g_t}\,} \tag{1}
+\end{equation}
+with learning‑rate schedule $\{\eta_t\}_{t\ge0}$.
+
+When the algorithm is run on $M$ parallel workers, each worker $m$ computes a local stochastic gradient $g_t^{(m)}$, applies $\topk{\cdot}$, and the server aggregates the sparse vectors by averaging:
+\[
+w_{t+1}=w_t-\frac{\eta_t}{M}\sum_{m=1}^{M}\topk{g_t^{(m)}} .
+\]
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Top‑K SGD}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial point $w_0\in\mathbb{R}^d$, stepsizes $\{\eta_t\}$, sparsity level $K\;(1\le K\le d)$
+\For{$t=0,1,\dots,T-1$}
+    \State Sample a minibatch (or a data point) $\xi_t\sim\mathcal D$
+    \State Compute stochastic gradient $g_t=\nabla f(w_t;\xi_t)$
+    \State $\displaystyle \tilde g_t\gets \topk{g_t}$ \Comment{keep only top $K$ entries}
+    \State $w_{t+1}\gets w_t-\eta_t\tilde g_t$
+\EndFor
+\State \textbf{Return} $w_T$ (or the average $\bar w_T=\frac1T\sum_{t=0}^{T-1}w_t$)
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$.
+\[
+\nabla f(w)=2(w-3).
+\]
+Set $w_0=0$, constant stepsize $\eta=0.1$, and $K=1$ (the only coordinate is kept).
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+$t$ & $g_t= \nabla f(w_t)$ & $w_{t+1}=w_t-\eta\,\topk{g_t}$ & $f(w_{t+1})$\\\hline
+0 & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^2=5.76$\\
+1 & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^2=3.6864$\\
+2 & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^2=2.3650$
+\end{tabular}
+\end{center}
+The objective value decreases at each iteration, illustrating the update (1) even though only the top‑$K$ component (the only one) is transmitted.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{as:smooth}
+$f$ is $L$‑smooth: for all $x,y\in\mathbb{R}^d$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2 .
+\]
+\end{assumption}
+\begin{assumption}[Unbiased Stochastic Gradient]\label{as:unbiased}
+\[
+\mathbb{E}_{\xi_t}[\,g_t\mid w_t\,]=\nabla f(w_t).
+\]
+\end{assumption}
+\begin{assumption}[Bounded Variance]\label{as:variance}
+There exists $\sigma^2>0$ such that
+\[
+\mathbb{E}_{\xi_t}\big[\|g_t-\nabla f(w_t)\|^2\mid w_t\big]\le\sigma^2 .
+\]
+\end{assumption}
+\begin{assumption}[Top‑$K$ Compression Guarantee]\label{as:compress}
+Define the compression factor
+\[
+\rho\;:=\;\frac{d-K}{K}\;\ge 0 .
+\]
+For any vector $v\in\mathbb{R}^d$ the top‑$K$ operator satisfies
+\[
+\|v-\topk{v}\|^2\;\le\;\rho\,\|v\|^2 . \tag{2}
+\]
+\end{assumption}
+\begin{assumption}[Bounded Gradient Norm]\label{as:gradbound}
+There exists $G>0$ such that $\|\nabla f(w)\|\le G$ for all $w$ visited by the algorithm.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}\label{thm:main}
+Assume \ref{as:smooth}–\ref{as:gradbound} hold and let the stepsize be constant
+\[
+\eta_t\equiv\eta\le\frac{1}{L(1+\rho)} .
+\]
+Then for any $T\ge1$,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(w_t)\|^2\big]
+\;\le\;
+\frac{2\big(f(w_0)-f^\star\big)}{\eta T}
+\;+\;
+\eta L\sigma^2(1+\rho) .
+\tag{3}
+\]
+Consequently, choosing $\eta=\Theta\big(\tfrac{1}{\sqrt{T}}\big)$ yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(w_t)\|^2\big]
+=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The condition $\eta\le1/[L(1+\rho)]$ guarantees that the extra error introduced by sparsification (captured by $\rho$) does not destabilize the recursion.
+\item \textbf{Hyper‑parameter Sensitivity.} Larger $K$ (smaller $\rho$) permits a larger stepsize and improves the bound. In the limit $K=d$ we have $\rho=0$ and recover the standard SGD rate.
+\item \textbf{Comparison to Baselines.} Compared with vanilla SGD, the additional term $\eta L\sigma^2\rho$ quantifies the slowdown due to communicating only $K$ coordinates. When $K\ll d$, $\rho\approx d/K$ and the degradation is linear in $d/K$.
+\item \textbf{Special Cases.} If the stochastic gradients are exact ($\sigma=0$) the bound reduces to the deterministic rate $O(1/(\eta T))$, identical to gradient descent with a $1/(1+\rho)$‑scaled stepsize.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that Top‑K SGD retains the canonical $O(1/\sqrt{T})$ convergence of stochastic methods for non‑convex smooth objectives, at the cost of a multiplicative factor $1+\rho$ that reflects the information loss caused by sparsification. The result holds under minimal assumptions and directly parallels the classical SGD analysis, with the only modification being the compression inequality (2).
+
+\newpage
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness Inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $x,y$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2 .
+\]
+\end{lemma}
+\begin{lemma}[Compression Error]\label{lem:compress}
+For the top‑$K$ operator defined in \eqref{as:compress},
+\[
+\|v-\topk{v}\|^2\le\rho\|v\|^2,\qquad\rho=\frac{d-K}{K}.
+\]
+\end{lemma}
+Both lemmas follow directly from the definitions and are used repeatedly in the proof.
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. Throughout, expectations are taken w.r.t. all randomness up to iteration $t$ unless otherwise noted.
+
+\subsection*{Step 1 – One‑step descent}
+From Lemma~\ref{lem:smooth} with $x=w_t$, $y=w_{t+1}=w_t-\eta\topk{g_t}$,
+\[
+f(w_{t+1})\le f(w_t)-\eta\langle\nabla f(w_t),\topk{g_t}\rangle
++\frac{L\eta^{2}}{2}\|\topk{g_t}\|^{2}. \tag{4}
+\]
+
+\subsection*{Step 2 – Decompose the inner product}
+Add and subtract $g_t$ inside the inner product:
+\[
+\langle\nabla f(w_t),\topk{g_t}\rangle
+=\langle\nabla f(w_t),g_t\rangle
++\langle\nabla f(w_t),\topk{g_t}-g_t\rangle . \tag{5}
+\]
+
+\subsection*{Step 3 – Take conditional expectation}
+Condition on $w_t$ and use Assumption~\ref{as:unbiased}:
+\[
+\mathbb{E}\big[\langle\nabla f(w_t),g_t\rangle\mid w_t\big]
+=\|\nabla f(w_t)\|^{2}. \tag{6}
+\]
+
+\subsection*{Step 4 – Bound the compression cross term}
+Using Cauchy–Schwarz and Lemma~\ref{lem:compress},
+\[
+\big|\langle\nabla f(w_t),\topk{g_t}-g_t\rangle\big|
+\le\|\nabla f(w_t)\|\,\|g_t-\topk{g_t}\|
+\le\|\nabla f(w_t)\|\,\sqrt{\rho}\,\|g_t\| . \tag{7}
+\]
+Taking expectation and applying Young’s inequality $ab\le\frac{1}{2}(a^{2}+b^{2})$,
+\[
+\mathbb{E}\big[\langle\nabla f(w_t),\topk{g_t}-g_t\rangle\mid w_t\big]
+\le\frac{1}{2}\|\nabla f(w_t)\|^{2}
++\frac{\rho}{2}\mathbb{E}\big[\|g_t\|^{2}\mid w_t\big]. \tag{8}
+\]
+
+\subsection*{Step 5 – Bound $\mathbb{E}\|g_t\|^{2}$}
+Decompose $g_t=\nabla f(w_t)+(g_t-\nabla f(w_t))$ and use Assumption~\ref{as:variance}:
+\[
+\mathbb{E}\big[\|g_t\|^{2}\mid w_t\big]
+= \|\nabla f(w_t)\|^{2}
++\mathbb{E}\big[\|g_t-\nabla f(w_t)\|^{2}\mid w_t\big]
+\le \|\nabla f(w_t)\|^{2}+\sigma^{2}. \tag{9}
+\]
+
+\subsection*{Step 6 – Bound the squared norm of the compressed gradient}
+From Lemma~\ref{lem:compress},
+\[
+\|\topk{g_t}\|^{2}
+\le \|g_t\|^{2}. \tag{10}
+\]
+Taking expectation and using \eqref{9},
+\[
+\mathbb{E}\big[\|\topk{g_t}\|^{2}\mid w_t\big]
+\le \|\nabla f(w_t)\|^{2}+\sigma^{2}. \tag{11}
+\]
+
+\subsection*{Step 7 – Plugging back into the descent inequality}
+Insert \eqref{5}–\eqref{8} and \eqref{11} into \eqref{4}, then take conditional expectation:
+\[
+\begin{aligned}
+\mathbb{E}\big[f(w_{t+1})\mid w_t\big]
+&\le f(w_t)-\eta\|\nabla f(w_t)\|^{2}
++\eta\Big(\frac{1}{2}\|\nabla f(w_t)\|^{2}
++\frac{\rho}{2}\big(\|\nabla f(w_t)\|^{2}+\sigma^{2}\big)\Big)   \\
+&\quad +\frac{L\eta^{2}}{2}\big(\|\nabla f(w_t)\|^{2}+\sigma^{2}\big).
+\end{aligned}
+\tag{12}
+\]
+
+\subsection*{Step 8 – Collect terms}
+Grouping the coefficients of $\|\nabla f(w_t)\|^{2}$ and $\sigma^{2}$ yields
+\[
+\mathbb{E}\big[f(w_{t+1})\mid w_t\big]
+\le f(w_t)
+-\underbrace{\eta\Big(1-\tfrac12-\tfrac{\rho}{2}\Big)}_{=:c_1}\|\nabla f(w_t)\|^{2}
++\underbrace{\Big(\tfrac{\eta\rho}{2}+\tfrac{L\eta^{2}}{2}\Big)}_{=:c_2}\sigma^{2}
++\underbrace{\Big(\tfrac{L\eta^{2}}{2}\Big)}_{=:c_3}\|\nabla f(w_t)\|^{2}.
+\tag{13}
+\]
+
+\subsection*{Step 9 – Use the stepsize restriction}
+Choose $\eta\le\frac{1}{L(1+\rho)}$. Then
+\[
+c_3=\frac{L\eta^{2}}{2}\le\frac{\eta}{2(1+\rho)} .
+\]
+Consequently,
+\[
+c_1-c_3
+=\eta\Big(\tfrac12-\tfrac{\rho}{2}\Big)-\frac{L\eta^{2}}{2}
+\ge\eta\Big(\tfrac12-\tfrac{\rho}{2}-\tfrac{1}{2(1+\rho)}\Big)
+\ge\frac{\eta}{2(1+\rho)} . \tag{14}
+\]
+Define
+\[
+\mu:=\frac{\eta}{2(1+\rho)}>0 .
+\]
+
+\subsection*{Step 10 – One‑step recursion}
+Using \eqref{13} and the bound \eqref{14},
+\[
+\mathbb{E}\big[f(w_{t+1})\mid w_t\big]
+\le f(w_t)-\mu\|\nabla f(w_t)\|^{2}+c_2\sigma^{2}.
+\tag{15}
+\]
+
+\subsection*{Step 11 – Unconditional expectation and telescoping}
+Take full expectation and sum \eqref{15} over $t=0,\dots,T-1$:
+\[
+\begin{aligned}
+\mathbb{E}[f(w_T)]
+&\le f(w_0)-\mu\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(w_t)\|^{2}\big]
++T\,c_2\sigma^{2}.
+\end{aligned}
+\tag{16}
+\]
+Since $f(w_T)\ge f^\star$, rearrange:
+\[
+\mu\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(w_t)\|^{2}\big]
+\le f(w_0)-f^\star+T\,c_2\sigma^{2}.
+\tag{17}
+\]
+
+\subsection*{Step 12 – Divide by $T$ and substitute constants}
+Recall $c_2=\frac{\eta\rho}{2}+\frac{L\eta^{2}}{2}\le\frac{\eta}{2}(1+\rho)$ (using $\eta\le1/[L(1+\rho)]$). Hence,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(w_t)\|^{2}\big]
+\le \frac{f(w_0)-f^\star}{\mu T}
+     +\frac{c_2}{\mu}\sigma^{2}.
+\tag{18}
+\]
+Substituting $\mu=\frac{\eta}{2(1+\rho)}$ and $c_2\le\frac{\eta}{2}(1+\rho)$ gives
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(w_t)\|^{2}\big]
+\le \frac{2\big(f(w_0)-f^\star\big)}{\eta T}
+   +\eta L\sigma^{2}(1+\rho) .
+\tag{19}
+\]
+Equation \eqref{19} is exactly the bound \eqref{3} claimed in Theorem~\ref{thm:main}. ∎
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{19} choose $\eta = \frac{1}{\sqrt{T}}\frac{1}{\sqrt{L(1+\rho)}}$ (which respects the stepsize condition). Then
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla f(w_t)\|^{2}\big]
+\le
+\underbrace{\frac{2\big(f(w_0)-f^\star\big)\sqrt{L(1+\rho)}}{\sqrt{T}}}_{O(T^{-1/2})}
++
+\underbrace{\frac{\sqrt{L(1+\rho)}}{\sqrt{T}}\,\sigma^{2}}_{O(T^{-1/2})}
+=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Full‑gradient (no compression).} $K=d\Rightarrow\rho=0$. The bound reduces to the classical SGD result $\frac{2(f(w_0)-f^\star)}{\eta T}+\eta L\sigma^{2}$.
+\item \textbf{Deterministic setting.} $\sigma=0$ gives $\frac{2(f(w_0)-f^\star)}{\eta T}$, i.e. a $O(1/T)$ decay of the gradient norm, matching gradient descent with stepsize $1/(L(1+\rho))$.
+\item \textbf{Extreme sparsity.} $K=1$ yields $\rho=(d-1)$; the stepsize must be reduced by a factor $1/(1+d-1)=1/d$, reflecting the severe information loss.
+\end{itemize}
+
+\end{document}

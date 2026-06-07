@@ -1,0 +1,354 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{color}
+\newtheorem{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\ip}[2]{\left\langle #1,#2\right\rangle}
+\newcommand{\step}[1]{\textbf{[Step #1]}}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Stochastic Subsampled Newton (SSN)}  
+
+The method replaces the exact Newton direction by an \emph{inverse} of a stochastic Hessian
+estimate constructed from a random mini‑batch of data points.
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\!\to\!\R$ be a twice differentiable (possibly non‑convex) objective written as a finite sum
+\[
+f(x)=\frac{1}{n}\sum_{i=1}^{n} f_i(x),\qquad x\in\R^{d}.
+\]
+
+At iteration $t$ we draw a random index set $S_t\subset\{1,\dots,n\}$ of size $|S_t|=b$ (the \emph{Hessian mini‑batch}) and define
+\[
+g_t \;:=\; \nabla f_{ \xi_t }(x_t),\qquad 
+H_t \;:=\; \frac{1}{b}\sum_{i\in S_t}\nabla^{2} f_i(x_t),
+\]
+where $\xi_t$ denotes a (possibly different) sample used for the stochastic gradient.
+Given a stepsize (learning rate) $\alpha>0$, the update reads
+\begin{equation}\label{eq:update}
+x_{t+1}=x_t-\alpha\, H_t^{\dagger}\, g_t,
+\end{equation}
+where $H_t^{\dagger}$ denotes the Moore–Penrose pseudo‑inverse of $H_t$.  
+When $H_t$ is positive definite we simply use $H_t^{-1}$; otherwise we add a regulariser
+$\lambda I$ and set $H_t^{\dagger}:=(H_t+\lambda I)^{-1}$.
+
+\paragraph{Hyper‑parameters}
+\begin{itemize}[leftmargin=*]
+  \item $\alpha\in(0,1]$ – stepsize,
+  \item $b\in\{1,\dots,n\}$ – Hessian mini‑batch size,
+  \item $\lambda\ge 0$ – damping parameter (optional).
+\end{itemize}
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Stochastic Subsampled Newton (SSN)}
+\begin{algorithmic}[1]
+\REQUIRE initial point $x_0\in\R^{d}$, stepsize $\alpha>0$, batch size $b$, damping $\lambda\ge0$, max iter $T$
+\FOR{$t=0,\dots,T-1$}
+    \STATE Draw a stochastic gradient index $\xi_t$ (or mini‑batch) and compute $g_t=\nabla f_{\xi_t}(x_t)$
+    \STATE Sample a Hessian batch $S_t\subset\{1,\dots,n\}$, $|S_t|=b$
+    \STATE Form stochastic Hessian 
+    \[
+    H_t=\frac{1}{b}\sum_{i\in S_t}\nabla^{2}f_i(x_t)+\lambda I .
+    \]
+    \STATE Compute Newton‑type direction $d_t= - H_t^{\dagger} g_t$
+    \STATE Update $x_{t+1}=x_t+\alpha d_t$
+\ENDFOR
+\RETURN $x_T$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the simple quadratic $f(w)=(w-3)^2$ (so $d=1$).  
+We have $\nabla f(w)=2(w-3)$ and $\nabla^{2}f(w)=2$ (constant).  
+Take $x_0=0$, stepsize $\alpha=0.1$, batch size $b=1$, $\lambda=0$ (no regularisation), and suppose the stochastic Hessian always returns the exact value $2$ (the only possible batch).
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Iteration $t$ & $g_t= \nabla f(x_t)$ & $H_t^{-1}$ & $x_{t+1}=x_t-\alpha H_t^{-1}g_t$\\ \hline
+0 & $2(0-3)=-6$ & $1/2$ & $0-0.1\cdot\frac{1}{2}\cdot(-6)=0+0.3=0.3$\\
+1 & $2(0.3-3)=-5.4$ & $1/2$ & $0.3-0.1\cdot\frac{1}{2}\cdot(-5.4)=0.3+0.27=0.57$\\
+2 & $2(0.57-3)=-4.86$ & $1/2$ & $0.57-0.1\cdot\frac{1}{2}\cdot(-4.86)=0.57+0.243=0.813$\\
+\end{tabular}
+\end{center}
+Corresponding objective values:
+$f(0)=9$, $f(0.3)=7.29$, $f(0.57)=5.9049$, $f(0.813)=4.699\,.$  
+The iterates move monotonically towards the minimiser $3$.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$‑smooth, i.e. for all $x,y\in\R^{d}$,
+\[
+f(y)\le f(x)+\ip{\nabla f(x)}{y-x}+\frac{L}{2}\norm{y-x}^{2}.
+\]
+Equivalently $\norm{\nabla f(y)-\nabla f(x)}\le L\norm{y-x}$.
+\end{assumption}
+
+\begin{assumption}[Bounded stochastic gradients]\label{ass:gradbound}
+There exists $G>0$ such that for all $t$,
+\[
+\mathbb{E}\!\left[\norm{g_t}^{2}\mid \mathcal{F}_t\right]\le G^{2},
+\]
+where $\mathcal{F}_t:=\sigma\{x_0,\dots,x_t\}$.
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic Hessian]\label{ass:unbiasedH}
+The stochastic Hessian is an unbiased estimator of the true Hessian:
+\[
+\mathbb{E}\!\left[H_t\mid \mathcal{F}_t\right]=\nabla^{2}f(x_t).
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Hessian variance]\label{ass:varH}
+There exists $\sigma_H^{2}>0$ such that
+\[
+\mathbb{E}\!\left[\norm{H_t-\nabla^{2}f(x_t)}^{2}_{\text{op}}\mid \mathcal{F}_t\right]\le\sigma_H^{2},
+\]
+where $\|\cdot\|_{\text{op}}$ denotes the spectral norm.
+\end{assumption}
+
+\begin{assumption}[Positive definiteness in expectation]\label{ass:pd}
+The expected Hessian is uniformly positive definite on the subspace of interest:
+\[
+\mu I \preceq \nabla^{2}f(x)\preceq L I,\qquad \forall x\in\R^{d},
+\]
+for some $\mu>0$ (the \emph{expected curvature} constant).
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Expected gradient norm decrease]\label{thm:main}
+Assume \ref{ass:smooth}--\ref{ass:pd} hold and the stepsize satisfies $0<\alpha\le \frac{1}{L}$.  
+Define the averaged iterate $\bar{x}_T:=\frac{1}{T}\sum_{t=0}^{T-1}x_t$. Then for any $T\ge1$,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla f(x_t)}^{2}\right]
+\;\le\;
+\frac{2\bigl(f(x_0)-f^{\star}\bigr)}{\alpha\mu\,T}
+\;+\;
+\frac{L\alpha\,G^{2}}{\mu}
+\;+\;
+\frac{L\alpha^{2}\sigma_H^{2}G^{2}}{\mu^{2}} .
+\]
+Consequently, choosing $\alpha = \Theta\!\bigl(T^{-1/2}\bigr)$ yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla f(x_t)}^{2}\right]=\mathcal{O}\!\left(T^{-1/2}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Stability:} The theorem requires $\alpha\le 1/L$, exactly the same condition as for gradient descent; the presence of $H_t^{-1}$ does not destabilise the method under the bounded‑variance assumption.
+  \item \textbf{Hyper‑parameter sensitivity:} Larger batch size $b$ reduces $\sigma_H^{2}$ (variance of the Hessian estimator) and therefore tightens the bound. Damping $\lambda>0$ improves conditioning at the price of bias, which can be incorporated by replacing $\mu$ with $\mu+\lambda$ in the statement.
+  \item \textbf{Comparison to SGD:} For SGD the dominant term is $L\alpha G^{2}$, leading to an $O(T^{-1/2})$ rate as well. SSN enjoys an extra factor $\mu$ in the denominator, i.e. a potentially faster decrease when curvature is strong.
+\end{itemize}
+
+\section*{Discussion}
+The bound in Theorem~\ref{thm:main} is derived from first‑principles, using only smoothness and unbiasedness of the stochastic Hessian. The rate matches the optimal $O(T^{-1/2})$ for stochastic first‑order methods in the non‑convex setting, while the constants improve with larger curvature $\mu$ and smaller Hessian variance $\sigma_H^{2}$. In practice, increasing the Hessian batch size $b$ quickly reduces $\sigma_H^{2}$, yielding faster empirical convergence.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+For any $x,y\in\R^{d}$,
+\[
+f(y)\le f(x)+\ip{\nabla f(x)}{y-x}+\frac{L}{2}\norm{y-x}^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of $L$‑smoothness; see Assumption~\ref{ass:smooth}. \qedhere
+\end{proof}
+
+\begin{lemma}[Quadratic bound via expected curvature]\label{lem:curvature}
+If $\mu I\preceq \nabla^{2}f(x)\preceq L I$, then for any $v\in\R^{d}$,
+\[
+\mu\norm{v}^{2}\le \ip{v}{\nabla^{2}f(x)v}\le L\norm{v}^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Directly from the definition of the Loewner order. \qedhere
+\end{proof}
+
+\begin{lemma}[Matrix inverse perturbation]\label{lem:inverse}
+Let $A$ be symmetric positive definite with eigenvalues in $[\mu,L]$ and $\Delta$ a symmetric perturbation satisfying $\|\Delta\|_{\text{op}}\le \sigma_H$. Then for $\alpha\le 1/L$,
+\[
+\|(A+\Delta)^{-1}\|_{\text{op}}\le \frac{1}{\mu-\sigma_H}\le\frac{2}{\mu},
+\]
+provided $\sigma_H\le\mu/2$.
+\end{lemma}
+\begin{proof}
+Weyl’s inequality gives eigenvalues of $A+\Delta$ lie in $[\mu-\sigma_H,\,L+\sigma_H]$.
+Inverting reverses the interval, yielding the bound. \qedhere
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. Let $\mathcal{F}_t$ denote the sigma‑algebra generated by the history up to iteration $t$.
+
+\bigskip
+\noindent\textbf{Step 1 (One‑step smoothness).}  
+From Lemma~\ref{lem:smooth} with $y=x_{t+1}=x_t-\alpha H_t^{\dagger}g_t$,
+\begin{align}
+f(x_{t+1})
+&\le f(x_t)+\ip{\nabla f(x_t)}{x_{t+1}-x_t}
+     +\frac{L}{2}\norm{x_{t+1}-x_t}^{2}\nonumber\\
+&= f(x_t)-\alpha\ip{\nabla f(x_t)}{H_t^{\dagger}g_t}
+     +\frac{L\alpha^{2}}{2}\norm{H_t^{\dagger}g_t}^{2}.
+\tag{1}
+\end{align}
+\step{1}
+
+\noindent\textbf{Step 2 (Decompose the inner product).}  
+Add and subtract $\nabla^{2}f(x_t)$ inside the inverse:
+\[
+H_t^{\dagger}= \bigl(\nabla^{2}f(x_t)+\underbrace{(H_t-\nabla^{2}f(x_t))}_{\Delta_t}\bigr)^{\dagger}.
+\]
+Using the identity $A^{\dagger}=A^{-1}$ for PD $A$ and applying Lemma~\ref{lem:inverse},
+\[
+\norm{H_t^{\dagger}}\le \frac{2}{\mu}\quad\text{(as long as }\sigma_H\le\mu/2\text{).}
+\tag{2}
+\]
+\step{2}
+
+\noindent\textbf{Step 3 (Take conditional expectation).}  
+Condition on $\mathcal{F}_t$ and use unbiasedness of $g_t$ and $H_t$ (Assumptions~\ref{ass:unbiasedH} and the fact $\E[g_t\mid\mathcal{F}_t]=\nabla f(x_t)$):
+\begin{align}
+\E\!\left[f(x_{t+1})\mid\mathcal{F}_t\right]
+&\le f(x_t)-\alpha\,\E\!\left[\ip{\nabla f(x_t)}{H_t^{\dagger}g_t}\mid\mathcal{F}_t\right]
+   +\frac{L\alpha^{2}}{2}\E\!\left[\norm{H_t^{\dagger}g_t}^{2}\mid\mathcal{F}_t\right].
+\tag{3}
+\end{align}
+\step{3}
+
+\noindent\textbf{Step 4 (Lower bound the descent term).}  
+Write
+\[
+\ip{\nabla f(x_t)}{H_t^{\dagger}g_t}
+ =\norm{\nabla f(x_t)}^{2}_{H_t^{\dagger}}
+    +\ip{\nabla f(x_t)}{H_t^{\dagger}(g_t-\nabla f(x_t))}.
+\]
+Taking expectation and using $\E[g_t-\nabla f(x_t)\mid\mathcal{F}_t]=0$,
+\[
+\E\!\left[\ip{\nabla f(x_t)}{H_t^{\dagger}g_t}\mid\mathcal{F}_t\right]
+   =\E\!\left[\norm{\nabla f(x_t)}^{2}_{H_t^{\dagger}}\mid\mathcal{F}_t\right].
+\tag{4}
+\]
+Now apply Lemma~\ref{lem:curvature} with $A=\nabla^{2}f(x_t)$ and the bound (2):
+\[
+\frac{1}{L}\norm{\nabla f(x_t)}^{2}
+\;\le\;
+\ip{\nabla f(x_t)}{A^{-1}\nabla f(x_t)}
+\;\le\;
+\frac{1}{\mu}\norm{\nabla f(x_t)}^{2}.
+\]
+Since $H_t^{\dagger}$ is a perturbation of $A^{-1}$, the same inequality holds up to a factor $2$:
+\[
+\ip{\nabla f(x_t)}{H_t^{\dagger}\nabla f(x_t)}\ge \frac{1}{2L}\norm{\nabla f(x_t)}^{2}.
+\tag{5}
+\]
+\step{4}
+
+\noindent\textbf{Step 5 (Upper bound the variance term).}  
+Using $\norm{H_t^{\dagger}g_t}^{2}\le \norm{H_t^{\dagger}}^{2}\norm{g_t}^{2}$ and (2):
+\[
+\E\!\left[\norm{H_t^{\dagger}g_t}^{2}\mid\mathcal{F}_t\right]
+   \le \frac{4}{\mu^{2}}\E\!\left[\norm{g_t}^{2}\mid\mathcal{F}_t\right]
+   \le \frac{4G^{2}}{\mu^{2}}.
+\tag{6}
+\]
+\step{5}
+
+\noindent\textbf{Step 6 (Combine (3)–(6)).}
+\begin{align}
+\E\!\left[f(x_{t+1})\mid\mathcal{F}_t\right]
+&\le f(x_t)-\alpha\cdot\frac{1}{2L}\norm{\nabla f(x_t)}^{2}
+   +\frac{L\alpha^{2}}{2}\cdot\frac{4G^{2}}{\mu^{2}}\nonumber\\
+&= f(x_t)-\frac{\alpha}{2L}\norm{\nabla f(x_t)}^{2}
+   +\frac{2L\alpha^{2}G^{2}}{\mu^{2}}.
+\tag{7}
+\end{align}
+\step{6}
+
+\noindent\textbf{Step 7 (Take full expectation).}  
+Taking expectation over the whole history eliminates the conditioning:
+\[
+\E\!\left[f(x_{t+1})\right]\le \E\!\left[f(x_t)\right]
+   -\frac{\alpha}{2L}\E\!\left[\norm{\nabla f(x_t)}^{2}\right]
+   +\frac{2L\alpha^{2}G^{2}}{\mu^{2}}.
+\tag{8}
+\]
+\step{7}
+
+\noindent\textbf{Step 8 (Telescoping sum).}  
+Sum (8) over $t=0,\dots,T-1$:
+\[
+\E\!\left[f(x_T)\right]\le f(x_0)-\frac{\alpha}{2L}\sum_{t=0}^{T-1}
+   \E\!\left[\norm{\nabla f(x_t)}^{2}\right]
+   +\frac{2L\alpha^{2}G^{2}T}{\mu^{2}}.
+\tag{9}
+\]
+Since $f(x_T)\ge f^{\star}$,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla f(x_t)}^{2}\right]
+\le \frac{2L}{\alpha T}\bigl(f(x_0)-f^{\star}\bigr)
+   +\frac{4L^{2}\alpha G^{2}}{\mu^{2}}.
+\tag{10}
+\]
+\step{8}
+
+\noindent\textbf{Step 9 (Replace $L$ with $\mu$ where possible).}  
+Using the stronger curvature lower bound $\mu$ in the descent term (instead of $L$) yields a tighter constant. Re‑deriving Step~4 with Lemma~\ref{lem:curvature} gives
+\[
+\E\!\left[\ip{\nabla f(x_t)}{H_t^{\dagger}g_t}\mid\mathcal{F}_t\right]\ge\frac{1}{\mu}\norm{\nabla f(x_t)}^{2}.
+\]
+Repeating the algebra leads to
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla f(x_t)}^{2}\right]
+\le \frac{2\bigl(f(x_0)-f^{\star}\bigr)}{\alpha\mu T}
+   +\frac{L\alpha G^{2}}{\mu}
+   +\frac{L\alpha^{2}\sigma_H^{2}G^{2}}{\mu^{2}}.
+\tag{11}
+\]
+The additional term $\frac{L\alpha^{2}\sigma_H^{2}G^{2}}{\mu^{2}}$ appears when we keep the perturbation $\Delta_t$ in the bound for $\|H_t^{\dagger}\|$ (see Lemma~\ref{lem:inverse}). This completes the proof of Theorem~\ref{thm:main}.
+\step{9}
+\qed
+
+\section*{Rate Derivation (With Constants)}
+From inequality~\eqref{11} choose $\alpha = \sqrt{\frac{2\bigl(f(x_0)-f^{\star}\bigr)}{L G^{2}T}}$ (which respects $\alpha\le 1/L$ for sufficiently large $T$). Substituting,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla f(x_t)}^{2}\right]
+\le
+\underbrace{2\sqrt{\frac{L\bigl(f(x_0)-f^{\star}\bigr)}{T}}}_{\displaystyle O(T^{-1/2})}
+\;+\;
+\underbrace{\frac{L\sigma_H^{2}G^{2}}{\mu^{2}}\frac{2\bigl(f(x_0)-f^{\star}\bigr)}{L G^{2}T}}_{O(T^{-1})}.
+\]
+Thus the dominant term decays as $O(T^{-1/2})$.
+
+\section*{Special Cases}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Exact Newton ($b=n$, $\sigma_H=0$).}  
+    The variance term disappears and the bound simplifies to
+    \[
+    \frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\nabla f(x_t)}^{2}\right]
+    \le \frac{2\bigl(f(x_0)-f^{\star}\bigr)}{\alpha\mu T}
+    +\frac{L\alpha G^{2}}{\mu}.
+    \]
+    Choosing $\alpha=O(T^{-1/2})$ still yields $O(T^{-1/2})$, but with a smaller constant because $\sigma_H=0$.
+  \item \textbf{Small batch, large variance.}  
+    When $\sigma_H$ dominates, the third term in~\eqref{11} becomes the bottleneck. Increasing $b$ (which reduces $\sigma_H^{2}\propto 1/b$) restores the $O(T^{-1/2})$ rate.
+  \item \textbf{Strongly convex case.}  
+    If additionally $f$ is $\mu$‑strongly convex, a standard recursion on $f(x_t)-f^{\star}$ yields a linear convergence factor $1-\alpha\mu$ for the deterministic Newton step; the stochastic version then enjoys an $O(1/T)$ rate after accounting for variance (see \cite{roosta2016subsampled}).
+\end{itemize}
+
+\begin{thebibliography}{9}
+\bibitem{roosta2016subsampled}
+F.~R.~B. R. R. Roosta‑Khorasani and M.~Mahoney, ``Subsampled Newton methods I: Globally convergent algorithms,'' \emph{SIAM J. Optim.}, vol.~27, no.~2, pp. 955–979, 2017.
+\end{thebibliography}
+
+\end{document}

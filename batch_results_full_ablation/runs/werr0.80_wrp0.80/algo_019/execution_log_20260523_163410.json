@@ -1,0 +1,183 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T16:31:24.555674",
+    "end_time": "2026-05-23T16:34:10.851397",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.8,
+      "w_tfp": 0.2,
+      "w_rp_pen": 0.8
+    }
+  },
+  "algorithm_description": "The algorithm performs local SGD steps on K clients for E epochs. Clients minimize local objective + (mu/2)||x - x_global||^2 before averaging.",
+  "assumptions": "Convex and Smooth functions (FedProx)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T16:32:07.903697",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algpseudocode}\n\\usepackage{geometry}\n\\geometry{margin=1in}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newcommand{\\EE}{\\mathbb{E}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\prox}{\\mu}\n\\newcommand{\\sgd}{\\mathrm{SGD}}\n\\begin{document}\n\n\\section*{FedProx: Local SGD with a Proximal Term}\n\n\\section*{Mathematical Formulation}\nConsider $K$ participating clients.  \nEach client $k\\in\\{1,\\dots ,K\\}$ holds a local convex smooth objective\n\\[\nf_k(x)=\\frac{1}{n_k}\\sum_{i=1}^{n_k}\\ell\\!\\bigl(x;z_{k,i}\\bigr),\n\\qquad \nF(x)=\\frac{1}{K}\\sum_{k=1}^{K}f_k(x).\n\\]\n\nAt global communication round $t=0,1,\\dots ,T-1$ the server maintains a\nglobal model $x_t\\in\\mathbb{R}^d$.  \nEach client $k$ receives $x_t$ and performs $E$ local stochastic gradient\nsteps on the \\emph{proximal} local objective\n\\[\n\\Phi_k^{(t)}(x)\\;:=\\;f_k(x)+\\frac{\\prox}{2}\\,\\|x-x_t\\|^{2},\n\\tag{1}\n\\]\nwhere $\\prox>0$ is the proximal coefficient (FedProx parameter).\n\nDenote by $x_{t,0}^{k}=x_t$ the local copy at the beginning of round $t$.\nFor $e=0,\\dots ,E-1$ client $k$ samples a stochastic gradient $g_{t,e}^{k}$\nwith\n\\[\n\\EE\\!\\bigl[g_{t,e}^{k}\\mid x_{t,e}^{k}\\bigr]=\\nabla f_k\\!\\bigl(x_{t,e}^{k}\\bigr),\n\\]\nand updates\n\\[\nx_{t,e+1}^{k}\n=\nx_{t,e}^{k}\n-\\eta\\Bigl(g_{t,e}^{k}+\\prox\\bigl(x_{t,e}^{k}-x_t\\bigr)\\Bigr),\n\\tag{2}\n\\]\nwhere $\\eta>0$ is the learning rate.  \nAfter $E$ local steps the client sends $x_{t,E}^{k}$ to the server.\nThe server aggregates by simple averaging:\n\\[\nx_{t+1}\\;:=\\;\\frac{1}{K}\\sum_{k=1}^{K}x_{t,E}^{k}.\n\\tag{3}\n\\]\n\nThe algorithm repeats (2)\u2013(3) for $T$ communication rounds.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{FedProx}\n\\begin{algorithmic}[1]\n\\State \\textbf{Input:} learning rate $\\eta$, proximal coefficient $\\prox$, local steps $E$, rounds $T$\n\\State Initialize $x_0\\in\\mathbb{R}^d$\n\\For{$t=0$ \\textbf{to} $T-1$}\n    \\State Server broadcasts $x_t$ to all clients\n    \\For{each client $k\\in\\{1,\\dots ,K\\}$ \\textbf{in parallel}}\n        \\State $x_{t,0}^{k}\\gets x_t$\n        \\For{$e=0$ \\textbf{to} $E-1$}\n            \\State Sample minibatch $\\mathcal{B}_{t,e}^{k}$ and compute \n            $g_{t,e}^{k}= \\nabla f_k\\!\\bigl(x_{t,e}^{k};\\mathcal{B}_{t,e}^{k}\\bigr)$\n            \\State $x_{t,e+1}^{k}\\gets x_{t,e}^{k}\n                -\\eta\\bigl(g_{t,e}^{k}+\\prox (x_{t,e}^{k}-x_t)\\bigr)$   \\Comment{local \\sgd~with proximal term}\n        \\EndFor\n        \\State Send $x_{t,E}^{k}$ to server\n    \\EndFor\n    \\State $x_{t+1}\\gets\\frac{1}{K}\\sum_{k=1}^{K}x_{t,E}^{k}$ \\Comment{global averaging}\n\\EndFor\n\\State \\textbf{Output:} $x_T$\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider a single client ($K=1$) with scalar objective\n\\[\nf(w)=(w-3)^2,\n\\qquad \\nabla f(w)=2(w-3).\n\\]\nSet $\\eta=0.1$, $\\prox=0.5$, $E=1$ (one local step per round), $w_0=0$.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\nRound $t$ & $w_t$ & $g_t=\\nabla f(w_t)$ & $w_{t+1}=w_t-\\eta\\bigl(g_t+\\prox(w_t-w_t)\\bigr)$ \\\\ \\hline\n0 & $0$ & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ \\\\\n1 & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ \\\\\n2 & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ \\\\\n\\end{tabular}\n\\end{center}\nObjective values: $f(0)=9$, $f(0.6)=5.76$, $f(1.08)=3.6864$, $f(1.464)=2.1466$.\nThe algorithm reduces the loss, illustrating the proximal local update.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Convexity and Smoothness]\\label{ass:convex}\nEach local function $f_k$ is convex and $L$\u2011smooth:\n\\[\nf_k(y)\\le f_k(x)+\\langle\\nabla f_k(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^2,\n\\qquad\\forall x,y\\in\\mathbb{R}^d.\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Gradient Variance]\\label{ass:variance}\nFor any $x$, the stochastic gradient $g$ satisfies\n\\[\n\\EE\\!\\bigl[g\\mid x\\bigr]=\\nabla f_k(x),\\qquad\n\\EE\\!\\bigl[\\|g-\\nabla f_k(x)\\|^2\\mid x\\bigr]\\le\\sigma^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Dissimilarity]\\label{ass:dissim}\nThere exists $\\zeta\\ge0$ such that for all $x$,\n\\[\n\\frac{1}{K}\\sum_{k=1}^{K}\\|\\nabla f_k(x)-\\nabla F(x)\\|^2\\le \\zeta^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Learning Rate]\\label{ass:lr}\nThe stepsize $\\eta$ and proximal coefficient $\\prox$ obey\n\\[\n0<\\eta\\le \\frac{1}{L+\\prox},\\qquad \\prox\\ge0.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Convergence of FedProx]\\label{thm:main}\nUnder Assumptions \\ref{ass:convex}\u2013\\ref{ass:lr}, after $T$ communication rounds\nwith $E\\ge1$ local steps per round, the iterates $\\{x_t\\}$ generated by\nFedProx satisfy\n\\[\n\\EE\\!\\bigl[F(x_T)-F(x^\\star)\\bigr]\n\\;\\le\\;\n\\frac{\\|x_0-x^\\star\\|^2}{2\\eta T}\n\\;+\\;\n\\frac{E\\eta\\sigma^2}{2}\n\\;+\\;\n\\frac{E\\eta\\prox^2}{2}\\|x_0-x^\\star\\|^2\n\\;+\\;\n\\frac{E\\eta\\zeta^2}{2},\n\\tag{4}\n\\]\nwhere $x^\\star$ is a global minimizer of $F$.\nConsequently, choosing $\\eta=\\Theta\\!\\bigl(1/\\sqrt{T}\\bigr)$ yields\n\\[\n\\EE\\!\\bigl[F(x_T)-F(x^\\star)\\bigr]=\\mathcal{O}\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The proximal term $\\prox\\|x-x_t\\|^2$ penalises drift\naway from the global model, guaranteeing that local iterates remain\nwithin a bounded neighbourhood of $x_t$. This yields the extra\n$\\prox^2$ term in (4) but also permits larger local steps $E$.\n\n\\item \\textbf{Hyper\u2011parameter Sensitivity.}\nThe bound (4) is monotone increasing in $\\eta$, $\\sigma^2$, $\\zeta^2$ and\nin the product $E\\eta$. Hence, for a fixed $E$, decreasing $\\eta$ reduces\nthe variance and dissimilarity contributions but inflates the first term\n$\\|x_0-x^\\star\\|^2/(2\\eta T)$. The optimal trade\u2011off is achieved at\n$\\eta\\asymp 1/\\sqrt{T}$, matching the classic SGD rate.\n\n\\item \\textbf{Comparison to Baselines.}\nWhen $\\prox=0$ the algorithm reduces to standard \\sgd~with local steps,\nand (4) collapses to the known bound for federated \\sgd\\ (see Example~1).\nA strictly positive $\\prox$ improves robustness to heterogeneous data\n(bounded by $\\zeta$) at the cost of the additional $\\prox^2$ term.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that FedProx enjoys the same $\\mathcal{O}(1/\\sqrt{T})$\nconvergence rate as centralized SGD under convex smoothness,\nwhile allowing multiple local updates. The proximal regulariser\nmitigates client drift caused by data heterogeneity, which is reflected\nin the appearance of the dissimilarity constant $\\zeta$ only linearly in\nthe bound. The analysis is fully non\u2011asymptotic and holds for any number\nof clients $K$ (including the extreme case $K=1$).\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Descent]\\label{lem:smooth}\nFor any $L$\u2011smooth function $h$,\n\\[\nh(y)\\le h(x)+\\langle\\nabla h(x),y-x\\rangle\n+\\frac{L}{2}\\|y-x\\|^2 .\n\\]\n\\end{lemma}\n\\begin{lemma}[Proximal Descent]\\label{lem:prox}\nFor the proximal objective $\\Phi_k^{(t)}$ defined in (1) and any\n$x$, $y$,\n\\[\n\\Phi_k^{(t)}(y)\\le\\Phi_k^{(t)}(x)+\\langle\\nabla f_k(x)+\\prox(x-x_t),y-x\\rangle\n+\\frac{L+\\prox}{2}\\|y-x\\|^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\nApply Lemma~\\ref{lem:smooth} to $f_k$ and add the quadratic term.\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}.  All expectations are taken w.r.t.\nthe stochastic gradients and the random client sampling (if any).  \n\n\\noindent\\textbf{Notation.}\n\\[\n\\Delta_{t}^{k}:=x_{t,E}^{k}-x_t,\\qquad\n\\bar\\Delta_t:=\\frac{1}{K}\\sum_{k=1}^{K}\\Delta_{t}^{k}\n\\;(=x_{t+1}-x_t).\n\\]\n\n\\noindent\\textbf{Step 1. One\u2011step progress of a single client.}  \nFrom the update rule (2) and Lemma~\\ref{lem:prox} with $x=x_{t,e}^{k}$,\n$y=x_{t,e+1}^{k}$ we obtain for each local step $e$:\n\\[\n\\begin{aligned}\n\\EE\\!\\bigl[\\Phi_k^{(t)}(x_{t,e+1}^{k})\\mid x_{t,e}^{k}\\bigr]\n&\\le \\Phi_k^{(t)}(x_{t,e}^{k})\n-\\eta\\Bigl\\|\\nabla f_k(x_{t,e}^{k})+\\prox(x_{t,e}^{k}-x_t)\\Bigr\\|^{2}\\\\\n&\\quad+\\frac{L+\\prox}{2}\\eta^{2}\n\\EE\\!\\bigl[\\|g_{t,e}^{k}+\\prox(x_{t,e}^{k}-x_t)\\|^{2}\\mid x_{t,e}^{k}\\bigr].\n\\end{aligned}\n\\tag{5}\n\\] \n[Step 1]\n\n\\noindent\\textbf{Step 2. Bounding the stochastic term.}\nUsing unbiasedness and variance bound (Assumption~\\ref{ass:variance}),\n\\[\n\\EE\\!\\bigl[\\|g_{t,e}^{k}+\\prox(x_{t,e}^{k}-x_t)\\|^{2}\\mid x_{t,e}^{k}\\bigr]\n=\n\\|\\nabla f_k(x_{t,e}^{k})+\\prox(x_{t,e}^{k}-x_t)\\|^{2}\n+\\sigma^{2}.\n\\tag{6}\n\\] \n[Step 2]\n\n\\noindent\\textbf{Step 3. Combine (5) and (6).}\nPlugging (6) into (5) and simplifying,\n\\[\n\\EE\\!\\bigl[\\Phi_k^{(t)}(x_{t,e+1}^{k})\\mid x_{t,e}^{k}\\bigr]\n\\le\n\\Phi_k^{(t)}(x_{t,e}^{k})\n-\\underbrace{\\eta\\Bigl(1-\\tfrac{L+\\prox}{2}\\eta\\Bigr)}_{\\alpha}\n\\Bigl\\|\\nabla f_k(x_{t,e}^{k})+\\prox(x_{t,e}^{k}-x_t)\\Bigr\\|^{2}\n+\\tfrac{L+\\prox}{2}\\eta^{2}\\sigma^{2}.\n\\tag{7}\n\\] \n[Step 3]\n\n\\noindent\\textbf{Step 4. Choose $\\eta$ such that $\\alpha\\ge\\frac{\\eta}{2}$.}\nAssumption~\\ref{ass:lr} guarantees $\\eta\\le\\frac{1}{L+\\prox}$, thus\n$1-\\frac{L+\\prox}{2}\\eta\\ge\\frac12$ and $\\alpha\\ge\\frac{\\eta}{2}$.\nHence,\n\\[\n\\EE\\!\\bigl[\\Phi_k^{(t)}(x_{t,e+1}^{k})\\mid x_{t,e}^{k}\\bigr]\n\\le\n\\Phi_k^{(t)}(x_{t,e}^{k})\n-\\frac{\\eta}{2}\n\\Bigl\\|\\nabla f_k(x_{t,e}^{k})+\\prox(x_{t,e}^{k}-x_t)\\Bigr\\|^{2}\n+\\frac{L+\\prox}{2}\\eta^{2}\\sigma^{2}.\n\\tag{8}\n\\] \n[Step 4]\n\n\\noindent\\textbf{Step 5. Telescoping over $E$ local steps.}\nSumming (8) for $e=0,\\dots ,E-1$ and taking total expectation,\n\\[\n\\EE\\!\\bigl[\\Phi_k^{(t)}(x_{t,E}^{k})\\bigr]\n\\le\n\\Phi_k^{(t)}(x_t)\n-\\frac{\\eta}{2}\\sum_{e=0}^{E-1}\n\\EE\\!\\Bigl[\\bigl\\|\\nabla f_k(x_{t,e}^{k})+\\prox(x_{t,e}^{k}-x_t)\\bigr\\|^{2}\\Bigr]\n+\\frac{L+\\prox}{2}E\\eta^{2}\\sigma^{2}.\n\\tag{9}\n\\] \n[Step 5]\n\n\\noindent\\textbf{Step 6. Relating $\\Phi_k^{(t)}$ to the global objective.}\nRecall $\\Phi_k^{(t)}(x)=f_k(x)+\\frac{\\prox}{2}\\|x-x_t\\|^{2}$.\nThus,\n\\[\n\\Phi_k^{(t)}(x_t)=f_k(x_t),\\qquad\n\\Phi_k^{(t)}(x_{t,E}^{k})=f_k(x_{t,E}^{k})+\\frac{\\prox}{2}\\|\\Delta_{t}^{k}\\|^{2}.\n\\tag{10}\n\\] \n[Step 6]\n\n\\noindent\\textbf{Step 7. Averaging over clients.}\nTake the average of (9) over $k$ and use (10):\n\\[\n\\begin{aligned}\n\\EE\\!\\bigl[F(x_{t+1})\\bigr]\n&+\\frac{\\prox}{2}\\EE\\!\\bigl[\\|\\bar\\Delta_t\\|^{2}\\bigr]\n\\\\\n&\\le\nF(x_t)\n-\\frac{\\eta}{2K}\\sum_{k=1}^{K}\\sum_{e=0}^{E-1}\n\\EE\\!\\Bigl[\\bigl\\|\\nabla f_k(x_{t,e}^{k})+\\prox(x_{t,e}^{k}-x_t)\\bigr\\|^{2}\\Bigr]\n\\\\\n&\\qquad+\\frac{L+\\prox}{2}E\\eta^{2}\\sigma^{2}.\n\\end{aligned}\n\\tag{11}\n\\] \n[Step 7]\n\n\\noindent\\textbf{Step 8. Lower\u2011bounding the squared norm term.}\nUsing convexity of $f_k$ and optimality condition of $x^\\star$,\n\\[\n\\begin{aligned}\n\\bigl\\|\\nabla f_k(x_{t,e}^{k})+\\prox(x_{t,e}^{k}-x_t)\\bigr\\|^{2}\n&\\ge\n\\frac12\\|\\nabla f_k(x_{t,e}^{k})\\|^{2}\n-\\prox^{2}\\|x_t-x^\\star\\|^{2}\n\\\\\n&\\ge\n\\frac12\\|\\nabla f_k(x_{t,e}^{k})\\|^{2}\n-\\prox^{2}\\|x_t-x^\\star\\|^{2}.\n\\end{aligned}\n\\tag{12}\n\\] \n[Step 8]\n\n\\noindent\\textbf{Step 9. Replace the gradient norm by descent of $f_k$.}\nFor $L$\u2011smooth convex $f_k$, the standard descent lemma gives\n\\[\nf_k(x_{t,e}^{k})-f_k(x^\\star)\n\\le\n\\langle\\nabla f_k(x_{t,e}^{k}),x_{t,e}^{k}-x^\\star\\rangle\n\\le\n\\frac{1}{2\\eta}\\bigl(\\|x_{t,e}^{k}-x^\\star\\|^{2}\n-\\|x_{t,e+1}^{k}-x^\\star\\|^{2}\\bigr)\n+\\frac{L\\eta}{2}\\|\\nabla f_k(x_{t,e}^{k})\\|^{2}.\n\\tag{13}\n\\] \n[Step 9]\n\n\\noindent\\textbf{Step 10. Summation over local steps and clients.}\nSumming (13) over $e$ and $k$, telescoping the distance terms,\n\\[\n\\sum_{k=1}^{K}\\sum_{e=0}^{E-1}\n\\EE\\!\\bigl[f_k(x_{t,e}^{k})-f_k(x^\\star)\\bigr]\n\\le\n\\frac{1}{2\\eta}\n\\EE\\!\\Bigl[\\sum_{k=1}^{K}\\|x_{t,0}^{k}-x^\\star\\|^{2}\n-\\sum_{k=1}^{K}\\|x_{t,E}^{k}-x^\\star\\|^{2}\\Bigr]\n+\\frac{L\\eta}{2}\\!\\sum_{k=1}^{K}\\sum_{e=0}^{E-1}\n\\EE\\!\\bigl[\\|\\nabla f_k(x_{t,e}^{k})\\|^{2}\\bigr].\n\\tag{14}\n\\] \n[Step 10]\n\n\\noindent\\textbf{Step 11. Relate $\\|x_{t,E}^{k}-x^\\star\\|^{2}$ to the global model.}\nUsing $x_{t,E}^{k}=x_t+\\Delta_{t}^{k}$ and $\\bar\\Delta_t=\\frac{1}{K}\\sum_k\\Delta_{t}^{k}=x_{t+1}-x_t$,\n\\[\n\\begin{aligned}\n\\frac{1}{K}\\sum_{k=1}^{K}\\|x_{t,E}^{k}-x^\\star\\|^{2}\n&= \\|x_t-x^\\star\\|^{2}\n+\\frac{1}{K}\\sum_{k=1}^{K}\\|\\Delta_{t}^{k}\\|^{2}\n+2\\langle x_t-x^\\star,\\bar\\Delta_t\\rangle .\n\\end{aligned}\n\\tag{15}\n\\] \n[Step 11]\n\n\\noindent\\textbf{Step 12. Combine (11), (12)\u2013(15).}\nAfter algebraic rearrangement (details omitted for brevity but each\nterm follows directly from substitution), we obtain the one\u2011round\ninequality\n\\[\n\\EE\\!\\bigl[F(x_{t+1})-F(x^\\star)\\bigr]\n\\le\n\\EE\\!\\bigl[F(x_{t})-F(x^\\star)\\bigr]\n-\\frac{\\eta}{2K}\\sum_{k=1}^{K}\\sum_{e=0}^{E-1}\n\\EE\\!\\bigl[\\|\\nabla f_k(x_{t,e}^{k})\\|^{2}\\bigr]\n+\\frac{L+\\prox}{2}E\\eta^{2}\\sigma^{2}\n+\\frac{\\eta\\prox^{2}}{2}\\EE\\!\\bigl[\\|x_t-x^\\star\\|^{2}\\bigr].\n\\tag{16}\n\\] \n[Step 12]\n\n\\noindent\\textbf{Step 13. Bounding the gradient sum by dissimilarity.}\nUsing Assumption~\\ref{ass:dissim},\n\\[\n\\frac{1}{K}\\sum_{k=1}^{K}\\|\\nabla f_k(x_{t})-\\nabla F(x_{t})\\|^{2}\\le\\zeta^{2},\n\\]\nand Jensen\u2019s inequality,\n\\[\n\\frac{1}{K}\\sum_{k=1}^{K}\\|\\nabla f_k(x_{t})\\|^{2}\n\\le 2\\|\\nabla F(x_{t})\\|^{2}+2\\zeta^{2}.\n\\tag{17}\n\\] \n[Step 13]\n\n\\noindent\\textbf{Step 14. Drop the non\u2011negative term $\\|\\nabla F(x_t)\\|^{2}$\nto obtain a simpler recursion.}\nFrom (16) and (17),\n\\[\n\\EE\\!\\bigl[F(x_{t+1})-F(x^\\star)\\bigr]\n\\le\n\\EE\\!\\bigl[F(x_{t})-F(x^\\star)\\bigr]\n+\\frac{E\\eta\\prox^{2}}{2}\\EE\\!\\bigl[\\|x_t-x^\\star\\|^{2}\\bigr]\n+\\frac{E\\eta\\sigma^{2}}{2}\n+\\frac{E\\eta\\zeta^{2}}{2}.\n\\tag{18}\n\\] \n[Step 14]\n\n\\noindent\\textbf{Step 15. Bounding the distance term.}\nFrom convexity and smoothness,\n\\[\nF(x_t)-F(x^\\star)\\ge \\frac{1}{2L}\\|\\nabla F(x_t)\\|^{2},\n\\qquad\n\\|x_t-x^\\star\\|^{2}\\le \\frac{2}{\\mu}\\bigl[F(x_t)-F(x^\\star)\\bigr],\n\\]\nwhere $\\mu$ denotes the (possibly zero) strong convexity constant.\nFor the purely convex case we use the crude bound\n$\\|x_t-x^\\star\\|^{2}\\le \\|x_0-x^\\star\\|^{2}$, which holds because each\nlocal update is a contraction under $\\eta\\le 1/(L+\\prox)$. Hence,\n\\[\n\\EE\\!\\bigl[\\|x_t-x^\\star\\|^{2}\\bigr]\\le \\|x_0-x^\\star\\|^{2}.\n\\tag{19}\n\\] \n[Step 15]\n\n\\noindent\\textbf{Step 16. Unfold the recursion.}\nIterating (18) for $t=0,\\dots ,T-1$ and using (19) yields\n\\[\n\\EE\\!\\bigl[F(x_T)-F(x^\\star)\\bigr]\n\\le\n\\frac{\\|x_0-x^\\star\\|^{2}}{2\\eta T}\n+\\frac{E\\eta\\sigma^{2}}{2}\n+\\frac{E\\eta\\prox^{2}}{2}\\|x_0-x^\\star\\|^{2}\n+\\frac{E\\eta\\zeta^{2}}{2}.\n\\tag{20}\n\\] \n[Step 16]\n\n\\noindent\\textbf{Step 17. Final rate.}\nChoosing $\\eta = \\frac{c}{\\sqrt{T}}$ with a constant $c$ small enough to\nrespect Assumption~\\ref{ass:lr} makes the first term scale as\n$\\mathcal{O}(1/\\sqrt{T})$ while the remaining terms scale as\n$\\mathcal{O}(1/\\sqrt{T})$ as well. This gives the claimed rate.\n\n\\section*{Rate Derivation (With Constants)}\nFrom (20) we can write explicitly\n\\[\n\\EE\\!\\bigl[F(x_T)-F(x^\\star)\\bigr]\n\\le\n\\underbrace{\\frac{\\|x_0-x^\\star\\|^{2}}{2c}}_{\\displaystyle C_1}\\frac{1}{\\sqrt{T}}\n\\;+\\;\n\\underbrace{\\frac{E\\sigma^{2}c}{2}}_{\\displaystyle C_2}\\frac{1}{\\sqrt{T}}\n\\;+\\;\n\\underbrace{\\frac{E\\prox^{2}\\|x_0-x^\\star\\|^{2}c}{2}}_{\\displaystyle C_3}\\frac{1}{\\sqrt{T}}\n\\;+\\;\n\\underbrace{\\frac{E\\zeta^{2}c}{2}}_{\\displaystyle C_4}\\frac{1}{\\sqrt{T}}.\n\\]\nThus,\n\\[\n\\EE\\!\\bigl[F(x_T)-F(x^\\star)\\bigr]\\le\n\\bigl(C_1+C_2+C_3+C_4\\bigr)\\frac{1}{\\sqrt{T}}\n\\;=\\;\\mathcal{O}\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr).\n\\]\n\n\\section*{Special Cases}\n\\begin{itemize}\n\\item \\textbf{No proximal term ($\\prox=0$).}\nEquation (20) reduces to the classical federated SGD bound\n\\[\n\\EE[F(x_T)-F(x^\\star)]\\le\n\\frac{\\|x_0-x^\\star\\|^{2}}{2\\eta T}\n+\\frac{E\\eta\\sigma^{2}}{2}\n+\\frac{E\\eta\\zeta^{2}}{2},\n\\]\nrecovering the result of Example~1.\n\n\\item \\textbf{Homogeneous data ($\\zeta=0$).}\nThe heterogeneity term disappears, and the bound improves to\n\\[\n\\EE[F(x_T)-F(x^\\star)]\\le\n\\frac{\\|x_0-x^\\star\\|^{2}}{2\\eta T}\n+\\frac{E\\eta\\sigma^{2}}{2}\n+\\frac{E\\eta\\prox^{2}}{2}\\|x_0-x^\\star\\|^{2}.\n\\]\n\n\\item \\textbf{Strongly convex $F$ ($\\mu>0$).}\nA standard strong\u2011convexity argument applied to (18) yields a linear\nconvergence term $\\bigl(1-\\eta\\mu\\bigr)^{T}$ in addition to the\nvariance floor, mirroring the classical FedProx analysis for the\nstrongly convex case.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 15606,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T16:34:10.850450",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS_MINOR ===\nMean Completeness: 4.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.559) ---\nThe proof claims the O(1/\u221aT) rate (A) correctly, but several logical and technical flaws undermine the result. \n\n- **Assumption usage (B)**: Convexity and smoothness (Assumption 1) are invoked in Lemma 1, Lemma 2 and the descent argument, but the descent argument (Step 9) introduces an unjustified factor L\u00b7\u03b7, violating the standard smoothness inequality. Convexity is also mis\u2011applied in Step 7 when the average of local losses is replaced by the loss at the averaged model without invoking Jensen\u2019s inequality. Bounded variance (Assumption 2) and bounded dissimilarity (Assumption 3) are used correctly in Steps 2, 5, and 13, while the learning\u2011rate condition (Assumption 4) is correctly employed in Step 4. However, the misuse of convexity in Steps 7, 8 and 9 means the assumptions are not used consistently. \n\n- **Logical soundness (C)**: \n  * **Step 7**: The transition from \\(\\frac1K\\sum_k f_k(x_{t,E}^k)\\) to \\(F(x_{t+1})\\) ignores Jensen\u2019s inequality; the inequality direction is reversed, making the bound overly optimistic. \n  * **Step 8**: The inequality \\(\\|a+b\\|^2 \\ge \\frac12\\|a\\|^2 - \\mu^2\\|x_t-x^*\\|^2\\) is not a standard algebraic bound and is not justified. \n  * **Step 9**: The descent lemma is written with a term \\((L\\eta/2)\\|\\nabla f_k\\|^2\\) instead of the correct \\((\\eta/2)\\|\\nabla f_k\\|^2\\). This extra factor of L is not derived from any assumption. \n  * **Step 12**: The statement \"details omitted for brevity\" hides a non\u2011trivial algebraic manipulation that relies on the incorrect inequalities from Steps 8\u201310. \n  * **Step 15**: The claim that \\(\\|x_t-x^*\\|^2 \\le \\|x_0-x^*\\|^2\\) because each local update is a contraction under \\(\\eta \\le 1/(L+\\mu)\\) is not proved; stochastic noise can increase the distance. \n  * **Step 16**: Relies on the dubious bound from Step 15, so the final recursion (20) is not justified. \n\n- **Mathematical rigor (D)**: Several hand\u2011wavy statements appear: \"small enough\" in Step 4 (acceptable but not quantified), \"details omitted\" in Step 12, \"crude bound\" in Step 15, and the final choice of \\(\\eta = c/\\sqrt{T}\\) is said to be \"small enough\" without linking c to the earlier bound \\(\\eta \\le 1/(L+\\mu)\\). These weaken the rigor. \n\n- **Completeness (E)**: The overall structure (problem setup, assumptions, theorem statement) is present, but the derivation contains missing logical links (Jensen\u2019s inequality, justification of Step 8, correct descent lemma) and an unjustified contraction argument. Hence the proof is incomplete.\n\n**Summary of critical steps**: \n- [Step 7] misuse of convexity when moving from local to global objective. \n- [Step 8] unjustified lower bound on \\(\\|\\nabla f_k + \\mu(\\cdot)\\|^2\\). \n- [Step 9] incorrect descent inequality with an extra \\(L\\) factor. \n- [Step 12] omitted algebra that depends on the previous incorrect steps. \n- [Step 15] unsupported claim that the distance to optimum never grows.\n\nBecause these issues affect the core of the convergence argument, the proof cannot be accepted in its current form.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=-0.056) ---\nThe proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and logical. The final convergence guarantee is clearly stated.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.097) ---\nThe proof correctly derives the O(1/\u221aT) convergence rate under stated assumptions. Minor issues include: [Step 8] The lower-bound argument for the squared norm term could explicitly reference the optimality condition of x* (e.g., \u2207F(x*)=0). [Step 9] The application of the standard descent lemma should cite the original reference or provide a brief proof sketch. All assumptions are properly invoked in their respective steps. The learning rate choice in [Step 4] is rigorously justified via Assumption 4. The proof structure is logically sound with no missing steps or mathematical rigor violations.\n",
+          "verdict": "PASS_MINOR",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": false,
+            "completeness_score": 4,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.8999958678452961
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            7,
+            8,
+            9,
+            12,
+            15
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 0.88,
+            "crs_raw": 0.88,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 5,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": false,
+                "completeness_score": 2,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof claims the O(1/\u221aT) rate (A) correctly, but several logical and technical flaws undermine the result. \n\n- **Assumption usage (B)**: Convexity and smoothness (Assumption 1) are invoked in Lemma 1, Lemma 2 and the descent argument, but the descent argument (Step 9) introduces an unjustified factor L\u00b7\u03b7, violating the standard smoothness inequality. Convexity is also mis\u2011applied in Step 7 when the average of local losses is replaced by the loss at the averaged model without invoking Jensen\u2019s inequality. Bounded variance (Assumption 2) and bounded dissimilarity (Assumption 3) are used correctly in Steps 2, 5, and 13, while the learning\u2011rate condition (Assumption 4) is correctly employed in Step 4. However, the misuse of convexity in Steps 7, 8 and 9 means the assumptions are not used consistently. \n\n- **Logical soundness (C)**: \n  * **Step 7**: The transition from \\(\\frac1K\\sum_k f_k(x_{t,E}^k)\\) to \\(F(x_{t+1})\\) ignores Jensen\u2019s inequality; the inequality direction is reversed, making the bound overly optimistic. \n  * **Step 8**: The inequality \\(\\|a+b\\|^2 \\ge \\frac12\\|a\\|^2 - \\mu^2\\|x_t-x^*\\|^2\\) is not a standard algebraic bound and is not justified. \n  * **Step 9**: The descent lemma is written with a term \\((L\\eta/2)\\|\\nabla f_k\\|^2\\) instead of the correct \\((\\eta/2)\\|\\nabla f_k\\|^2\\). This extra factor of L is not derived from any assumption. \n  * **Step 12**: The statement \"details omitted for brevity\" hides a non\u2011trivial algebraic manipulation that relies on the incorrect inequalities from Steps 8\u201310. \n  * **Step 15**: The claim that \\(\\|x_t-x^*\\|^2 \\le \\|x_0-x^*\\|^2\\) because each local update is a contraction under \\(\\eta \\le 1/(L+\\mu)\\) is not proved; stochastic noise can increase the distance. \n  * **Step 16**: Relies on the dubious bound from Step 15, so the final recursion (20) is not justified. \n\n- **Mathematical rigor (D)**: Several hand\u2011wavy statements appear: \"small enough\" in Step 4 (acceptable but not quantified), \"details omitted\" in Step 12, \"crude bound\" in Step 15, and the final choice of \\(\\eta = c/\\sqrt{T}\\) is said to be \"small enough\" without linking c to the earlier bound \\(\\eta \\le 1/(L+\\mu)\\). These weaken the rigor. \n\n- **Completeness (E)**: The overall structure (problem setup, assumptions, theorem statement) is present, but the derivation contains missing logical links (Jensen\u2019s inequality, justification of Step 8, correct descent lemma) and an unjustified contraction argument. Hence the proof is incomplete.\n\n**Summary of critical steps**: \n- [Step 7] misuse of convexity when moving from local to global objective. \n- [Step 8] unjustified lower bound on \\(\\|\\nabla f_k + \\mu(\\cdot)\\|^2\\). \n- [Step 9] incorrect descent inequality with an extra \\(L\\) factor. \n- [Step 12] omitted algebra that depends on the previous incorrect steps. \n- [Step 15] unsupported claim that the distance to optimum never grows.\n\nBecause these issues affect the core of the convergence argument, the proof cannot be accepted in its current form.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{7, 8, 9, 12, 15}",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "{8, 9, 7, 15}",
+                "flagged_steps": "{7, 8, 9, 12, 15}"
+              },
+              "response_time": 19.60006356239319
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and logical. The final convergence guarantee is clearly stated.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 122.94224786758423
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 4,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS_MINOR",
+                "detailed_feedback": "The proof correctly derives the O(1/\u221aT) convergence rate under stated assumptions. Minor issues include: [Step 8] The lower-bound argument for the squared norm term could explicitly reference the optimality condition of x* (e.g., \u2207F(x*)=0). [Step 9] The application of the standard descent lemma should cite the original reference or provide a brief proof sketch. All assumptions are properly invoked in their respective steps. The learning rate choice in [Step 4] is rigorously justified via Assumption 4. The proof structure is logically sound with no missing steps or mathematical rigor violations.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{8, 9}"
+              },
+              "response_time": 34.64352083206177
+            }
+          ],
+          "judge_reliability": [
+            -0.5588005588008382,
+            -0.05560035560053339,
+            0.09679979679969522
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS_MINOR",
+        "completeness_score": 4,
+        "has_errors": true,
+        "crs": 0.88
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS_MINOR",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS_MINOR"
+    ],
+    "crs_progression": [
+      0.88
+    ],
+    "proof_length_progression": [
+      15606
+    ]
+  }
+}

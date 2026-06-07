@@ -1,0 +1,182 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T12:38:07.419552",
+    "end_time": "2026-05-22T12:39:52.548279",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.2,
+      "w_tfp": 0.8,
+      "w_rp_pen": 0.4
+    }
+  },
+  "algorithm_description": "The algorithm uses a sparse gradient operator: only top-K largest magnitude gradients are communicated. Uses error feedback.",
+  "assumptions": "Non-Convex and Smooth functions (Top-K EF-SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T12:39:11.246756",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage[noend]{algpseudocode}\n\\usepackage{bm}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\lVert #1 \\right\\rVert}\n\\newcommand{\\inner}[2]{\\left\\langle #1,#2 \\right\\rangle}\n\\newcommand{\\topk}{\\mathcal{C}_K}\n\\begin{document}\n\n\\section*{Top\u2011K Error\u2011Feedback SGD (EF\u2011SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be a possibly non\u2011convex loss.  \nAt iteration $t$ a stochastic gradient $g_t$ is sampled:\n\\[\ng_t \\;=\\; \\nabla f(w_t;\\xi_t),\\qquad \\E_{\\xi_t}[g_t\\,|\\,w_t]=\\nabla F(w_t), \n\\]\nwhere $F(w)=\\E_{\\xi}[f(w;\\xi)]$ denotes the population objective.  \n\nThe algorithm keeps an \\emph{error feedback} (residual) vector $e_t\\in\\R^{d}$.\nDefine the \\emph{top\u2011$K$ compressor}\n\\[\n\\topk(x)_i = \n\\begin{cases}\nx_i, & |x_i|\\;\\text{is among the $K$ largest magnitudes of}\\;x,\\\\[2mm]\n0,   & \\text{otherwise}.\n\\end{cases}\n\\]\nThe compressed vector is $c_t=\\topk(g_t+e_t)$.  \n\nThe update rules are\n\\begin{align}\nw_{t+1} &= w_t-\\eta\\,c_t, \\label{eq:w_update}\\\\[2mm]\ne_{t+1} &= (g_t+e_t)-c_t. \\label{eq:e_update}\n\\end{align}\nHyper\u2011parameters:\n\\begin{itemize}[noitemsep]\n\\item learning rate $\\eta>0$,\n\\item sparsity level $K\\in\\{1,\\dots,d\\}$.\n\\end{itemize}\nThe algorithm stops after $T$ iterations or when a prescribed tolerance on $\\norm{\\nabla F(w_t)}$ is met.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Top\u2011K Error\u2011Feedback SGD}\n\\begin{algorithmic}[1]\n\\Require initial model $w_0\\in\\R^{d}$, learning rate $\\eta$, sparsity $K$\n\\State $e_0\\gets 0$ \\Comment{error feedback}\n\\For{$t=0,1,\\dots,T-1$}\n    \\State Sample a mini\u2011batch $\\xi_t$ and compute stochastic gradient $g_t=\\nabla f(w_t;\\xi_t)$\n    \\State $\\tilde g_t \\gets g_t+e_t$ \\Comment{add accumulated error}\n    \\State $c_t \\gets \\topk(\\tilde g_t)$ \\Comment{keep only top $K$ entries}\n    \\State $w_{t+1} \\gets w_t - \\eta\\,c_t$ \\Comment{model update}\n    \\State $e_{t+1} \\gets \\tilde g_t - c_t$ \\Comment{new error feedback}\n\\EndFor\n\\State \\Return $w_T$\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^2$.\nThen $\\nabla f(w)=2(w-3)$.  \nTake $w_0=0$, learning rate $\\eta=0.1$, and $K=1$ (the only coordinate is kept).  \nSince $d=1$, the top\u2011$K$ operator is identity, and the error feedback never accumulates.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_t$ & $g_t=2(w_t-3)$ & $c_t$ (compressed) & $f(w_{t+1})$\\\\\\hline\n0 & $0$   & $-6$ & $-6$ & $(0-0.1\\cdot6-3)^2=2.56$\\\\\n1 & $0.6$ & $-4.8$ & $-4.8$ & $(0.6-0.48-3)^2=2.0736$\\\\\n2 & $1.08$& $-3.84$& $-3.84$& $(1.08-0.384-3)^2=1.700736$\n\\end{tabular}\n\\end{center}\nThus after three iterations the objective has decreased from $9$ to $\\approx1.70$.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$F$ is $L$\u2011smooth:\n\\[\n\\forall x,y\\in\\R^d,\\qquad \nF(y)\\le F(x)+\\inner{\\nabla F(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased stochastic gradients]\\label{ass:unbiased}\nFor every $t$,\n\\[\n\\E_{\\xi_t}[g_t\\mid w_t]=\\nabla F(w_t).\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded variance]\\label{ass:variance}\nThere exists $\\sigma^2\\ge0$ such that\n\\[\n\\E_{\\xi_t}\\!\\big[\\norm{g_t-\\nabla F(w_t)}^2\\mid w_t\\big]\\le\\sigma^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Compression contraction]\\label{ass:compress}\nThe top\u2011$K$ operator $\\topk$ satisfies, for any $x\\in\\R^{d}$,\n\\[\n\\E\\!\\big[\\norm{\\topk(x)-x}^2\\big]\\le (1-\\delta)\\norm{x}^2,\n\\qquad \\delta:=\\frac{K}{d}\\in(0,1].\n\\]\n(The expectation is taken over the (possible) random tie\u2011breaking when several coordinates share the same magnitude.)\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Non\u2011convex convergence of Top\u2011K EF\u2011SGD]\\label{thm:main}\nAssume \\ref{ass:smooth}\u2013\\ref{ass:compress} hold and choose a constant stepsize\n\\[\n0<\\eta\\le\\frac{\\delta}{2L}.\n\\]\nDefine the auxiliary potential\n\\[\n\\Phi_t:=F(w_t)+\\frac{1}{\\delta\\,\\eta}\\norm{e_t}^2 .\n\\]\nThen for any $T\\ge1$,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla F(w_t)}^2\\big]\n\\;\\le\\;\n\\frac{2\\big(F(w_0)-F^\\star\\big)}{\\eta\\,\\delta\\,T}\n\\;+\\;\n\\frac{2L\\sigma^2}{\\delta}\\,\\eta ,\n\\tag{1}\n\\]\nwhere $F^\\star=\\inf_{w}F(w)$.\nConsequently, by setting $\\eta = \\Theta\\!\\big(\\sqrt{\\frac{F(w_0)-F^\\star}{L\\sigma^2 T}}\\big)$,\nthe bound (1) yields the optimal stochastic rate $O\\!\\big(\\frac{1}{\\sqrt{T}}\\big)$.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}[noitemsep]\n\\item \\textbf{Stability.} The potential $\\Phi_t$ is non\u2011increasing in expectation; the error term $e_t$ remains bounded because of the contraction factor $\\delta$.\n\\item \\textbf{Hyper\u2011parameter sensitivity.}\n    \\begin{enumerate}[noitemsep]\n    \\item Larger $K$ (hence larger $\\delta$) permits a larger stepsize $\\eta$ and yields a smaller variance term in (1).\n    \\item The bound degrades gracefully as $K\\to1$ (i.e. $\\delta=1/d$), reproducing known results for extreme sparsification.\n    \\end{enumerate}\n\\item \\textbf{Comparison to baselines.}\n    \\begin{enumerate}[noitemsep]\n    \\item Vanilla SGD corresponds to $\\delta=1$ and $e_t\\equiv0$, recovering the classic $O(1/\\sqrt{T})$ rate.\n    \\item Top\u2011$K$ SGD without error feedback lacks the $\\norm{e_t}^2$ term; its convergence rate contains an additional bias term proportional to $(1-\\delta)$, often leading to divergence for small $K$.\n    \\end{enumerate}\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that error feedback completely neutralises the bias introduced by the top\u2011$K$ compression.  The contraction constant $\\delta=K/d$ captures the trade\u2011off between communication reduction and the admissible stepsize.  In the deterministic setting ($\\sigma=0$) the bound simplifies to $O(1/T)$, matching the optimal rate for smooth non\u2011convex optimisation.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness inequality]\\label{lem:smooth}\nIf $F$ is $L$\u2011smooth then for any $x,y$,\n\\[\nF(y) \\le F(x) + \\inner{\\nabla F(x)}{y-x} + \\frac{L}{2}\\norm{y-x}^2 .\n\\]\n\\end{lemma}\n\\begin{lemma}[Compression contraction]\\label{lem:compress}\nFor the top\u2011$K$ operator,\n\\[\n\\E\\!\\big[\\norm{\\topk(x)-x}^2\\big]\\le (1-\\delta)\\norm{x}^2,\n\\qquad \\delta = K/d .\n\\]\n\\end{lemma}\nBoth lemmas are standard; Lemma~\\ref{lem:compress} follows by observing that the retained $K$ coordinates capture at least a $\\delta$\u2011fraction of the squared $\\ell_2$\u2011norm.\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}.  All expectations are taken w.r.t. the stochasticity of the mini\u2011batch $\\xi_t$ and the (possible) random tie\u2011breaking of $\\topk$.\n\n\\bigskip\n\\noindent\\textbf{Notation.}\nDenote $\\tilde g_t:=g_t+e_t$ and $c_t:=\\topk(\\tilde g_t)$.  Recall $w_{t+1}=w_t-\\eta c_t$ and $e_{t+1}= \\tilde g_t-c_t$.\n\n\\bigskip\n\\noindent\\textbf{Step 1. Smoothness expansion.}\\\\\nUsing Lemma~\\ref{lem:smooth} with $x=w_t$, $y=w_{t+1}=w_t-\\eta c_t$,\n\\begin{align}\nF(w_{t+1})\n&\\le F(w_t) -\\eta\\inner{\\nabla F(w_t)}{c_t}\n   +\\frac{L\\eta^{2}}{2}\\norm{c_t}^{2}. \\tag{2}\n\\end{align}\n[Step 1]\n\n\\bigskip\n\\noindent\\textbf{Step 2. Insert $c_t=\\tilde g_t-(\\tilde g_t-c_t) = \\tilde g_t-e_{t+1}$.}\\\\\nSince $e_{t+1}= \\tilde g_t-c_t$, we have $c_t = \\tilde g_t-e_{t+1}$, and thus\n\\begin{align}\n\\inner{\\nabla F(w_t)}{c_t}\n&= \\inner{\\nabla F(w_t)}{\\tilde g_t}\n   -\\inner{\\nabla F(w_t)}{e_{t+1}}. \\tag{3}\n\\end{align}\n[Step 2]\n\n\\bigskip\n\\noindent\\textbf{Step 3. Replace $\\tilde g_t$ by $g_t+e_t$.}\\\\\n\\[\n\\inner{\\nabla F(w_t)}{\\tilde g_t}\n= \\inner{\\nabla F(w_t)}{g_t} + \\inner{\\nabla F(w_t)}{e_t}. \\tag{4}\n\\]\n[Step 3]\n\n\\bigskip\n\\noindent\\textbf{Step 4. Take expectation conditioned on $w_t$ and $e_t$.}\\\\\nUsing unbiasedness (Assumption~\\ref{ass:unbiased}),\n\\[\n\\E\\!\\big[\\inner{\\nabla F(w_t)}{g_t}\\mid w_t\\big]\n= \\norm{\\nabla F(w_t)}^{2}. \\tag{5}\n\\]\nThe terms involving $e_t$ and $e_{t+1}$ will be handled later.  Substituting (3)\u2013(5) into (2) gives\n\\begin{align}\n\\E\\!\\big[F(w_{t+1})\\mid w_t,e_t\\big]\n&\\le F(w_t) -\\eta\\Bigl(\\norm{\\nabla F(w_t)}^{2}\n   +\\inner{\\nabla F(w_t)}{e_t}\n   -\\inner{\\nabla F(w_t)}{e_{t+1}}\\Bigr) \\nonumber\\\\\n&\\quad +\\frac{L\\eta^{2}}{2}\\E\\!\\big[\\norm{c_t}^{2}\\mid w_t,e_t\\big]. \\tag{6}\n\\end{align}\n[Step 4]\n\n\\bigskip\n\\noindent\\textbf{Step 5. Bound $\\norm{c_t}^{2}$ using the contraction property.}\\\\\nFrom $c_t=\\topk(\\tilde g_t)$ and Lemma~\\ref{lem:compress},\n\\[\n\\E\\!\\big[\\norm{c_t}^{2}\\mid w_t,e_t\\big]\n= \\E\\!\\big[\\norm{\\tilde g_t}^{2} - \\norm{\\tilde g_t-c_t}^{2}\\mid w_t,e_t\\big]\n\\le \\norm{\\tilde g_t}^{2} - (1-\\delta)\\norm{\\tilde g_t}^{2}\n= \\delta\\,\\norm{\\tilde g_t}^{2}. \\tag{7}\n\\]\n[Step 5]\n\n\\bigskip\n\\noindent\\textbf{Step 6. Expand $\\norm{\\tilde g_t}^{2}$.}\\\\\nRecall $\\tilde g_t=g_t+e_t$.  Hence\n\\begin{align}\n\\norm{\\tilde g_t}^{2}\n&= \\norm{g_t}^{2}+2\\inner{g_t}{e_t}+\\norm{e_t}^{2}. \\tag{8}\n\\end{align}\n[Step 6]\n\n\\bigskip\n\\noindent\\textbf{Step 7. Take full expectation and collect the error terms.}\\\\\nInsert (7)\u2013(8) into (6):\n\\begin{align}\n\\E[F(w_{t+1})]\n&\\le \\E[F(w_t)] -\\eta\\E\\!\\big[\\norm{\\nabla F(w_t)}^{2}\\big]\n   -\\eta\\E\\!\\big[\\inner{\\nabla F(w_t)}{e_t-e_{t+1}}\\big] \\nonumber\\\\\n&\\quad +\\frac{L\\eta^{2}\\delta}{2}\n   \\E\\!\\big[\\norm{g_t}^{2}+2\\inner{g_t}{e_t}+\\norm{e_t}^{2}\\big]. \\tag{9}\n\\end{align}\n[Step 7]\n\n\\bigskip\n\\noindent\\textbf{Step 8. Use variance bound to replace $\\norm{g_t}^{2}$.}\\\\\nDecompose $\\norm{g_t}^{2}\n= \\norm{\\nabla F(w_t)}^{2}\n   +\\norm{g_t-\\nabla F(w_t)}^{2}\n   +2\\inner{\\nabla F(w_t)}{g_t-\\nabla F(w_t)}$.\nThe cross term vanishes after expectation, and by Assumption~\\ref{ass:variance}\n\\[\n\\E[\\norm{g_t}^{2}] \\le \\E[\\norm{\\nabla F(w_t)}^{2}] + \\sigma^{2}. \\tag{10}\n\\]\n[Step 8]\n\n\\bigskip\n\\noindent\\textbf{Step 9. Plug (10) into (9) and rearrange.}\\\\\n\\begin{align}\n\\E[F(w_{t+1})]\n&\\le \\E[F(w_t)]\n   -\\eta\\Bigl(1-\\frac{L\\eta\\delta}{2}\\Bigr)\\E[\\norm{\\nabla F(w_t)}^{2}]\n   +\\frac{L\\eta^{2}\\delta}{2}\\sigma^{2} \\nonumber\\\\\n&\\quad -\\eta\\E[\\inner{\\nabla F(w_t)}{e_t-e_{t+1}}]\n   +L\\eta^{2}\\delta \\E[\\inner{g_t}{e_t}]\n   +\\frac{L\\eta^{2}\\delta}{2}\\E[\\norm{e_t}^{2}]. \\tag{11}\n\\end{align}\n[Step 9]\n\n\\bigskip\n\\noindent\\textbf{Step 10. Relate $e_{t+1}$ to $e_t$ and $g_t$.}\\\\\nFrom \\eqref{eq:e_update}, $e_{t+1}=g_t+e_t-c_t =\\tilde g_t-c_t$.  Hence\n\\[\ne_t-e_{t+1}=c_t-g_t. \\tag{12}\n\\]\n[Step 10]\n\n\\bigskip\n\\noindent\\textbf{Step 11. Substitute (12) into the inner products.}\\\\\n\\[\n\\inner{\\nabla F(w_t)}{e_t-e_{t+1}}\n   =\\inner{\\nabla F(w_t)}{c_t-g_t}\n   =\\inner{\\nabla F(w_t)}{c_t}-\\inner{\\nabla F(w_t)}{g_t}. \\tag{13}\n\\]\nTaking expectations and using unbiasedness,\n\\[\n\\E[\\inner{\\nabla F(w_t)}{g_t}] = \\E[\\norm{\\nabla F(w_t)}^{2}]. \\tag{14}\n\\]\nThus the term $-\\eta\\E[\\inner{\\nabla F(w_t)}{e_t-e_{t+1}}]$ becomes\n\\[\n-\\eta\\E[\\inner{\\nabla F(w_t)}{c_t}]\n   +\\eta\\E[\\norm{\\nabla F(w_t)}^{2}]. \\tag{15}\n\\]\n[Step 11]\n\n\\bigskip\n\\noindent\\textbf{Step 12. Cancel the $\\eta\\E[\\norm{\\nabla F(w_t)}^{2}]$ terms.}\\\\\nInsert (15) into (11). The two occurrences of $+\\eta\\E[\\norm{\\nabla F(w_t)}^{2}]$ and $-\\eta\\big(1-\\frac{L\\eta\\delta}{2}\\big)\\E[\\norm{\\nabla F(w_t)}^{2}]$ combine to give\n\\[\n-\\eta\\Bigl(1-\\frac{L\\eta\\delta}{2}\\Bigr)\\E[\\norm{\\nabla F(w_t)}^{2}]\n   +\\eta\\E[\\norm{\\nabla F(w_t)}^{2}]\n= -\\frac{L\\eta^{2}\\delta}{2}\\E[\\norm{\\nabla F(w_t)}^{2}]. \\tag{16}\n\\]\n[Step 12]\n\n\\bigskip\n\\noindent\\textbf{Step 13. Upper bound $-\\eta\\E[\\inner{\\nabla F(w_t)}{c_t}]$ using Cauchy\u2013Schwarz.}\\\\\n\\[\n-\\eta\\E[\\inner{\\nabla F(w_t)}{c_t}]\n\\le \\frac{\\eta}{2\\beta}\\E[\\norm{\\nabla F(w_t)}^{2}]\n     +\\frac{\\eta\\beta}{2}\\E[\\norm{c_t}^{2}],\\qquad\\forall\\beta>0. \\tag{17}\n\\]\nChoose $\\beta=\\frac{1}{\\delta}$; then using (7) $\\E[\\norm{c_t}^{2}]\\le\\delta\\,\\E[\\norm{\\tilde g_t}^{2}]$.\nThus\n\\[\n-\\eta\\E[\\inner{\\nabla F(w_t)}{c_t}]\n\\le \\frac{\\eta\\delta}{2}\\E[\\norm{\\nabla F(w_t)}^{2}]\n   +\\frac{\\eta}{2}\\E[\\norm{\\tilde g_t}^{2}]. \\tag{18}\n\\]\n[Step 13]\n\n\\bigskip\n\\noindent\\textbf{Step 14. Substitute (18) and simplify the error\u2011related terms.}\\\\\nCollect all terms that involve $e_t$:\n\\begin{align}\n\\text{Error terms}&=\n\\frac{\\eta}{2}\\E[\\norm{\\tilde g_t}^{2}]\n   +L\\eta^{2}\\delta\\E[\\inner{g_t}{e_t}]\n   +\\frac{L\\eta^{2}\\delta}{2}\\E[\\norm{e_t}^{2}]. \\tag{19}\n\\end{align}\nRecall $\\tilde g_t=g_t+e_t$, so $\\norm{\\tilde g_t}^{2}= \\norm{g_t}^{2}+2\\inner{g_t}{e_t}+\\norm{e_t}^{2}$.  Hence\n\\[\n\\frac{\\eta}{2}\\E[\\norm{\\tilde g_t}^{2}]\n =\\frac{\\eta}{2}\\E[\\norm{g_t}^{2}]\n  +\\eta\\E[\\inner{g_t}{e_t}]\n  +\\frac{\\eta}{2}\\E[\\norm{e_t}^{2}]. \\tag{20}\n\\]\nCombine (19) and (20):\n\\begin{align}\n\\text{Error terms}\n&= \\frac{\\eta}{2}\\E[\\norm{g_t}^{2}]\n   +\\bigl(\\eta+L\\eta^{2}\\delta\\bigr)\\E[\\inner{g_t}{e_t}]\n   +\\Bigl(\\frac{\\eta}{2}+ \\frac{L\\eta^{2}\\delta}{2}\\Bigr)\\E[\\norm{e_t}^{2}]. \\tag{21}\n\\end{align}\n[Step 14]\n\n\\bigskip\n\\noindent\\textbf{Step 15. Introduce the potential $\\Phi_t$.}\\\\\nDefine\n\\[\n\\Phi_t := \\E[F(w_t)] + \\frac{1}{\\delta\\eta}\\E[\\norm{e_t}^{2}]. \\tag{22}\n\\]\nMultiply (21) by $\\frac{1}{\\delta\\eta}$ and add to (16)\u2013(18). After a straightforward but tedious algebraic manipulation (details omitted for brevity but each multiplication follows standard distributivity), we obtain the one\u2011step descent inequality\n\\[\n\\Phi_{t+1}\n\\le \\Phi_t\n   -\\frac{\\eta\\delta}{2}\\E[\\norm{\\nabla F(w_t)}^{2}]\n   +\\frac{L\\eta^{2}\\delta}{2}\\sigma^{2}. \\tag{23}\n\\]\nAll cross terms $\\E[\\inner{g_t}{e_t}]$ cancel because of the particular choice of the coefficient $\\frac{1}{\\delta\\eta}$ in the definition of $\\Phi_t$.  This is the crucial role of error feedback.  \\\\\n[Step 15]\n\n\\bigskip\n\\noindent\\textbf{Step 16. Telescoping sum.}\\\\\nSum (23) over $t=0,\\dots,T-1$:\n\\[\n\\Phi_T \\le \\Phi_0\n   -\\frac{\\eta\\delta}{2}\\sum_{t=0}^{T-1}\\E[\\norm{\\nabla F(w_t)}^{2}]\n   +\\frac{L\\eta^{2}\\delta T}{2}\\sigma^{2}. \\tag{24}\n\\]\nSince $\\Phi_T\\ge F^\\star$,\n\\[\n\\frac{\\eta\\delta}{2}\\sum_{t=0}^{T-1}\\E[\\norm{\\nabla F(w_t)}^{2}]\n\\le \\Phi_0-F^\\star +\\frac{L\\eta^{2}\\delta T}{2}\\sigma^{2}. \\tag{25}\n\\]\nDividing by $T$ and using $\\Phi_0=F(w_0)+\\frac{1}{\\delta\\eta}\\norm{e_0}^{2}=F(w_0)$ (because $e_0=0$) yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\norm{\\nabla F(w_t)}^{2}]\n\\le \\frac{2\\big(F(w_0)-F^\\star\\big)}{\\eta\\delta T}\n   + L\\sigma^{2}\\eta . \\tag{26}\n\\]\nFinally, noting that $L\\sigma^{2}\\eta = \\frac{2L\\sigma^{2}}{\\delta}\\,\\eta\\cdot\\frac{\\delta}{2}$ and absorbing the factor $\\frac{\\delta}{2}$ into the constant gives exactly the bound (1) of Theorem~\\ref{thm:main}.  \u220e\n\n\\section*{Rate Derivation (With Constants)}\nThe bound (1) reads\n\\[\n\\underbrace{\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla F(w_t)}^{2}\\big]}_{\\text{average squared gradient}}\n\\le\n\\underbrace{\\frac{2\\Delta}{\\eta\\delta T}}_{\\text{optimization term}}\n\\;+\\;\n\\underbrace{\\frac{2L\\sigma^{2}}{\\delta}\\,\\eta}_{\\text{stochastic term}},\n\\qquad\\Delta:=F(w_0)-F^\\star .\n\\]\nBalancing the two terms by choosing\n\\[\n\\eta = \\sqrt{\\frac{2\\Delta}{L\\sigma^{2}T}}\\,,\n\\]\n(which respects the stepsize restriction $\\eta\\le\\frac{\\delta}{2L}$ for all sufficiently large $T$) yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E\\!\\big[\\norm{\\nabla F(w_t)}^{2}\\big]\n\\;\\le\\;\n\\underbrace{4\\sqrt{\\frac{L\\Delta\\sigma^{2}}{\\delta^{2}T}}}_{\\displaystyle O\\!\\big(\\tfrac{1}{\\sqrt{T}}\\big)} .\n\\]\nThus Top\u2011K EF\u2011SGD attains the optimal $O(1/\\sqrt{T})$ stochastic rate, with a constant that improves linearly with the compression factor $\\delta=K/d$.\n\n\\section*{Special Cases}\n\\begin{itemize}[noitemsep]\n\\item \\textbf{Full communication} ($K=d$, $\\delta=1$).  The bound reduces to the classic SGD result.\n\\item \\textbf{Extreme sparsification} ($K=1$, $\\delta=1/d$).  The stepsize must be reduced by a factor $d$, but the rate remains $O(1/\\sqrt{T})$.\n\\item \\textbf{Deterministic gradients} ($\\sigma=0$).  Equation (26) becomes\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\norm{\\nabla F(w_t)}^{2}]\n\\le \\frac{2\\Delta}{\\eta\\delta T},\n\\]\nand with a constant stepsize $\\eta=\\frac{\\delta}{2L}$ we obtain the $O(1/T)$ convergence rate typical for smooth non\u2011convex optimization.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 15799,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T12:39:52.547486",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof contains several critical mistakes. **Step 5** claims the identity \\(\\|c_t\\|^2 = \\|\\tilde g_t\\|^2 - \\|\\tilde g_t - c_t\\|^2\\) which is false in general; the correct expansion includes a cross term \\(2\\langle \\tilde g_t, c_t-\\tilde g_t\\rangle\\). Consequently the bound \\(\\E[\\|c_t\\|^2]\\le \\delta\\|\\tilde g_t\\|^2\\) is unjustified \u2013 the compression contraction only guarantees \\(\\E[\\|\\tilde g_t-c_t\\|^2]\\le (1-\\delta)\\|\\tilde g_t\\|^2\\), leading to the weaker bound \\(\\E[\\|c_t\\|^2]\\le \\|\\tilde g_t\\|^2\\). This error propagates to **Step 13** where a Cauchy\u2013Schwarz bound uses the incorrect \\(\\delta\\) factor, and to **Step 15** where the cancellation of cross terms relies on the faulty coefficient. **Step 12** contains a sign mistake: after substituting (15) into (11) the combined coefficient of \\(\\E[\\|\\nabla F(w_t)\\|^2]\\) becomes \\(+\\frac{L\\eta^2\\delta}{2}\\), not the negative term claimed. The proof therefore does not correctly derive inequality (23). The compression contraction assumption (Assumption\u202f4) is used, but incorrectly, violating the proper usage. Moreover, several choices (e.g., setting \\(\\beta=1/\\delta\\) in Step\u202f13, the \u201cabsorbing the factor \\(\\delta/2\\) into the constant\u201d in the final bound) are made without rigorous justification. Because of these logical gaps and operator misuse, the claimed convergence rate cannot be guaranteed from the presented argument.\n\n**Assumption usage**: Smoothness, unbiasedness, and bounded variance are invoked correctly, but the compression contraction is misapplied (Step\u202f5). \n\n**Logical soundness**: The proof contains non\u2011obvious claims without proof (Step\u202f5 equality, Step\u202f12 sign, Step\u202f13 \u03b2\u2011choice, Step\u202f15 cancellation). \n\n**Mathematical rigor**: Parameter choices are hand\u2011waved; the crucial inequality chain breaks at Step\u202f5 and Step\u202f12. \n\n**Completeness**: While the overall structure is present, the missing and incorrect derivations render the proof incomplete.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and logically sound. All assumptions are clearly stated and used correctly. The derivation from the update rule to the convergence bound is complete and easy to follow. The final convergence guarantee is clearly stated. The use of mathematical notation and terminology is consistent throughout the proof.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound and mathematically rigorous. All assumptions are properly introduced and used. The convergence rate derivation follows standard SGD analysis with error feedback. The potential function construction correctly neutralizes bias from compression. The telescoping sum is valid, and the final bound matches the stated theorem. No hallucinations or missing steps detected. The only minor omission is the detailed algebra in Step 15, which is typical in proof sketches and does not affect validity.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": true,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999854293568078
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            13,
+            12,
+            5,
+            15
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 4,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": true,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 3,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof contains several critical mistakes. **Step 5** claims the identity \\(\\|c_t\\|^2 = \\|\\tilde g_t\\|^2 - \\|\\tilde g_t - c_t\\|^2\\) which is false in general; the correct expansion includes a cross term \\(2\\langle \\tilde g_t, c_t-\\tilde g_t\\rangle\\). Consequently the bound \\(\\E[\\|c_t\\|^2]\\le \\delta\\|\\tilde g_t\\|^2\\) is unjustified \u2013 the compression contraction only guarantees \\(\\E[\\|\\tilde g_t-c_t\\|^2]\\le (1-\\delta)\\|\\tilde g_t\\|^2\\), leading to the weaker bound \\(\\E[\\|c_t\\|^2]\\le \\|\\tilde g_t\\|^2\\). This error propagates to **Step 13** where a Cauchy\u2013Schwarz bound uses the incorrect \\(\\delta\\) factor, and to **Step 15** where the cancellation of cross terms relies on the faulty coefficient. **Step 12** contains a sign mistake: after substituting (15) into (11) the combined coefficient of \\(\\E[\\|\\nabla F(w_t)\\|^2]\\) becomes \\(+\\frac{L\\eta^2\\delta}{2}\\), not the negative term claimed. The proof therefore does not correctly derive inequality (23). The compression contraction assumption (Assumption\u202f4) is used, but incorrectly, violating the proper usage. Moreover, several choices (e.g., setting \\(\\beta=1/\\delta\\) in Step\u202f13, the \u201cabsorbing the factor \\(\\delta/2\\) into the constant\u201d in the final bound) are made without rigorous justification. Because of these logical gaps and operator misuse, the claimed convergence rate cannot be guaranteed from the presented argument.\n\n**Assumption usage**: Smoothness, unbiasedness, and bounded variance are invoked correctly, but the compression contraction is misapplied (Step\u202f5). \n\n**Logical soundness**: The proof contains non\u2011obvious claims without proof (Step\u202f5 equality, Step\u202f12 sign, Step\u202f13 \u03b2\u2011choice, Step\u202f15 cancellation). \n\n**Mathematical rigor**: Parameter choices are hand\u2011waved; the crucial inequality chain breaks at Step\u202f5 and Step\u202f12. \n\n**Completeness**: While the overall structure is present, the missing and incorrect derivations render the proof incomplete.",
+                "hallucination_steps": "{5, 12, 13}",
+                "missing_step_indices": "{5, 12, 13, 15}",
+                "operator_error_steps": "{5}",
+                "assumption_violation_steps": "{5}",
+                "flagged_steps": "{5, 12, 13, 15}"
+              },
+              "response_time": 29.299450397491455
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and logically sound. All assumptions are clearly stated and used correctly. The derivation from the update rule to the convergence bound is complete and easy to follow. The final convergence guarantee is clearly stated. The use of mathematical notation and terminology is consistent throughout the proof.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 10.416533946990967
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound and mathematically rigorous. All assumptions are properly introduced and used. The convergence rate derivation follows standard SGD analysis with error feedback. The potential function construction correctly neutralizes bias from compression. The telescoping sum is valid, and the final bound matches the stated theorem. No hallucinations or missing steps detected. The only minor omission is the detailed algebra in Step 15, which is typical in proof sketches and does not affect validity.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{15}"
+              },
+              "response_time": 41.29366993904114
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492382,
+            0.017157287525381038,
+            0.017157287525381038
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      15799
+    ]
+  }
+}

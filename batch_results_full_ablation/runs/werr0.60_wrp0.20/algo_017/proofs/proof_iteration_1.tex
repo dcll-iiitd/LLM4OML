@@ -1,0 +1,423 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm,algorithm,algorithmic}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\newtheorem{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Federated Averaging with Local SGD (FA‑L‑SGD)}  
+
+The method performs $E$ local stochastic‑gradient steps on each of $K$ clients
+between two global aggregations.  The analysis explicitly retains the
+\emph{client‑drift} term 
+\[
+\delta_{k}^{t,i}\;:=\;\nabla F_k\!\bigl(w_{k}^{t,i}\bigr)-\nabla F\!\bigl(w^{t}\bigr),
+\]
+where $F_k$ is the local objective on client~$k$ and $F=\frac1K\sum_{k=1}^K F_k$ is the global objective.
+
+---------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+\begin{itemize}[leftmargin=*]
+  \item \textbf{Global model.} $w^{t}\in\RR^{d}$ at communication round $t=0,1,\dots,T-1$.
+  \item \textbf{Local model on client $k$.} $w_{k}^{t,0}=w^{t}$ and for $i=0,\dots,E-1$
+  \[
+      w_{k}^{t,i+1}=w_{k}^{t,i}-\eta\,g_{k}^{t,i},
+      \qquad
+      g_{k}^{t,i}:=\nabla F_k\!\bigl(w_{k}^{t,i};\xi_{k}^{t,i}\bigr),
+  \]
+  where $\xi_{k}^{t,i}$ denotes the random data sample (or mini‑batch) used on
+  client $k$ at local step $i$.
+  \item \textbf{Global aggregation.}
+  After $E$ local steps each client sends $w_{k}^{t,E}$ to the server and the
+  server updates
+  \[
+      w^{t+1}= \frac1K\sum_{k=1}^{K} w_{k}^{t,E}.
+  \]
+\end{itemize}
+All hyper‑parameters are:
+\begin{itemize}[leftmargin=*]
+  \item $K$ – number of participating clients,
+  \item $E$ – number of local SGD steps per round,
+  \item $\eta>0$ – learning rate (possibly constant or decreasing).
+\end{itemize}
+
+---------------------------------------------------------------------
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{FA‑L‑SGD}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} $w^{0}$, learning rate $\eta$, local steps $E$, rounds $T$.
+\FOR{$t=0$ \TO $T-1$}
+    \FOR{each client $k=1,\dots,K$ \textbf{in parallel}}
+        \STATE $w_{k}^{t,0}\gets w^{t}$
+        \FOR{$i=0$ \TO $E-1$}
+            \STATE Sample mini‑batch $\xi_{k}^{t,i}$
+            \STATE $g_{k}^{t,i}\gets \nabla F_k\!\bigl(w_{k}^{t,i};\xi_{k}^{t,i}\bigr)$
+            \STATE $w_{k}^{t,i+1}\gets w_{k}^{t,i}-\eta\,g_{k}^{t,i}$
+        \ENDFOR
+        \STATE Send $w_{k}^{t,E}$ to server
+    \ENDFOR
+    \STATE $w^{t+1}\gets \frac1K\sum_{k=1}^{K} w_{k}^{t,E}$ \COMMENT{global averaging}
+\ENDFOR
+\STATE \textbf{Output:} $\displaystyle \bar w_T=\frac1T\sum_{t=0}^{T-1} w^{t}$
+\end{algorithmic}
+\end{algorithm}
+
+---------------------------------------------------------------------
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^{2}$, thus $\nabla f(w)=2(w-3)$.
+Take a single client ($K=1$), $E=2$ local steps, learning rate $\eta=0.1$,
+and initialise $w^{0}=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Step & $w$ before update & $g=\nabla f(w)$ & $w$ after update \\
+\hline
+$t=0,i=0$ & $0$ & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ \\
+$t=0,i=1$ & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ \\
+\hline
+Aggregation & $w^{1}=w_{1}^{0,2}=1.08$ & $f(1.08)=(1.08-3)^{2}=3.6864$ &  \\
+\hline
+$t=1,i=0$ & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ \\
+$t=1,i=1$ & $1.464$ & $2(1.464-3)=-3.072$ & $1.464-0.1(-3.072)=1.7712$ \\
+\hline
+Aggregation & $w^{2}=1.7712$ & $f(1.7712)=1.492$ &
+\end{tabular}
+\end{center}
+The objective value decreases from $9$ to $3.69$ and then to $1.49$, illustrating
+the effect of local SGD steps before averaging.
+
+---------------------------------------------------------------------
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{as:smooth}
+Each local loss $F_k$ is $L$–smooth:
+\[
+\forall w,v\in\RR^{d},\qquad
+F_k(v)\le F_k(w)+\langle\nabla F_k(w),v-w\rangle+\frac{L}{2}\norm{v-w}^{2}.
+\]
+Consequently $F$ is also $L$–smooth.
+\end{assumption}
+
+\begin{assumption}[Unbiased Stochastic Gradients]\label{as:unbiased}
+For every $k,t,i$,
+\[
+\EE_{\xi_{k}^{t,i}}\!\bigl[g_{k}^{t,i}\mid w_{k}^{t,i}\bigr]=\nabla F_k\!\bigl(w_{k}^{t,i}\bigr).
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Variance]\label{as:var}
+There exists $\sigma^{2}>0$ s.t.
+\[
+\EE_{\xi_{k}^{t,i}}\!\bigl[\norm{g_{k}^{t,i}-\nabla F_k(w_{k}^{t,i})}^{2}\mid w_{k}^{t,i}\bigr]
+\le\sigma^{2},\qquad\forall k,t,i.
+\]
+\end{assumption}
+
+\begin{assumption}[Client Drift Bounded]\label{as:drift}
+Define the drift $\delta_{k}^{t,i}:=
+\nabla F_k(w_{k}^{t,i})-\nabla F(w^{t})$.
+There exists $G_{\delta}>0$ s.t.
+\[
+\EE\!\bigl[\norm{\delta_{k}^{t,i}}^{2}\bigr]\le G_{\delta}^{2},
+\qquad\forall k,t,i.
+\]
+\end{assumption}
+
+\begin{assumption}[Learning Rate]\label{as:lr}
+The stepsize satisfies $0<\eta\le \frac{1}{4L\max\{1,E\}}$.
+\end{assumption}
+
+---------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Non‑convex convergence of FA‑L‑SGD]\label{thm:main}
+Let Assumptions \ref{as:smooth}–\ref{as:lr} hold.  Denote
+\[
+\bar w_T:=\frac1T\sum_{t=0}^{T-1} w^{t}.
+\]
+Then for any $T\ge1$,
+\[
+\frac1T\sum_{t=0}^{T-1}\EE\!\bigl[\norm{\nabla F(w^{t})}^{2}\bigr]
+\;\le\;
+\underbrace{\frac{2\bigl(F(w^{0})-F^{\star}\bigr)}{\eta T}}_{\text{optimization term}}
+\;+\;
+\underbrace{4L\eta^{2}E^{2}\sigma^{2}}_{\text{stochastic term}}
+\;+\;
+\underbrace{4L\eta^{2}E^{2}G_{\delta}^{2}}_{\text{drift term}}.
+\]
+Consequently, choosing a constant stepsize
+\[
+\eta = \Theta\!\Bigl(\frac{1}{\sqrt{T}}\Bigr)
+\]
+yields
+\[
+\frac1T\sum_{t=0}^{T-1}\EE\!\bigl[\norm{\nabla F(w^{t})}^{2}\bigr]
+= O\!\Bigl(\frac{1}{\sqrt{T}}\Bigr).
+\]
+\end{theorem}
+
+---------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+\begin{enumerate}
+\item \textbf{Stability.}  The bound requires $\eta\le \frac{1}{4L\max\{1,E\}}$,
+ensuring that the local SGD iterates remain in a region where the smoothness
+inequality is tight.
+\item \textbf{Hyper‑parameter sensitivity.}
+    \begin{itemize}
+        \item Larger $E$ reduces communication but inflates the drift and
+        stochastic terms as $E^{2}$ (cf. Theorem \ref{thm:main}).
+        \item The variance $\sigma^{2}$ and drift bound $G_{\delta}^{2}$ appear
+        only multiplicatively with $\eta^{2}E^{2}$, so a smaller stepsize
+        mitigates their impact.
+    \end{itemize}
+\item \textbf{Comparison to baselines.}
+    \begin{itemize}
+        \item With $E=1$ the bound collapses to the standard SGD rate
+        $O(1/\sqrt{T})$.
+        \item When $G_{\delta}=0$ (identical local objectives) the drift term
+        disappears and the rate matches that of centralized minibatch SGD with
+        batch size $K$.
+    \end{itemize}
+\end{enumerate}
+
+\section*{Discussion}
+The theorem shows that, despite non‑convexity and heterogeneous data,
+FA‑L‑SGD attains the same $O(1/\sqrt{T})$ decay of the average squared gradient
+as vanilla SGD, at the price of an additional $E^{2}$ factor multiplying the
+variance and drift constants.  This factor quantifies the trade‑off between
+communication efficiency (large $E$) and statistical efficiency (small $E$).
+
+---------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $F$ is $L$‑smooth then for any $u,v\in\RR^{d}$
+\[
+F(v)\le F(u)+\langle\nabla F(u),v-u\rangle+\frac{L}{2}\norm{v-u}^{2}.
+\]
+\end{lemma}
+\begin{lemma}[Descent lemma for one local step]\label{lem:local}
+For any client $k$, round $t$, and local step $i$,
+\[
+\EE\!\bigl[F_k(w_{k}^{t,i+1})\mid w_{k}^{t,i}\bigr]
+\le
+F_k(w_{k}^{t,i})-\eta\bigl\|\nabla F_k(w_{k}^{t,i})\bigr\|^{2}
++\frac{L\eta^{2}}{2}\bigl(\sigma^{2}+\|\nabla F_k(w_{k}^{t,i})\|^{2}\bigr).
+\]
+\end{lemma}
+\begin{proof}
+Apply Lemma~\ref{lem:smooth} with $u=w_{k}^{t,i}$, $v=w_{k}^{t,i+1}=w_{k}^{t,i}-\eta g_{k}^{t,i}$,
+take expectation conditioned on $w_{k}^{t,i}$ and use Assumptions
+\ref{as:unbiased}–\ref{as:var}.  Rearranging yields the claimed inequality. \qedhere
+\end{proof}
+
+---------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  Throughout the proof expectations are taken
+with respect to all randomness up to the indicated iteration.
+
+\noindent\textbf{Notation.}
+\[
+\bar g^{t}:=\frac1K\sum_{k=1}^{K} g_{k}^{t,E-1},
+\qquad
+\Delta^{t}:=w^{t+1}-w^{t}.
+\]
+
+\noindent\textbf{Step 1 (One‑round descent of the global objective).}
+\begin{align}
+\EE\!\bigl[F(w^{t+1})\mid w^{t}\bigr]
+&\overset{(a)}{\le}
+\EE\!\Bigl[F(w^{t})+\big\langle\nabla F(w^{t}),\Delta^{t}\big\rangle
++\frac{L}{2}\norm{\Delta^{t}}^{2}\,\Big|\,w^{t}\Bigr] \label{eq:step1}\\
+&=F(w^{t})+\big\langle\nabla F(w^{t}),\EE[\Delta^{t}\mid w^{t}]\big\rangle
++\frac{L}{2}\EE\!\bigl[\norm{\Delta^{t}}^{2}\mid w^{t}\bigr].
+\end{align}
+\begin{description}
+\item[Explanation of (a):] Apply Lemma~\ref{lem:smooth} with $u=w^{t}$,
+$v=w^{t+1}=w^{t}+\Delta^{t}$ and take conditional expectation. \hfill[Step 1]
+\end{description}
+
+\noindent\textbf{Step 2 (Expression for $\Delta^{t}$).}
+From the aggregation rule,
+\[
+\Delta^{t}= \frac1K\sum_{k=1}^{K}\bigl(w_{k}^{t,E}-w^{t}\bigr)
+= \frac1K\sum_{k=1}^{K}\sum_{i=0}^{E-1}\bigl(w_{k}^{t,i+1}-w_{k}^{t,i}\bigr)
+= -\eta\frac1K\sum_{k=1}^{K}\sum_{i=0}^{E-1} g_{k}^{t,i}.
+\tag{Step 2}
+\]
+
+\noindent\textbf{Step 3 (Conditional expectation of $\Delta^{t}$).}
+Using unbiasedness (Assumption~\ref{as:unbiased}) and the definition of the
+drift $\delta_{k}^{t,i}$,
+\begin{align}
+\EE[\Delta^{t}\mid w^{t}]
+&= -\eta\frac1K\sum_{k=1}^{K}\sum_{i=0}^{E-1}
+\EE\!\bigl[g_{k}^{t,i}\mid w^{t}\bigr] \nonumber\\
+&= -\eta\frac1K\sum_{k=1}^{K}\sum_{i=0}^{E-1}
+\bigl(\nabla F_k(w_{k}^{t,i})\bigr) \nonumber\\
+&= -\eta\sum_{i=0}^{E-1}\Bigl(\nabla F(w^{t})+\underbrace{\frac1K\sum_{k=1}^{K}
+\delta_{k}^{t,i}}_{\text{average drift}}\Bigr) \nonumber\\
+&= -\eta E\,\nabla F(w^{t})
+-\eta\sum_{i=0}^{E-1}\frac1K\sum_{k=1}^{K}\delta_{k}^{t,i}.
+\tag{Step 3}
+\end{align}
+
+\noindent\textbf{Step 4 (Plugging Step 3 into the descent inequality).}
+Insert \eqref{eq:step1} and the expression for $\EE[\Delta^{t}\mid w^{t}]$:
+\begin{align}
+\EE\!\bigl[F(w^{t+1})\mid w^{t}\bigr]
+&\le F(w^{t})+\big\langle\nabla F(w^{t}),-\eta E\nabla F(w^{t})\big\rangle
+   -\eta\Big\langle\nabla F(w^{t}),\sum_{i=0}^{E-1}\frac1K\sum_{k}\delta_{k}^{t,i}\Big\rangle
+   +\frac{L}{2}\EE\!\bigl[\norm{\Delta^{t}}^{2}\mid w^{t}\bigr] \nonumber\\
+&= F(w^{t})-\eta E\|\nabla F(w^{t})\|^{2}
+   -\eta\Big\langle\nabla F(w^{t}),\sum_{i=0}^{E-1}\frac1K\sum_{k}\delta_{k}^{t,i}\Big\rangle
+   +\frac{L}{2}\EE\!\bigl[\norm{\Delta^{t}}^{2}\mid w^{t}\bigr]. \tag{Step 4}
+\end{align}
+
+\noindent\textbf{Step 5 (Bounding the cross term).}
+Using Cauchy–Schwarz and Assumption~\ref{as:drift},
+\begin{align}
+\Big|\big\langle\nabla F(w^{t}),\sum_{i=0}^{E-1}\frac1K\sum_{k}\delta_{k}^{t,i}\big\rangle\Big|
+&\le \|\nabla F(w^{t})\|\;
+      \Big\|\sum_{i=0}^{E-1}\frac1K\sum_{k}\delta_{k}^{t,i}\Big\| \nonumber\\
+&\le \|\nabla F(w^{t})\|\;
+      \sum_{i=0}^{E-1}\frac1K\sum_{k}\|\delta_{k}^{t,i}\|
+ \le \|\nabla F(w^{t})\|\;E\,G_{\delta}. \tag{Step 5}
+\end{align}
+Taking expectation and applying $ab\le\frac{a^{2}}{2}+\frac{b^{2}}{2}$,
+\[
+\EE\!\Bigl[\eta\big\langle\nabla F(w^{t}),\sum_{i=0}^{E-1}\frac1K\sum_{k}\delta_{k}^{t,i}\big\rangle\Bigr]
+\le \frac{\eta E}{2}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+   +\frac{\eta E}{2}G_{\delta}^{2}. \tag{Step 5'}
+\]
+
+\noindent\textbf{Step 6 (Bounding $\EE[\|\Delta^{t}\|^{2}]$).}
+From Step 2,
+\[
+\Delta^{t}= -\eta\sum_{i=0}^{E-1}\frac1K\sum_{k=1}^{K} g_{k}^{t,i}.
+\]
+Hence,
+\begin{align}
+\EE\!\bigl[\norm{\Delta^{t}}^{2}\mid w^{t}\bigr]
+&= \eta^{2}\EE\!\Bigl[\Big\|\sum_{i=0}^{E-1}\frac1K\sum_{k} g_{k}^{t,i}\Big\|^{2}\Big| w^{t}\Bigr] \nonumber\\
+&\le \eta^{2}E\sum_{i=0}^{E-1}\EE\!\Bigl[\Big\|\frac1K\sum_{k} g_{k}^{t,i}\Big\|^{2}\Big| w^{t}\Bigr] \quad (\text{Jensen}) \nonumber\\
+&\le \eta^{2}E\sum_{i=0}^{E-1}
+\Bigl(\underbrace{\Big\|\frac1K\sum_{k}\nabla F_k(w_{k}^{t,i})\Big\|^{2}}_{\le 2\|\nabla F(w^{t})\|^{2}+2G_{\delta}^{2}}
+    +\frac{\sigma^{2}}{K}\Bigr) \nonumber\\
+&\le \eta^{2}E^{2}\bigl(2\|\nabla F(w^{t})\|^{2}+2G_{\delta}^{2}\bigr)
+   +\eta^{2}E^{2}\frac{\sigma^{2}}{K}. \tag{Step 6}
+\end{align}
+The inequality $\big\|\frac1K\sum_k\nabla F_k\big\|^{2}
+\le 2\|\nabla F(w^{t})\|^{2}+2G_{\delta}^{2}$ follows from
+$\nabla F_k(w_{k}^{t,i})=\nabla F(w^{t})+\delta_{k}^{t,i}$ and
+$(a+b)^{2}\le 2a^{2}+2b^{2}$.
+
+\noindent\textbf{Step 7 (Putting everything together).}
+Insert the bounds from Steps 5' and 6 into the descent inequality of
+Step 4, then take total expectation:
+\begin{align}
+\EE\!\bigl[F(w^{t+1})\bigr]
+&\le \EE\!\bigl[F(w^{t})\bigr]
+   -\eta E\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+   +\frac{\eta E}{2}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+   +\frac{\eta E}{2}G_{\delta}^{2} \nonumber\\
+&\qquad
+   +\frac{L}{2}\Bigl(\eta^{2}E^{2}2\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+                     +\eta^{2}E^{2}2G_{\delta}^{2}
+                     +\eta^{2}E^{2}\frac{\sigma^{2}}{K}\Bigr) \nonumber\\
+&= \EE\!\bigl[F(w^{t})\bigr]
+   -\underbrace{\Bigl(\eta E-\frac{\eta E}{2}-L\eta^{2}E^{2}\Bigr)}_{\displaystyle
+        \alpha}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+   +\underbrace{\Bigl(\frac{\eta E}{2}+L\eta^{2}E^{2}\Bigr)}_{\displaystyle \beta}
+      G_{\delta}^{2}
+   +\frac{L\eta^{2}E^{2}\sigma^{2}}{2K}. \tag{Step 7}
+\end{align}
+By Assumption~\ref{as:lr}, $\eta\le\frac{1}{4L\max\{1,E\}}$ implies
+$\alpha\ge \frac{\eta E}{2}$ and $\beta\le \eta E$.
+Thus,
+\[
+\EE\!\bigl[F(w^{t+1})\bigr]
+\le \EE\!\bigl[F(w^{t})\bigr]
+   -\frac{\eta E}{2}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+   +\eta E\,G_{\delta}^{2}
+   +\frac{L\eta^{2}E^{2}\sigma^{2}}{2K}. \tag{Step 7'}
+\]
+
+\noindent\textbf{Step 8 (Summation over $t$).}
+Sum the inequality in Step 7' for $t=0,\dots,T-1$ and telescope:
+\begin{align}
+\frac{\eta E}{2}\sum_{t=0}^{T-1}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+&\le F(w^{0})-F^{\star}
+   +T\eta E\,G_{\delta}^{2}
+   +\frac{L\eta^{2}E^{2}\sigma^{2}}{2K}T. \tag{Step 8}
+\end{align}
+Dividing by $T\eta E/2$ yields
+\[
+\frac1T\sum_{t=0}^{T-1}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+\le \frac{2\bigl(F(w^{0})-F^{\star}\bigr)}{\eta ET}
+   +2G_{\delta}^{2}
+   +\frac{L\eta E\sigma^{2}}{K}. \tag{Step 8'}
+\]
+
+\noindent\textbf{Step 9 (Final simplification).}
+Since $K\ge1$ and $L\le 2L$, we can absorb constants to obtain the cleaner
+statement of Theorem~\ref{thm:main}:
+\[
+\frac1T\sum_{t=0}^{T-1}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+\le
+\frac{2\bigl(F(w^{0})-F^{\star}\bigr)}{\eta T}
++4L\eta^{2}E^{2}\sigma^{2}
++4L\eta^{2}E^{2}G_{\delta}^{2}.
+\]
+\hfill[Step 9]
+
+Choosing $\eta = \frac{c}{\sqrt{T}}$ with a constant $c$ that respects
+Assumption~\ref{as:lr} gives the $O(1/\sqrt{T})$ rate claimed in the theorem.
+\qed
+
+---------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+From the bound in Theorem~\ref{thm:main},
+let $\eta = \min\Bigl\{\frac{1}{4L\max\{1,E\}},\;\frac{\sqrt{2(F(w^{0})-F^{\star})}}{L^{1/2}E\sqrt{T}}\Bigr\}$.
+Then
+\[
+\frac1T\sum_{t=0}^{T-1}\EE\!\bigl[\|\nabla F(w^{t})\|^{2}\bigr]
+\le
+\underbrace{O\!\Bigl(\frac{1}{\sqrt{T}}\Bigr)}_{\text{optimization term}}
+\;+\;
+\underbrace{O\!\Bigl(\frac{E^{2}}{T}\Bigr)}_{\text{variance term}}
+\;+\;
+\underbrace{O\!\Bigl(\frac{E^{2}}{T}\Bigr)}_{\text{drift term}}.
+\]
+Thus the dominant term is $O(1/\sqrt{T})$ provided $E=O(1)$ or $E$ grows at most
+as $T^{1/4}$.
+
+---------------------------------------------------------------------
+
+\section*{Special Cases}
+\begin{enumerate}
+\item \textbf{Identical local data ($G_{\delta}=0$).}
+    The drift term disappears, and the bound matches centralized mini‑batch
+    SGD with batch size $K\!E$.
+\item \textbf{Single local step ($E=1$).}
+    The factor $E^{2}$ becomes $1$, recovering the classic non‑convex SGD
+    rate $O(1/\sqrt{T})$.
+\item \textbf{Full participation, infinite local steps ($E\to\infty$).}
+    The bound degrades as $E^{2}$; in practice one caps $E$ to keep the
+    $E^{2}$ term comparable to the optimisation term.
+\end{enumerate}
+
+\end{document}

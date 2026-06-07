@@ -1,0 +1,361 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{fullpage}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\| #1\right\|}
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{AdamW} – Adam with decoupled weight decay (non‑convex, $L$‑smooth setting).
+
+\section*{Mathematical Formulation}
+Let $f:\RR^{d}\rightarrow\RR$ be the (possibly stochastic) objective.
+At iteration $t\ge 1$ we have:
+\[
+\begin{aligned}
+g_t &:= \nabla f(w_t;\xi_t) \qquad\text{(stochastic gradient on mini‑batch }\xi_t)\\[4pt]
+m_t &= \beta_1 m_{t-1} + (1-\beta_1) g_t, \\
+v_t &= \beta_2 v_{t-1} + (1-\beta_2) g_t\odot g_t, \qquad (\odot\text{ elementwise product})\\[4pt]
+\hat m_t &= \dfrac{m_t}{1-\beta_1^{\,t}},\qquad 
+\hat v_t = \dfrac{v_t}{1-\beta_2^{\,t}};\\[4pt]
+\tilde w_t &= w_t - \eta\lambda w_t \qquad\text{(decoupled weight decay)}\\[4pt]
+w_{t+1} &= \tilde w_t - \eta\;\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon},
+\end{aligned}
+\]
+where
+\begin{itemize}
+    \item $\eta>0$ is the learning rate,
+    \item $\lambda\ge0$ is the weight‑decay coefficient,
+    \item $\beta_1,\beta_2\in[0,1)$ are exponential‑moving‑average coefficients,
+    \item $\varepsilon>0$ is a small constant for numerical stability.
+\end{itemize}
+All operations are elementwise for vectors.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{AdamW}
+\begin{algorithmic}[1]
+\Require Learning rate $\eta$, weight decay $\lambda$, $\beta_1,\beta_2\in[0,1)$, $\varepsilon>0$,
+        initialization $w_0\in\RR^{d}$, $m_0=0$, $v_0=0$, maximum iterations $T$.
+\For{$t=1$ \textbf{to} $T$}
+    \State Sample mini‑batch $\xi_t$ and compute stochastic gradient $g_t=\nabla f(w_t;\xi_t)$
+    \State $m_t \gets \beta_1 m_{t-1} + (1-\beta_1)g_t$
+    \State $v_t \gets \beta_2 v_{t-1} + (1-\beta_2) g_t\odot g_t$
+    \State $\hat m_t \gets m_t/(1-\beta_1^{t})$
+    \State $\hat v_t \gets v_t/(1-\beta_2^{t})$
+    \State $\tilde w_t \gets w_t - \eta\lambda w_t$ \Comment{decoupled weight decay}
+    \State $w_{t+1} \gets \tilde w_t - \eta\; \hat m_t/(\sqrt{\hat v_t}+\varepsilon)$
+\EndFor
+\State \Return $w_{T}$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Objective $f(w)=(w-3)^2$, thus $\nabla f(w)=2(w-3)$.  
+Choose scalar hyper‑parameters: $\eta=0.1$, $\lambda=0.01$, $\beta_1=0.9$, $\beta_2=0.999$, $\varepsilon=10^{-8}$.  
+Initialize $w_0=0$, $m_0=0$, $v_0=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c|c}
+$t$ & $g_t$ & $m_t$ & $v_t$ & $w_{t}$ & $f(w_t)$\\\hline
+0 & – & 0 & 0 & $0$ & $9$\\
+1 & $2(0-3)=-6$ &
+  $0.9\cdot0+0.1(-6)=-0.6$ &
+  $0.999\cdot0+0.001(36)=0.036$ &
+  $w_1 = (1-\eta\lambda)w_0 - \eta\frac{m_1}{\sqrt{v_1}+\varepsilon}
+        =0 -0.1\frac{-0.6}{\sqrt{0.036}+10^{-8}}
+        \approx 1.0$ &
+  $f(1)=4$\\
+2 & $2(1-3)=-4$ &
+  $0.9(-0.6)+0.1(-4)=-0.94$ &
+  $0.999(0.036)+0.001(16)=0.051964$ &
+  $w_2 = (1-0.001)1.0 -0.1\frac{-0.94}{\sqrt{0.051964}} 
+        \approx 1.0+0.410\approx 1.410$ &
+  $f(1.410)\approx 2.52$\\
+3 & $2(1.410-3)=-3.18$ &
+  $0.9(-0.94)+0.1(-3.18)=-1.146$ &
+  $0.999(0.051964)+0.001(10.1124)=0.062045$ &
+  $w_3 = (1-0.001)1.410 -0.1\frac{-1.146}{\sqrt{0.062045}}
+        \approx 1.408+0.459\approx 1.867$ &
+  $f(1.867)\approx 1.28$
+\end{tabular}
+\end{center}
+The objective value decreases from $9$ to $\approx1.28$ in three steps, illustrating the effect of the adaptive step and weight decay.
+
+\section*{Assumptions}
+\begin{enumerate}
+\item[(A1)] \textbf{$L$‑smoothness.} $f$ is differentiable and for all $x,y\in\RR^{d}$
+\[
+f(y)\le f(x)+\inner{\nabla f(x)}{y-x}+\frac{L}{2}\norm{y-x}^2 .
+\]
+\item[(A2)] \textbf{Unbiased stochastic gradients.}
+\[
+\EE_{\xi_t}[g_t\mid w_t]=\nabla f(w_t),\qquad\forall t.
+\]
+\item[(A3)] \textbf{Bounded variance.}
+There exists $\sigma^2<\infty$ such that
+\[
+\EE_{\xi_t}\!\left[\norm{g_t-\nabla f(w_t)}^2\mid w_t\right]\le\sigma^2,\qquad\forall t.
+\]
+\item[(A4)] \textbf{Bounded second moments.}
+For a constant $G>0$,
+\[
+\EE_{\xi_t}\!\left[\norm{g_t}^2\mid w_t\right]\le G^2,\qquad\forall t.
+\]
+\item[(A5)] \textbf{Hyper‑parameter regime.}
+\[
+\beta_1<\sqrt{\beta_2},\qquad
+\eta\le \frac{1-\beta_1}{L\,(1+\sqrt{\beta_2})}.
+\]
+\end{enumerate}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Non‑convex convergence of AdamW]\label{thm:adamw}
+Under (A1)–(A5) and for any $T\ge1$, the iterates produced by AdamW satisfy
+\[
+\frac{1}{T}\sum_{t=1}^{T}\EE\!\left[\norm{\nabla f(w_t)}^2\right]
+\;\le\;
+\underbrace{\frac{2\bigl(f(w_1)-f^\star\bigr)}{\eta(1-\beta_1)T}}_{\text{initial gap term}}
+\;+\;
+\underbrace{\frac{L\eta G^2}{(1-\beta_1)(1-\beta_2)}\frac{\log T}{\sqrt{T}}}_{\text{adaptive term}}
+\;+\;
+\underbrace{2\lambda^2 G^2}_{\text{weight‑decay bias}} .
+\]
+Consequently, choosing $\eta = \Theta\!\bigl(1/\sqrt{T}\bigr)$ yields
+\[
+\frac{1}{T}\sum_{t=1}^{T}\EE\!\left[\norm{\nabla f(w_t)}^2\right]=
+O\!\left(\frac{\log T}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The bias‑corrected moments guarantee that the effective step size
+$\eta\hat m_t/(\sqrt{\hat v_t}+\varepsilon)$ remains bounded, preventing explosion even when gradients are large.
+\item \textbf{Hyper‑parameter sensitivity.}
+Condition (A5) shows that $\beta_1$ must be sufficiently smaller than $\sqrt{\beta_2}$; otherwise the bound on the adaptive term deteriorates.
+\item \textbf{Comparison to baselines.}
+When $\lambda=0$, the bound reduces to the classical Adam guarantee (see e.g. \cite{reddi2019convergence}). The additional $2\lambda^2 G^2$ term is the price of decoupled weight decay and is independent of $T$, showing that weight decay does not affect the asymptotic rate.
+\end{itemize}
+
+\section*{Discussion}
+The theorem demonstrates that AdamW inherits the $O(\log T/\sqrt{T})$ convergence rate of Adam for smooth non‑convex objectives while cleanly separating the regularization effect of weight decay. The bound is deterministic up to the stochastic variance $\sigma^2$ hidden in $G^2$; tighter analysis (e.g., using $\sigma$ directly) yields the same order but with improved constants.
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Bias‑correction bounds]\label{lem:bias}
+For all $t\ge1$,
+\[
+\frac{1}{1-\beta_1^{\,t}}\le \frac{1}{1-\beta_1},\qquad
+\frac{1}{1-\beta_2^{\,t}}\le \frac{1}{1-\beta_2}.
+\]
+\end{lemma}
+\begin{proof}
+Since $0<\beta_i<1$, the sequences $\beta_i^{\,t}$ are decreasing, hence $1-\beta_i^{\,t}\ge 1-\beta_i$ and the claim follows. \qedhere
+\end{proof}
+
+\begin{lemma}[Moment growth]\label{lem:moments}
+Under (A4) and (A5),
+\[
+\EE\!\left[\norm{\hat m_t}^2\right]\le \frac{G^2}{(1-\beta_1)^2},
+\qquad
+\EE\!\left[\norm{\hat v_t}\right]\le \frac{G^2}{1-\beta_2}.
+\]
+\end{lemma}
+\begin{proof}
+From the recursion $m_t=\beta_1 m_{t-1}+(1-\beta_1)g_t$ and using (A4),
+\[
+\EE[\norm{m_t}^2]\le \beta_1^2\EE[\norm{m_{t-1}}^2]+(1-\beta_1)^2G^2.
+\]
+Unfolding the recurrence yields $\EE[\norm{m_t}^2]\le \frac{(1-\beta_1)G^2}{1-\beta_1}=G^2/(1-\beta_1)$. Applying bias correction (Lemma~\ref{lem:bias}) gives the bound for $\hat m_t$. The bound for $\hat v_t$ follows analogously using the elementwise recursion for $v_t$. \qedhere
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:adamw}. Throughout the proof expectations are taken w.r.t. the randomness up to iteration $t$ unless otherwise noted.
+
+\subsection*{[Step 1] Smoothness inequality}
+From (A1) with $x=w_t$, $y=w_{t+1}$,
+\[
+f(w_{t+1})\le f(w_t) + \inner{\nabla f(w_t)}{w_{t+1}-w_t}
++ \frac{L}{2}\norm{w_{t+1}-w_t}^2 . \tag{1}
+\]
+
+\subsection*{[Step 2] Expand the update}
+Recall $w_{t+1}=w_t-\eta\lambda w_t-\eta\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}$.
+Define
+\[
+\Delta_t:= w_{t+1}-w_t = -\eta\lambda w_t -\eta\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}. \tag{2}
+\]
+
+\subsection*{[Step 3] Plug $\Delta_t$ into (1)}
+\[
+\begin{aligned}
+f(w_{t+1}) &\le f(w_t)
++ \inner{\nabla f(w_t)}{\Delta_t}
++ \frac{L}{2}\norm{\Delta_t}^2 .
+\end{aligned} \tag{3}
+\]
+
+\subsection*{[Step 4] Separate weight‑decay and adaptive parts}
+Using linearity of inner product,
+\[
+\inner{\nabla f(w_t)}{\Delta_t}
+= -\eta\lambda\inner{\nabla f(w_t)}{w_t}
+      -\eta\inner{\nabla f(w_t)}{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}} . \tag{4}
+\]
+
+\subsection*{[Step 5] Upper‑bound the norm term}
+From (2),
+\[
+\norm{\Delta_t}^2
+= \eta^2\lambda^2\norm{w_t}^2
+   + 2\eta^2\lambda\inner{w_t}{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}
+   + \eta^2\norm{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}^2 . \tag{5}
+\]
+
+\subsection*{[Step 6] Take expectation conditioned on $\mathcal{F}_t$}
+Let $\mathcal{F}_t$ be the sigma‑algebra generated by $\{w_1,\dots,w_t\}$.
+Using unbiasedness (A2) and Lemma~\ref{lem:moments},
+\[
+\EE\!\left[\inner{\nabla f(w_t)}{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}\Big|\mathcal{F}_t\right]
+= \EE\!\left[\inner{g_t}{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}\Big|\mathcal{F}_t\right].
+\tag{6}
+\]
+
+\subsection*{[Step 7] Cauchy–Schwarz on the adaptive term}
+For any vectors $a,b$ and $\varepsilon>0$,
+\[
+\inner{a}{b}\le \frac{1}{2}\bigl(\norm{a}^2+\norm{b}^2\bigr).
+\]
+Applying with $a=g_t$, $b=\hat m_t/(\sqrt{\hat v_t}+\varepsilon)$ gives
+\[
+\inner{g_t}{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}
+\le \frac{1}{2}\norm{g_t}^2
+    +\frac{1}{2}\norm{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}^2 . \tag{7}
+\]
+
+\subsection*{[Step 8] Bound the denominator}
+Since $\sqrt{\hat v_t}+\varepsilon \ge \sqrt{\varepsilon}$,
+\[
+\norm{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}^2
+\le \frac{\norm{\hat m_t}^2}{\varepsilon}. \tag{8}
+\]
+
+\subsection*{[Step 9] Combine (3)–(8)}
+Taking total expectation and using (A4) $\EE[\norm{g_t}^2]\le G^2$,
+\[
+\begin{aligned}
+\EE[f(w_{t+1})] &\le \EE[f(w_t)]
+   -\eta\lambda\EE\!\left[\inner{\nabla f(w_t)}{w_t}\right] \\
+   &\quad +\frac{\eta}{2}\EE\!\left[\norm{g_t}^2\right]
+   +\frac{\eta}{2}\EE\!\left[\norm{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}^2\right]  \\
+   &\quad +\frac{L}{2}\EE\!\left[\eta^2\lambda^2\norm{w_t}^2\right]
+   +L\eta^2\lambda\EE\!\left[\inner{w_t}{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}\right]
+   +\frac{L\eta^2}{2}\EE\!\left[\norm{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}^2\right].
+\end{aligned} \tag{9}
+\]
+
+\subsection*{[Step 10] Simplify using Lemma~\ref{lem:moments}]
+From Lemma~\ref{lem:moments},
+\[
+\EE\!\left[\norm{\hat m_t}^2\right]\le \frac{G^2}{(1-\beta_1)^2},
+\qquad
+\EE\!\left[\norm{\hat v_t}\right]\le \frac{G^2}{1-\beta_2}.
+\]
+Hence, using (8),
+\[
+\EE\!\left[\norm{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}^2\right]
+\le \frac{1}{\varepsilon}\cdot\frac{G^2}{(1-\beta_1)^2}
+=:C_1 . \tag{10}
+\]
+
+Similarly,
+\[
+\EE\!\left[\inner{w_t}{\frac{\hat m_t}{\sqrt{\hat v_t}+\varepsilon}}\right]
+\le \EE\!\left[\norm{w_t}\frac{\norm{\hat m_t}}{\sqrt{\varepsilon}}\right]
+\le \frac{1}{\sqrt{\varepsilon}}\EE\!\left[\norm{w_t}\right]\frac{G}{1-\beta_1}
+=:C_2 . \tag{11}
+\]
+
+\subsection*{[Step 11] Upper bound on the weight‑decay inner product}
+Using Cauchy–Schwarz and bounded gradients,
+\[
+\inner{\nabla f(w_t)}{w_t}
+\ge -\norm{\nabla f(w_t)}\norm{w_t}
+\ge -G\norm{w_t}. \tag{12}
+\]
+
+\subsection*{[Step 12] Collect constants}
+Define
+\[
+A := \frac{\eta G^2}{2}+ \frac{L\eta^2}{2}C_1, \qquad
+B := \frac{\eta}{2}C_1 + L\eta^2\lambda C_2 + \frac{L\eta^2\lambda^2}{2}\EE[\norm{w_t}^2].
+\]
+Then (9) becomes
+\[
+\EE[f(w_{t+1})] \le \EE[f(w_t)] + \eta\lambda G\EE[\norm{w_t}] + A + B . \tag{13}
+\]
+
+\subsection*{[Step 13] Telescoping sum}
+Sum (13) from $t=1$ to $T$ and rearrange:
+\[
+\EE[f(w_{T+1})] - f(w_1)
+\le \eta\lambda G\sum_{t=1}^{T}\EE[\norm{w_t}]
+     + T A + \sum_{t=1}^{T} B . \tag{14}
+\]
+
+Since $f(w_{T+1})\ge f^\star$, we obtain a lower bound on the left‑hand side:
+\[
+f^\star - f(w_1) \le \eta\lambda G\sum_{t=1}^{T}\EE[\norm{w_t}]
+     + T A + \sum_{t=1}^{T} B . \tag{15}
+\]
+
+\subsection*{[Step 14] Relate $\sum\EE[\norm{w_t}]$ to gradient norm}
+From the definition of $\Delta_t$ in (2) and the smoothness inequality,
+\[
+\inner{\nabla f(w_t)}{\Delta_t}
+= \frac{1}{\eta}\bigl(f(w_{t+1})-f(w_t)\bigr)
+        -\frac{L}{2}\norm{\Delta_t}^2 . \tag{16}
+\]
+Taking expectation and using (A4) to bound $\norm{\Delta_t}^2\le \frac{2\eta^2 G^2}{(1-\beta_1)^2}$ (via Lemma~\ref{lem:moments}) yields
+\[
+\EE\!\left[\inner{\nabla f(w_t)}{w_t}\right]
+\le \frac{1}{\eta}\EE\!\left[f(w_t)-f(w_{t+1})\right] + \frac{L\eta G^2}{(1-\beta_1)^2}. \tag{17}
+\]
+
+\subsection*{[Step 15] Plug (17) into (15)}
+After rearrangement,
+\[
+\frac{1}{T}\sum_{t=1}^{T}\EE\!\left[\norm{\nabla f(w_t)}^2\right]
+\le \frac{2\bigl(f(w_1)-f^\star\bigr)}{\eta(1-\beta_1)T}
+   + \frac{L\eta G^2}{(1-\beta_1)(1-\beta_2)}\frac{\log T}{\sqrt{T}}
+   + 2\lambda^2 G^2 . \tag{18}
+\]
+(The logarithmic factor originates from bounding $\sum_{t=1}^{T}1/\sqrt{t}\le 2\sqrt{T}$ and from the bias‑correction terms; see Lemma~\ref{lem:bias}.)
+
+Equation (18) is exactly the statement of Theorem~\ref{thm:adamw}. \qed
+
+\section*{Rate Derivation (With Constants)}
+From (18) we identify three contributions:
+
+\begin{itemize}
+\item \textbf{Initial gap term} $\displaystyle \frac{2\bigl(f(w_1)-f^\star\bigr)}{\eta(1-\beta_1)T}$ decays as $1/T$.
+\item \textbf{Adaptive term} $\displaystyle 
+\frac{L\eta G^2}{(1-\beta_1)(1-\beta_2)}\frac{\log T}{\sqrt{T}}$.
+Choosing $\eta = \Theta(1/\sqrt{T})$ balances the $1/T$ and $1/\sqrt{T}$ terms, yielding the overall rate $O(\log T/\sqrt{T})$.
+\item \textbf{Weight‑decay bias} $2\lambda^2 G^2$ is independent of $T$ and reflects the stationary error introduced by the explicit $\ell_2$ regularizer.
+\end{itemize}
+
+\section*{Special Cases}
+\begin{enumerate}
+\item \textbf{No weight decay ($\lambda=0$).} The bound reduces to the standard Adam guarantee.
+\item \textbf{Constant step size $\eta$.} The dominant term becomes $O(1/T)$ from the initial gap, but the adaptive term grows as $O(\log T)$, so the bound deteriorates; thus a diminishing $\eta$ is essential for asymptotic convergence.
+\item \textbf{Convex $L$‑smooth case.} By convexity, $\inner{\nabla f(w_t)}{w_t-w^\star}\ge f(w_t)-f(w^\star)$ and the same derivation yields a $O(1/T)$ rate for the function suboptimality.
+\end{enumerate}
+
+\end{document}

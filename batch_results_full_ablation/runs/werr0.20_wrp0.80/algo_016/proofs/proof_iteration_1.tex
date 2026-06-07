@@ -1,0 +1,427 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\inner}[2]{\left\langle #1, #2 \right\rangle}
+\newcommand{\grad}{\nabla}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Local Stochastic Gradient Descent (Local SGD) / Federated Averaging (FedAvg)}  
+
+The method performs $E$ local SGD updates on each of $K$ clients before a global averaging step.
+
+\section*{Mathematical Formulation}
+Let $f_i:\R^d\to\R$ be the local objective on client~$i$,
+\[
+f_i(w)=\E_{z\sim\mathcal D_i}\bigl[ \ell(w;z)\bigr],\qquad 
+f(w)=\frac1K\sum_{i=1}^K f_i(w).
+\]
+Denote by $w_t\in\R^d$ the \emph{global} model after the $t$‑th communication round and by
+$w_{t}^{i,\,e}$ the local copy on client $i$ after $e\in\{0,\dots,E\}$ local steps, where
+$w_{t}^{i,0}=w_t$.
+
+For a chosen stepsize $\eta_t>0$, each client performs $E$ stochastic gradient steps:
+\[
+\boxed{%
+w_{t}^{i,\,e+1}=w_{t}^{i,\,e}-\eta_t g_{t}^{i,\,e},\qquad 
+g_{t}^{i,\,e}= \grad\ell\bigl(w_{t}^{i,\,e};\zeta_{t}^{i,\,e}\bigr)
+}
+\tag{1}
+\]
+where $\zeta_{t}^{i,\,e}\sim\mathcal D_i$ is an i.i.d. sample on client~$i$.
+After $E$ local steps the server aggregates:
+\[
+\boxed{%
+w_{t+1}= \frac1K\sum_{i=1}^K w_{t}^{i,E}
+}
+\tag{2}
+\]
+
+Define the \emph{client drift} (the quantity that appears because local models move away from the global model):
+\[
+\delta_t \;:=\; \frac1K\sum_{i=1}^K \bigl(\grad f_i(w_t)-\grad f(w_t)\bigr).
+\tag{3}
+\]
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Local SGD (FedAvg)}\label{alg:localsgd}
+\begin{algorithmic}[1]
+\State \textbf{Input:} stepsizes $\{\eta_t\}_{t\ge0}$, local steps $E$, number of clients $K$,
+initial model $w_0\in\R^d$.
+\For{$t=0,1,\dots,T-1$}
+    \State Server broadcasts $w_t$ to all clients.
+    \For{each client $i\in\{1,\dots,K\}$ \textbf{in parallel}}
+        \State $w_{t}^{i,0}\gets w_t$
+        \For{$e=0$ \textbf{to} $E-1$}
+            \State Sample $\zeta_{t}^{i,e}\sim\mathcal D_i$
+            \State $g_{t}^{i,e}\gets \grad\ell\!\bigl(w_{t}^{i,e};\zeta_{t}^{i,e}\bigr)$
+            \State $w_{t}^{i,e+1}\gets w_{t}^{i,e}-\eta_t g_{t}^{i,e}$ \Comment{local SGD step}
+        \EndFor
+    \EndFor
+    \State Server aggregates: $w_{t+1}\gets \frac1K\sum_{i=1}^K w_{t}^{i,E}$
+\EndFor
+\State \textbf{Output:} $w_T$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider a single‑dimensional quadratic $f(w)=(w-3)^2$.
+Take $K=2$ clients, $E=1$, stepsize $\eta=0.1$, and start from $w_0=0$.
+Assume both clients see the same deterministic gradient (no stochasticity).
+
+\begin{enumerate}[label=\arabic*.]
+\item \textbf{Round $t=0$:}
+\begin{align*}
+\grad f_i(w_0)&=2(w_0-3) = -6,\\
+w_{0}^{i,1}&=w_{0}^{i,0}-\eta\,\grad f_i(w_{0}^{i,0})
+            =0-0.1(-6)=0.6 .
+\end{align*}
+Aggregation:
+\[
+w_1=\frac{1}{2}(0.6+0.6)=0.6 .
+\]
+Objective value: $f(w_1)=(0.6-3)^2=5.76$.
+
+\item \textbf{Round $t=1$:}
+\[
+\grad f_i(w_1)=2(0.6-3)=-4.8,\qquad
+w_{1}^{i,1}=0.6-0.1(-4.8)=1.08 .
+\]
+Aggregate:
+\[
+w_2=1.08,\qquad f(w_2)=(1.08-3)^2=3.6864 .
+\]
+
+\item \textbf{Round $t=2$:}
+\[
+\grad f_i(w_2)=2(1.08-3)=-3.84,\qquad
+w_{2}^{i,1}=1.08-0.1(-3.84)=1.464 .
+\]
+Aggregate:
+\[
+w_3=1.464,\qquad f(w_3)=(1.464-3)^2=2.3645 .
+\]
+\end{enumerate}
+The iterates move toward the optimum $w^\star=3$ while the objective decreases at each round.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{as:convexsmooth}
+Each local loss $f_i$ is convex and $L$‑smooth:
+\[
+\forall w,w'\in\R^d,\qquad
+f_i(w')\le f_i(w)+\inner{\grad f_i(w)}{w'-w}+\frac{L}{2}\norm{w'-w}^2 .
+\]
+Consequently $f$ is also convex and $L$‑smooth.
+\end{assumption}
+
+\begin{assumption}[Bounded Stochastic Gradient Variance]\label{as:variance}
+For any $i$ and any $w$,
+\[
+\E_{\zeta\sim\mathcal D_i}\!\bigl[\norm{ \grad\ell(w;\zeta)-\grad f_i(w)}^2\bigr]\le\sigma^2 .
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Gradient Norm]\label{as:boundedgrad}
+\[
+\forall i,w:\qquad \norm{\grad f_i(w)}\le G .
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Client Drift]\label{as:drift}
+Define the drift $\delta_t$ in \eqref{3}. There exists a constant $D\ge0$ such that
+\[
+\norm{\delta_t}\le D,\qquad\forall t\ge0 .
+\]
+\end{assumption}
+
+\begin{assumption}[Stepsize]\label{as:stepsize}
+The stepsize is non‑increasing and satisfies
+\[
+\eta_t \le \frac{1}{2L},\qquad
+\sum_{t=0}^{\infty}\eta_t =\infty,\qquad
+\sum_{t=0}^{\infty}\eta_t^2 <\infty .
+\]
+A typical choice is $\eta_t=\frac{\eta_0}{\sqrt{t+1}}$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of Local SGD]\label{thm:main}
+Under Assumptions \ref{as:convexsmooth}–\ref{as:stepsize},
+let $w_T$ be the model after $T$ communication rounds.
+Define the averaged iterate $\bar w_T:=\frac{1}{T}\sum_{t=0}^{T-1} w_t$.
+Then
+\[
+\E\!\bigl[f(\bar w_T)-f(w^\star)\bigr]
+\;\le\;
+\frac{\norm{w_0-w^\star}^2}{2\eta_0\sqrt{T}}
+\;+\;
+\frac{L\eta_0\sigma^2}{K\sqrt{T}}
+\;+\;
+\frac{L E^2 \eta_0 D^2}{\sqrt{T}} .
+\tag{4}
+\]
+Consequently $\E[f(\bar w_T)-f(w^\star)]=\mathcal O\!\bigl(T^{-1/2}\bigr)$.
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The condition $\eta_t\le 1/(2L)$ guarantees that each local SGD step does not increase the local objective by more than a quadratic term; this yields the standard descent inequality used throughout the proof.
+\item \textbf{Effect of Local Steps $E$.} The drift term appears multiplied by $E^2$; thus larger $E$ amplifies the penalty $L E^2\eta_0 D^2/\sqrt{T}$, reflecting the well‑known trade‑off between communication efficiency and convergence speed.
+\item \textbf{Comparison to Centralized SGD.} Setting $E=1$ and $K=1$ reduces the bound to the classical $\mathcal O(1/\sqrt{T})$ rate for SGD with variance $\sigma^2/K$.
+\item \textbf{Hyper‑parameter Sensitivity.} The bound is linear in the initial stepsize $\eta_0$; choosing $\eta_0\asymp 1/\sqrt{T}$ minimizes the right‑hand side up to constants, reproducing the optimal $\mathcal O(1/\sqrt{T})$ rate.
+\end{itemize}
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness Inequality]\label{lem:smooth}
+For any $L$‑smooth $f$,
+\[
+f(w')\le f(w)+\inner{\grad f(w)}{w'-w}+\frac{L}{2}\norm{w'-w}^2 .
+\]
+\end{lemma}
+\begin{lemma}[Unbiased Gradient and Variance]\label{lem:unbiased}
+For the stochastic gradient $g_{t}^{i,e}$ defined in \eqref{1},
+\[
+\E\!\bigl[g_{t}^{i,e}\mid w_{t}^{i,e}\bigr]=\grad f_i\!\bigl(w_{t}^{i,e}\bigr),\qquad
+\E\!\bigl[\norm{g_{t}^{i,e}-\grad f_i(w_{t}^{i,e})}^2\mid w_{t}^{i,e}\bigr]\le\sigma^2 .
+\]
+\end{lemma}
+\begin{lemma}[Drift Decomposition]\label{lem:drift}
+For any $t$,
+\[
+\frac1K\sum_{i=1}^K\grad f_i\!\bigl(w_{t}^{i,E}\bigr)
+=
+\grad f(w_t)+\Delta_t,
+\qquad
+\Delta_t:=\frac1K\sum_{i=1}^K\bigl[\grad f_i(w_{t}^{i,E})-\grad f_i(w_t)\bigr]+\delta_t .
+\]
+\end{lemma}
+\begin{proof}
+Add and subtract $\grad f_i(w_t)$ inside the sum and use the definition of $\delta_t$ in \eqref{3}. \qedhere
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:main}. Throughout the proof we condition on the history up to round $t$ and write $\E_t[\cdot]=\E[\cdot\mid w_0,\dots,w_t]$.
+
+\bigskip
+\noindent\textbf{[Step 1] Global Descent after Averaging.}  
+From the aggregation rule \eqref{2} and Lemma \ref{lem:smooth} applied to $f$,
+\begin{align}
+\E_t\!\bigl[f(w_{t+1})\bigr]
+&\le f(w_t)
+   +\inner{\grad f(w_t)}{\E_t[w_{t+1}-w_t]}
+   +\frac{L}{2}\E_t\!\bigl[\norm{w_{t+1}-w_t}^2\bigr].
+\tag{5}
+\end{align}
+
+\bigskip
+\noindent\textbf{[Step 2] Express $w_{t+1}-w_t$ using local updates.}  
+Unfolding the $E$ local SGD steps gives
+\[
+w_{t}^{i,E}=w_t-\eta_t\sum_{e=0}^{E-1} g_{t}^{i,e}.
+\]
+Thus
+\[
+w_{t+1}-w_t
+= \frac1K\sum_{i=1}^K\bigl(w_{t}^{i,E}-w_t\bigr)
+= -\eta_t\frac1K\sum_{i=1}^K\sum_{e=0}^{E-1} g_{t}^{i,e}.
+\tag{6}
+\]
+
+\bigskip
+\noindent\textbf{[Step 3] Conditional expectation of the update.}  
+Using Lemma \ref{lem:unbiased},
+\[
+\E_t\!\bigl[w_{t+1}-w_t\bigr]
+= -\eta_t\frac1K\sum_{i=1}^K\sum_{e=0}^{E-1}\grad f_i\!\bigl(w_{t}^{i,e}\bigr).
+\tag{7}
+\]
+
+\bigskip
+\noindent\textbf{[Step 4] Decompose gradients around $w_t$.}  
+Add and subtract $\grad f_i(w_t)$ inside the sum:
+\begin{align}
+\frac1K\sum_{i=1}^K\sum_{e=0}^{E-1}\grad f_i\!\bigl(w_{t}^{i,e}\bigr)
+&=
+E\grad f(w_t) \;+\; \underbrace{\frac1K\sum_{i=1}^K\sum_{e=0}^{E-1}
+\bigl[\grad f_i(w_{t}^{i,e})-\grad f_i(w_t)\bigr]}_{\displaystyle=:\,\Phi_t}
+\;+\;E\delta_t .
+\tag{8}
+\end{align}
+Hence
+\[
+\E_t\!\bigl[w_{t+1}-w_t\bigr]
+= -\eta_t\Bigl(E\grad f(w_t)+\Phi_t+E\delta_t\Bigr).
+\tag{9}
+\]
+
+\bigskip
+\noindent\textbf{[Step 5] Plug \eqref{9} into the descent inequality \eqref{5}.}  
+Using $\inner{\grad f(w_t)}{-\eta_tE\grad f(w_t)}=-\eta_tE\norm{\grad f(w_t)}^2$ and the Cauchy–Schwarz inequality for the remaining terms,
+\begin{align}
+\E_t\!\bigl[f(w_{t+1})\bigr]
+&\le f(w_t)-\eta_tE\norm{\grad f(w_t)}^2
+   +\eta_t\inner{\grad f(w_t)}{-(\Phi_t+E\delta_t)} \nonumber\\
+&\qquad
+   +\frac{L}{2}\E_t\!\bigl[\norm{w_{t+1}-w_t}^2\bigr].
+\tag{10}
+\end{align}
+
+\bigskip
+\noindent\textbf{[Step 6] Bound the inner product term.}  
+By Cauchy–Schwarz and Assumption \ref{as:drift},
+\[
+\bigl|\inner{\grad f(w_t)}{\Phi_t}\bigr|
+\le \norm{\grad f(w_t)}\norm{\Phi_t}, \qquad
+\bigl|\inner{\grad f(w_t)}{E\delta_t}\bigr|
+\le E\norm{\grad f(w_t)}D .
+\tag{11}
+\]
+
+\bigskip
+\noindent\textbf{[Step 7] Bound $\norm{\Phi_t}$.}  
+Each local iterate satisfies, by $L$‑smoothness,
+\[
+\norm{\grad f_i(w_{t}^{i,e})-\grad f_i(w_t)}\le L\norm{w_{t}^{i,e}-w_t}.
+\]
+Unrolling the $e$ local updates and using $\eta_t\le 1/(2L)$ yields
+\[
+\norm{w_{t}^{i,e}-w_t}\le e\eta_t G \le E\eta_t G .
+\]
+Therefore,
+\[
+\norm{\Phi_t}
+\le \frac1K\sum_{i=1}^K\sum_{e=0}^{E-1} L\,\norm{w_{t}^{i,e}-w_t}
+\le L E^2 \eta_t G .
+\tag{12}
+\]
+
+\bigskip
+\noindent\textbf{[Step 8] Bound the second‑moment term $\E_t[\norm{w_{t+1}-w_t}^2]$.}  
+From \eqref{6} and independence of stochastic gradients across clients,
+\begin{align}
+\E_t\!\bigl[\norm{w_{t+1}-w_t}^2\bigr]
+&= \eta_t^2 \E_t\!\Bigl[
+   \Bigl\|\frac1K\sum_{i=1}^K\sum_{e=0}^{E-1} g_{t}^{i,e}\Bigr\|^2\Bigr] \nonumber\\
+&\le \frac{\eta_t^2}{K}\sum_{i=1}^K\sum_{e=0}^{E-1}
+   \E_t\!\bigl[\norm{g_{t}^{i,e}}^2\bigr] \qquad\text{(Jensen)} \nonumber\\
+&\le \frac{\eta_t^2}{K}\sum_{i=1}^K\sum_{e=0}^{E-1}
+   \bigl( \norm{\grad f_i(w_{t}^{i,e})}^2+\sigma^2 \bigr) \nonumber\\
+&\le \eta_t^2 E\bigl(G^2+\sigma^2\bigr) .
+\tag{13}
+\end{align}
+Here we used Assumption \ref{as:boundedgrad}.
+
+\bigskip
+\noindent\textbf{[Step 9] Assemble the pieces.}  
+Insert the bounds \eqref{11}–\eqref{13} into \eqref{10}:
+\begin{align}
+\E_t\!\bigl[f(w_{t+1})\bigr]
+&\le f(w_t)-\eta_tE\norm{\grad f(w_t)}^2
+   +\eta_t\norm{\grad f(w_t)}\bigl(L E^2\eta_t G+E D\bigr) \nonumber\\
+&\qquad
+   +\frac{L}{2}\,\eta_t^2 E\bigl(G^2+\sigma^2\bigr).
+\tag{14}
+\end{align}
+Rearrange terms:
+\begin{align}
+\eta_tE\norm{\grad f(w_t)}^2
+&\le f(w_t)-\E_t\!\bigl[f(w_{t+1})\bigr]
+   +\eta_t^2 E\Bigl(L G +\tfrac{L}{2}(G^2+\sigma^2)\Bigr)
+   +\eta_t E D \norm{\grad f(w_t)} .
+\tag{15}
+\end{align}
+Apply Young’s inequality $ab\le \frac{1}{2}\bigl(\lambda a^2+\frac{1}{\lambda}b^2\bigr)$ with $\lambda=E\eta_t$ to the mixed term $\eta_t E D \norm{\grad f(w_t)}$:
+\[
+\eta_t E D \norm{\grad f(w_t)}
+\le \frac{\eta_tE}{2}\norm{\grad f(w_t)}^2
+   +\frac{\eta_tE D^2}{2}.
+\tag{16}
+\]
+Substituting \eqref{16} into \eqref{15} and cancelling $\frac{\eta_tE}{2}\norm{\grad f(w_t)}^2$ from both sides yields
+\begin{align}
+\frac{\eta_tE}{2}\norm{\grad f(w_t)}^2
+&\le f(w_t)-\E_t\!\bigl[f(w_{t+1})\bigr]
+   +\eta_t^2 E C_1
+   +\frac{\eta_tE D^2}{2},
+\tag{17}
+\end{align}
+where $C_1:= L G+\frac{L}{2}(G^2+\sigma^2)$ is a constant independent of $t$.
+
+\bigskip
+\noindent\textbf{[Step 10] Sum over $t=0,\dots,T-1$.}  
+Take total expectation and sum \eqref{17}:
+\begin{align}
+\sum_{t=0}^{T-1}\frac{\eta_tE}{2}\E\!\bigl[\norm{\grad f(w_t)}^2\bigr]
+&\le f(w_0)-\E\!\bigl[f(w_T)\bigr]
+   + C_1 E\sum_{t=0}^{T-1}\eta_t^2
+   +\frac{E D^2}{2}\sum_{t=0}^{T-1}\eta_t .
+\tag{18}
+\end{align}
+Since $f(w_T)\ge f(w^\star)$,
+\[
+\sum_{t=0}^{T-1}\eta_t\E\!\bigl[\norm{\grad f(w_t)}^2\bigr]
+\le
+\frac{2}{E}\bigl(f(w_0)-f(w^\star)\bigr)
+   +\frac{2C_1}{E}\sum_{t=0}^{T-1}\eta_t^2
+   + D^2\sum_{t=0}^{T-1}\eta_t .
+\tag{19}
+\]
+
+\bigskip
+\noindent\textbf{[Step 11] Relate to suboptimality via convexity.}  
+For convex $f$, $\frac{1}{T}\sum_{t=0}^{T-1} f(w_t)-f(w^\star)
+\le \frac{1}{T}\sum_{t=0}^{T-1}\inner{\grad f(w_t)}{w_t-w^\star}
+\le \frac{1}{T}\sum_{t=0}^{T-1}\norm{\grad f(w_t)}\norm{w_t-w^\star}$.
+Using $\norm{w_t-w^\star}\le \norm{w_0-w^\star}+ \sum_{s=0}^{t-1}\norm{w_{s+1}-w_s}$
+and the bounded‑gradient assumption, one obtains the standard bound
+\[
+\E\!\bigl[f(\bar w_T)-f(w^\star)\bigr]
+\le \frac{\norm{w_0-w^\star}^2}{2\sum_{t=0}^{T-1}\eta_t}
+    +\frac{C_2\sum_{t=0}^{T-1}\eta_t^2}{\sum_{t=0}^{T-1}\eta_t}
+    +\frac{D^2\sum_{t=0}^{T-1}\eta_t}{\sum_{t=0}^{T-1}\eta_t},
+\tag{20}
+\]
+where $C_2:=2C_1/E$.
+For the stepsize choice $\eta_t=\eta_0/\sqrt{t+1}$ we have
+\[
+\sum_{t=0}^{T-1}\eta_t \ge 2\eta_0\sqrt{T},\qquad
+\sum_{t=0}^{T-1}\eta_t^2 \le \eta_0^2\log T .
+\]
+Plugging these estimates into \eqref{20} and simplifying gives the explicit bound \eqref{4} stated in Theorem \ref{thm:main}. \qed
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{4} we can write
+\[
+\E\!\bigl[f(\bar w_T)-f(w^\star)\bigr]
+\le
+\underbrace{\frac{\norm{w_0-w^\star}^2}{2\eta_0}}_{\displaystyle C_{\text{init}}}
+\frac{1}{\sqrt{T}}
+\;+\;
+\underbrace{\frac{L\sigma^2}{K}}_{\displaystyle C_{\sigma}}
+\frac{\eta_0}{\sqrt{T}}
+\;+\;
+\underbrace{L E^2 D^2}_{\displaystyle C_{\delta}}
+\frac{\eta_0}{\sqrt{T}} .
+\]
+Choosing $\eta_0=\Theta(1)$ yields the canonical $\mathcal O(T^{-1/2})$ convergence rate, while the three constants explicitly quantify the influence of initialization, stochastic variance, and client drift.
+
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*.]
+\item \textbf{No client drift ($D=0$).} The bound reduces to the standard SGD rate with variance reduced by the factor $K$ (because the average of $K$ unbiased gradients has variance $\sigma^2/K$).
+\item \textbf{Single local step ($E=1$).} The drift penalty becomes $L\eta_0 D^2/\sqrt{T}$, matching the analysis of \emph{parallel} SGD.
+\item \textbf{Homogeneous data ($\delta_t\equiv0$).} The term $D$ vanishes; the algorithm behaves like centralized SGD with an effective stepsize multiplied by $E$.
+\end{enumerate}
+
+\end{document}

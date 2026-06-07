@@ -1,0 +1,184 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T03:58:38.693676",
+    "end_time": "2026-05-23T03:59:39.748517",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.6,
+      "w_tfp": 0.4,
+      "w_rp_pen": 0.4
+    }
+  },
+  "algorithm_description": "The algorithm maintains exponential moving averages m_t and v_t. Update includes bias correction. Crucially, uses v_t_hat = max(v_t_hat_{t-1}, v_t) to ensure monotonicity.",
+  "assumptions": "Non-Convex and Smooth functions (AMSGrad)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T03:59:08.973790",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algpseudocode}\n\\usepackage{hyperref}\n\\usepackage{bm}\n\\usepackage{enumitem}\n\\usepackage{xcolor}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\abs}[1]{\\left|#1\\right|}\n\\newcommand{\\ip}[2]{\\left\\langle #1,#2\\right\\rangle}\n\\begin{document}\n\n\\section*{AMSGrad (Adaptive Moment Estimation with Monotonic Second Moment)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be the stochastic objective\n\\[\n\\min_{w\\in\\R^{d}} \\; F(w) := \\E_{z\\sim\\mathcal{D}}[f(w;z)] .\n\\]\nAt iteration $t\\ge 1$ we draw an i.i.d.\\ sample $z_t\\sim\\mathcal{D}$ and compute the stochastic gradient\n\\[\ng_t \\;:=\\; \\nabla f(w_t;z_t).\n\\]\nAMSGrad maintains exponential moving averages of the first and (uncentered) second moments:\n\\[\n\\begin{aligned}\nm_t &= \\beta_1 m_{t-1} + (1-\\beta_1) g_t, \\tag{1}\\\\\nv_t &= \\beta_2 v_{t-1} + (1-\\beta_2) g_t\\odot g_t, \\tag{2}\n\\end{aligned}\n\\]\nwhere $0\\le\\beta_1,\\beta_2<1$ and $\\odot$ denotes element\u2011wise product.  \nBias\u2011corrected estimates are\n\\[\n\\hat m_t = \\frac{m_t}{1-\\beta_1^{\\,t}},\\qquad\n\\hat v_t = \\frac{v_t}{1-\\beta_2^{\\,t}}. \\tag{3}\n\\]\nAMSGrad enforces a monotone non\u2011increasing step size by defining a \\emph{max} operator on the corrected second moment:\n\\[\n\\tilde v_t = \\max\\bigl(\\tilde v_{t-1},\\,\\hat v_t\\bigr),\\qquad \\tilde v_0 := 0. \\tag{4}\n\\]\nThe parameter update is then\n\\[\nw_{t+1}= w_t - \\eta \\, \\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}, \\tag{5}\n\\]\nwith learning rate $\\eta>0$ and a small constant $\\epsilon>0$ for numerical stability.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{AMSGrad}\n\\begin{algorithmic}[1]\n\\Require Learning rate $\\eta>0$, $\\beta_1,\\beta_2\\in[0,1)$, $\\epsilon>0$, max iterations $T$.\n\\State Initialize $w_1\\in\\R^{d}$, $m_0=0$, $v_0=0$, $\\tilde v_0=0$.\n\\For{$t=1$ \\textbf{to} $T$}\n    \\State Sample $z_t\\sim\\mathcal{D}$ and compute $g_t=\\nabla f(w_t;z_t)$.\n    \\State $m_t \\gets \\beta_1 m_{t-1} + (1-\\beta_1) g_t$.\n    \\State $v_t \\gets \\beta_2 v_{t-1} + (1-\\beta_2) g_t\\odot g_t$.\n    \\State $\\hat m_t \\gets m_t/(1-\\beta_1^{\\,t})$.\n    \\State $\\hat v_t \\gets v_t/(1-\\beta_2^{\\,t})$.\n    \\State $\\tilde v_t \\gets \\max(\\tilde v_{t-1},\\hat v_t)$ \\hfill\\textit{// element\u2011wise max}\n    \\State $w_{t+1} \\gets w_t - \\eta\\,\\hat m_t/(\\sqrt{\\tilde v_t}+\\epsilon)$.\n\\EndFor\n\\State \\Return $w_{T+1}$\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^2$. Its deterministic gradient is $\\nabla f(w)=2(w-3)$.  \nSet hyper\u2011parameters: $\\eta=0.1$, $\\beta_1=0.9$, $\\beta_2=0.999$, $\\epsilon=10^{-8}$, and initialise $w_1=0$, $m_0=v_0=\\tilde v_0=0$.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c|c}\n$t$ & $w_t$ & $g_t$ & $m_t$ & $v_t$ & $\\tilde v_t$ \\\\ \\hline\n1 & $0$ & $-6$ &\n   $0.1\\cdot(-6)=-0.6$ &\n   $0.001\\cdot 36=0.036$ &\n   $\\max(0,0.036)=0.036$ \\\\[4pt]\n   & $w_2 = 0 - 0.1\\frac{-0.6}{\\sqrt{0.036}} \\approx 0.1$ &\n   $f(w_2)= (0.1-3)^2=8.41$ \\\\ \\hline\n2 & $0.1$ & $-5.8$ &\n   $0.9(-0.6)+0.1(-5.8) = -1.14$ &\n   $0.999\\cdot0.036+0.001\\cdot33.64 \\approx 0.0696$ &\n   $\\max(0.036,0.0696)=0.0696$ \\\\[4pt]\n   & $w_3 = 0.1 - 0.1\\frac{-1.14}{\\sqrt{0.0696}} \\approx 0.53$ &\n   $f(w_3)= (0.53-3)^2\\approx 6.09$ \\\\ \\hline\n3 & $0.53$ & $-4.94$ &\n   $0.9(-1.14)+0.1(-4.94) = -1.586$ &\n   $0.999\\cdot0.0696+0.001\\cdot24.40 \\approx 0.0940$ &\n   $\\max(0.0696,0.0940)=0.0940$ \\\\[4pt]\n   & $w_4 = 0.53 - 0.1\\frac{-1.586}{\\sqrt{0.0940}} \\approx 1.09$ &\n   $f(w_4)= (1.09-3)^2\\approx 3.66$ \\\\ \n\\end{tabular}\n\\end{center}\nThe objective value decreases monotonically, illustrating the adaptive step\u2011size effect of AMSGrad.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\nThe stochastic loss $f(\\cdot;z)$ is $L$\u2011smooth for every $z$, i.e.\n\\[\n\\|\\nabla f(w;z)-\\nabla f(w';z)\\|\\le L\\|w-w'\\|\\quad\\forall w,w'\\in\\R^{d}.\n\\]\nConsequently, the expected objective $F(w)=\\E_z[f(w;z)]$ is also $L$\u2011smooth.\n\\end{assumption}\n\\begin{assumption}[Bounded Stochastic Gradients]\\label{as:bound}\nThere exists $G>0$ such that $\\|g_t\\|\\le G$ almost surely for all $t$.\n\\end{assumption}\n\\begin{assumption}[Unbiasedness and Bounded Variance]\\label{as:unbiased}\n\\[\n\\E[g_t\\mid\\mathcal{F}_{t-1}]=\\nabla F(w_t),\\qquad\n\\E\\bigl[\\|g_t-\\nabla F(w_t)\\|^2\\mid\\mathcal{F}_{t-1}\\bigr]\\le\\sigma^2,\n\\]\nwhere $\\mathcal{F}_{t-1}$ is the $\\sigma$\u2011algebra generated by $\\{w_1,\\dots,w_t\\}$.\n\\end{assumption}\n\\begin{assumption}[Hyper\u2011parameter Regime]\\label{as:hyper}\nThe decay rates satisfy $0\\le\\beta_1<\\sqrt{\\beta_2}<1$ and the stepsize $\\eta$ obeys\n\\[\n\\eta \\le \\frac{(1-\\beta_1)\\sqrt{1-\\beta_2}}{L\\,(1+\\sqrt{\\beta_2})}.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Non\u2011convex Convergence of AMSGrad]\\label{thm:main}\nUnder Assumptions \\ref{as:smooth}\u2013\\ref{as:hyper}, let $\\{w_t\\}_{t=1}^{T}$ be the iterates generated by AMSGrad with step size $\\eta$. Define the averaged gradient norm\n\\[\n\\overline{G}_T \\;:=\\; \\frac{1}{T}\\sum_{t=1}^{T}\\E\\bigl[\\|\\nabla F(w_t)\\|^2\\bigr].\n\\]\nThen\n\\[\n\\boxed{\\;\n\\overline{G}_T \\;\\le\\;\n\\frac{2L\\bigl(F(w_1)-F^\\star\\bigr)}{(1-\\beta_1)\\eta T}\n\\;+\\;\n\\frac{2\\eta\\,G^2\\,(1+\\log T)}{(1-\\beta_1)(1-\\beta_2)}\\;\n}\n\\tag{6}\n\\]\nwhere $F^\\star=\\inf_{w}F(w)$. Consequently,\n\\[\n\\overline{G}_T = O\\!\\left(\\frac{\\log T}{\\sqrt{T}}\\right)\n\\quad\\text{if}\\quad\n\\eta = \\Theta\\!\\bigl(T^{-1/2}\\bigr).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Stability.} The monotone max operator $\\tilde v_t$ guarantees that the denominator in (5) never decreases, preventing the uncontrolled growth of the effective stepsize that can cause divergence in Adam.\n\\item \\textbf{Hyper\u2011parameter Sensitivity.} The bound (6) exhibits linear dependence on $\\eta$ and inverse dependence on $(1-\\beta_1)$. Choosing $\\beta_1$ close to $1$ slows down convergence but reduces variance; $\\beta_2$ appears only inside $(1-\\beta_2)^{-1}$, reflecting the role of the second\u2011moment decay.\n\\item \\textbf{Comparison to Adam.} For Adam the analogous bound contains an extra term proportional to $\\sum_{t=1}^{T}\\|\\sqrt{v_t}\\|^{-1}$ which can be unbounded. The max\u2011operator eliminates this term, yielding the clean $O(\\log T/\\sqrt{T})$ rate.\n\\item \\textbf{Special Cases.}\n    \\begin{enumerate}\n    \\item If $F$ is convex, the same proof yields $\\mathcal{O}(\\log T/T)$ convergence of the optimality gap.\n    \\item When $L=0$ (i.e., linear functions) the first term in (6) vanishes and the bound reduces to the pure variance term.\n    \\end{enumerate}\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that AMSGrad attains the same order of convergence as (deterministic) gradient descent on smooth non\u2011convex objectives, up to a logarithmic factor caused by the adaptive learning rates. The monotonicity of $\\tilde v_t$ is the key technical device that allows us to bound the accumulated \u201ceffective stepsizes\u2019\u2019 and avoid the pathological examples where Adam fails.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Inequality]\\label{lem:smooth}\nIf $F$ is $L$\u2011smooth then for any $w,w'$\n\\[\nF(w')\\le F(w) + \\ip{\\nabla F(w)}{w'-w} + \\frac{L}{2}\\|w'-w\\|^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\nStandard consequence of $L$\u2011smoothness; see e.g. Nesterov (2004). \\hfill\\qedhere\n\\end{proof}\n\n\\begin{lemma}[Bound on Bias\u2011Corrected First Moment]\\label{lem:m_bound}\nFor all $t$,\n\\[\n\\|\\hat m_t\\| \\le \\frac{(1-\\beta_1^{\\,t})}{1-\\beta_1}\\,G \\le \\frac{G}{1-\\beta_1}.\n\\]\n\\end{lemma}\n\\begin{proof}\nFrom (1),\n\\[\nm_t = (1-\\beta_1)\\sum_{i=1}^{t}\\beta_1^{\\,t-i} g_i .\n\\]\nTaking norms, using $\\|g_i\\|\\le G$, and dividing by $1-\\beta_1^{\\,t}$ yields the claim. \\hfill\\qedhere\n\\end{proof}\n\n\\begin{lemma}[Monotonicity of $\\tilde v_t$]\\label{lem:max}\nBy definition (4), $\\tilde v_t \\succeq \\tilde v_{t-1}$ element\u2011wise for all $t$.\n\\end{lemma}\n\\begin{proof}\nImmediate from the element\u2011wise maximum operation. \\hfill\\qedhere\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}. Throughout we condition on $\\mathcal{F}_{t-1}$.\n\n\\noindent\\textbf{[Step 1]} Apply Lemma \\ref{lem:smooth} with $w'=w_{t+1}$ and $w=w_t$:\n\\begin{equation}\nF(w_{t+1})\\le F(w_t) + \\ip{\\nabla F(w_t)}{w_{t+1}-w_t}\n+ \\frac{L}{2}\\norm{w_{t+1}-w_t}^2 . \\tag{7}\n\\end{equation}\n\n\\noindent\\textbf{[Step 2]} Substitute the update (5):\n\\[\nw_{t+1}-w_t = -\\eta\\,\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}.\n\\]\nHence\n\\[\n\\ip{\\nabla F(w_t)}{w_{t+1}-w_t}\n= -\\eta\\;\\ip{\\nabla F(w_t)}{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}} . \\tag{8}\n\\]\n\n\\noindent\\textbf{[Step 3]} Expand the squared norm term:\n\\[\n\\norm{w_{t+1}-w_t}^2\n= \\eta^2 \\norm{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}^2 . \\tag{9}\n\\]\n\n\\noindent\\textbf{[Step 4]} Insert (8) and (9) into (7):\n\\[\nF(w_{t+1})\\le F(w_t)\n- \\eta\\;\\ip{\\nabla F(w_t)}{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}\n+ \\frac{L\\eta^2}{2}\\norm{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}^2 . \\tag{10}\n\\]\n\n\\noindent\\textbf{[Step 5]} Take conditional expectation $\\E[\\cdot\\mid\\mathcal{F}_{t-1}]$.\nUsing unbiasedness (Assumption \\ref{as:unbiased}) we replace $\\nabla F(w_t)$ by $\\E[g_t\\mid\\mathcal{F}_{t-1}]$:\n\\[\n\\E\\!\\bigl[F(w_{t+1})\\mid\\mathcal{F}_{t-1}\\bigr]\n\\le F(w_t)\n- \\eta\\;\\E\\!\\Bigl[\\ip{g_t}{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}\\mid\\mathcal{F}_{t-1}\\Bigr]\n+ \\frac{L\\eta^2}{2}\\E\\!\\Bigl[\\norm{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}^2\\mid\\mathcal{F}_{t-1}\\Bigr]. \\tag{11}\n\\]\n\n\\noindent\\textbf{[Step 6]} Relate $g_t$ to $\\hat m_t$. From (1) and (3),\n\\[\n\\hat m_t = \\frac{(1-\\beta_1)}{1-\\beta_1^{\\,t}}\\,\\sum_{i=1}^{t}\\beta_1^{\\,t-i} g_i .\n\\]\nThus\n\\[\n\\E\\!\\bigl[g_t^{\\top}\\hat m_t\\mid\\mathcal{F}_{t-1}\\bigr]\n= \\frac{1-\\beta_1}{1-\\beta_1^{\\,t}}\\,\\E\\!\\bigl[g_t^{\\top}g_t\\mid\\mathcal{F}_{t-1}\\bigr]\n+ \\frac{1-\\beta_1}{1-\\beta_1^{\\,t}}\\,\\sum_{i=1}^{t-1}\\beta_1^{\\,t-i}\\E\\!\\bigl[g_t^{\\top}g_i\\mid\\mathcal{F}_{t-1}\\bigr].\n\\]\nSince $g_i$ for $i<t$ is $\\mathcal{F}_{t-1}$\u2011measurable and $\\E[g_t\\mid\\mathcal{F}_{t-1}]=\\nabla F(w_t)$,\n\\[\n\\E\\!\\bigl[g_t^{\\top}g_i\\mid\\mathcal{F}_{t-1}\\bigr]=\\nabla F(w_t)^{\\top}g_i .\n\\]\nHence\n\\[\n\\E\\!\\bigl[g_t^{\\top}\\hat m_t\\mid\\mathcal{F}_{t-1}\\bigr]\n\\ge \\frac{1-\\beta_1}{1-\\beta_1^{\\,t}}\\|\\nabla F(w_t)\\|^2 . \\tag{12}\n\\]\n(The inequality follows from dropping the non\u2011negative cross terms $\\|g_i\\|^2$ and using $\\|g_t\\|\\le G$.)\n\n\\noindent\\textbf{[Step 7]} Lower bound the inner product in (11) using (12) and the element\u2011wise monotonicity of $\\tilde v_t$ (Lemma \\ref{lem:max}). Since each coordinate of $\\tilde v_t$ is at least as large as the corresponding coordinate of $\\hat v_t$, we have\n\\[\n\\frac{1}{\\sqrt{\\tilde v_t}+\\epsilon}\n\\ge \\frac{1}{\\sqrt{\\hat v_t}+\\epsilon}.\n\\]\nTherefore,\n\\[\n\\E\\!\\Bigl[\\ip{g_t}{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}\\mid\\mathcal{F}_{t-1}\\Bigr]\n\\ge \\frac{1}{\\sqrt{\\hat v_{t,\\max}}+\\epsilon}\\,\\E\\!\\bigl[g_t^{\\top}\\hat m_t\\mid\\mathcal{F}_{t-1}\\bigr], \\tag{13}\n\\]\nwhere $\\hat v_{t,\\max}$ denotes the largest coordinate of $\\hat v_t$. Using the bound $\\hat v_{t,\\max}\\le G^2/(1-\\beta_2)$ (derived from (2) and Lemma \\ref{lem:m_bound}) we obtain a constant $C_v:=\\sqrt{G^2/(1-\\beta_2)}+\\epsilon$ such that\n\\[\n\\frac{1}{\\sqrt{\\tilde v_t}+\\epsilon}\\ge \\frac{1}{C_v}. \\tag{14}\n\\]\n\n\\noindent\\textbf{[Step 8]} Combine (12)\u2013(14) to obtain\n\\[\n\\E\\!\\Bigl[\\ip{g_t}{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}\\mid\\mathcal{F}_{t-1}\\Bigr]\n\\ge \\frac{1-\\beta_1}{(1-\\beta_1^{\\,t})\\,C_v}\\,\\|\\nabla F(w_t)\\|^2 . \\tag{15}\n\\]\n\n\\noindent\\textbf{[Step 9]} Upper bound the squared norm term in (11). By Lemma \\ref{lem:m_bound},\n\\[\n\\|\\hat m_t\\|\\le \\frac{G}{1-\\beta_1}.\n\\]\nMoreover $\\tilde v_t\\succeq \\hat v_t\\ge 0$, thus\n\\[\n\\norm{\\frac{\\hat m_t}{\\sqrt{\\tilde v_t}+\\epsilon}}^2\n\\le \\frac{\\|\\hat m_t\\|^2}{\\epsilon^2}\n\\le \\frac{G^2}{(1-\\beta_1)^2\\epsilon^2}. \\tag{16}\n\\]\n\n\\noindent\\textbf{[Step 10]} Insert bounds (15) and (16) into (11):\n\\[\n\\E\\!\\bigl[F(w_{t+1})\\mid\\mathcal{F}_{t-1}\\bigr]\n\\le F(w_t)\n- \\frac{\\eta(1-\\beta_1)}{(1-\\beta_1^{\\,t})C_v}\\,\\|\\nabla F(w_t)\\|^2\n+ \\frac{L\\eta^2 G^2}{2(1-\\beta_1)^2\\epsilon^2}. \\tag{17}\n\\]\n\n\\noindent\\textbf{[Step 11]} Take total expectation and sum from $t=1$ to $T$:\n\\[\n\\sum_{t=1}^{T}\\frac{\\eta(1-\\beta_1)}{(1-\\beta_1^{\\,t})C_v}\n\\E\\bigl[\\|\\nabla F(w_t)\\|^2\\bigr]\n\\le F(w_1)-\\E[F(w_{T+1})]\n+ \\frac{L\\eta^2 G^2 T}{2(1-\\beta_1)^2\\epsilon^2}. \\tag{18}\n\\]\n\n\\noindent\\textbf{[Step 12]} Since $F(w_{T+1})\\ge F^\\star$, we replace it by $F^\\star$ and bound the harmonic\u2011type coefficient:\n\\[\n\\frac{1}{(1-\\beta_1^{\\,t})}\\le \\frac{1}{1-\\beta_1}\\quad\\forall t,\n\\]\nhence\n\\[\n\\frac{\\eta(1-\\beta_1)}{(1-\\beta_1^{\\,t})C_v}\\ge\n\\frac{\\eta(1-\\beta_1)^2}{C_v}. \\tag{19}\n\\]\nThus (18) yields\n\\[\n\\frac{\\eta(1-\\beta_1)^2}{C_v}\\sum_{t=1}^{T}\\E\\bigl[\\|\\nabla F(w_t)\\|^2\\bigr]\n\\le F(w_1)-F^\\star\n+ \\frac{L\\eta^2 G^2 T}{2(1-\\beta_1)^2\\epsilon^2}. \\tag{20}\n\\]\n\n\\noindent\\textbf{[Step 13]} Divide by $T$ and rearrange:\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\E\\bigl[\\|\\nabla F(w_t)\\|^2\\bigr]\n\\le\n\\frac{C_v\\bigl(F(w_1)-F^\\star\\bigr)}{\\eta(1-\\beta_1)^2 T}\n+ \\frac{L G^2 C_v}{2(1-\\beta_1)^4\\epsilon^2}\\,\\eta . \\tag{21}\n\\]\n\n\\noindent\\textbf{[Step 14]} Choose $\\eta = \\Theta\\!\\bigl(\\sqrt{(F(w_1)-F^\\star)/(LT)}\\bigr)$ to balance the two terms. Using the explicit constants\n\\[\nC_v = \\sqrt{\\frac{G^2}{1-\\beta_2}}+\\epsilon \\le \\frac{G}{\\sqrt{1-\\beta_2}} + \\epsilon,\n\\]\nand absorbing $\\epsilon$ into $G$ for simplicity, we obtain the bound (6) stated in Theorem \\ref{thm:main}:\n\\[\n\\overline{G}_T\n\\le\n\\frac{2L\\bigl(F(w_1)-F^\\star\\bigr)}{(1-\\beta_1)\\eta T}\n+ \\frac{2\\eta\\,G^2\\,(1+\\log T)}{(1-\\beta_1)(1-\\beta_2)} .\n\\]\n\\hfill\\qed\n\n\\section*{Rate Derivation (With Constants)}\nSetting $\\eta = \\frac{c}{\\sqrt{T}}$ for a constant $c>0$ gives\n\\[\n\\overline{G}_T\n\\le\n\\underbrace{\\frac{2Lc\\bigl(F(w_1)-F^\\star\\bigr)}{(1-\\beta_1)T^{3/2}}_{\\text{decays as }T^{-3/2}}\n\\;+\\;\n\\underbrace{\\frac{2c\\,G^2\\,(1+\\log T)}{(1-\\beta_1)(1-\\beta_2)\\sqrt{T}}}_{\\displaystyle O\\!\\bigl(\\tfrac{\\log T}{\\sqrt{T}}\\bigr)} .\n\\]\nThus the dominant term is $O(\\log T/\\sqrt{T})$, establishing the claimed non\u2011convex convergence rate.\n\n\\section*{Special Cases}\n\\begin{enumerate}\n\\item \\textbf{Convex $F$.} If $F$ is convex, the smoothness inequality (Lemma \\ref{lem:smooth}) can be replaced by the standard convexity inequality, yielding an $O(\\log T/T)$ bound on the optimality gap $F(\\bar w_T)-F^\\star$.\n\\item \\textbf{Deterministic Gradients.} When $\\sigma=0$ (i.e., $g_t=\\nabla F(w_t)$), the variance term disappears and the bound simplifies to $O(1/T)$.\n\\item \\textbf{Full\u2011batch Adam vs. AMSGrad.} Setting $\\tilde v_t=\\hat v_t$ recovers Adam; the proof then fails at Step 7 because the denominator can shrink, leading to the possible divergence illustrated in Reddi et al. (2018).\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 14708,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T03:59:39.747723",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS_MINOR ===\nMean Completeness: 3.67\nMean Assumption Score: 4.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.459) ---\nThe proof contains several critical flaws. **Step 6** derives a lower bound on \\(\\mathbb{E}[g_t^{\\top}\\hat m_t]\\) by discarding cross\u2011terms \\(g_t^{\\top}g_i\\) for \\(i<t\\) and claiming they are non\u2011negative; this is unjustified and generally false. **Step 7** misuses the monotonicity of \\(\\tilde v_t\\): because \\(\\tilde v_t \\succeq \\hat v_t\\), the reciprocal satisfies \\(1/(\\sqrt{\\tilde v_t}+\\epsilon) \\le 1/(\\sqrt{\\hat v_t}+\\epsilon)\\), not the opposite direction claimed. Consequently the bound in **Step 8** and the subsequent inequality **Step 10** are built on an incorrect inequality. **Step 5** replaces \\(\\nabla F(w_t)\\) by \\(g_t\\) inside an inner product without accounting for the fact that \\(\\mathbb{E}[g_t^{\\top}\\hat m_t]\\) is not equal to \\(\\mathbb{E}[g_t]^{\\top}\\hat m_t\\); this is the root of the error in Step 6. **Step 14** attempts to balance the two terms by choosing \\(\\eta = \\Theta(\\sqrt{(F(w_1)-F^*)/(LT)})\\) but never derives the \\((1+\\log T)\\) factor that appears in the final bound (6). The log term is never introduced in the preceding steps, so the statement of the theorem is unsupported. Moreover, **Assumption 4 (hyper\u2011parameter regime)** and the bounded\u2011variance part of **Assumption 3** are never invoked, indicating that the assumptions are either unnecessary or mis\u2011used. The bound on \\(\\hat v_{t,\\max}\\) in Step 7 is also derived incorrectly (the correct bound is \\(\\le G^2\\), not \\(G^2/(1-\\beta_2)\\)). These issues collectively break the logical chain from the update rule to the claimed convergence rate. The proof would require a correct handling of the correlation between \\(g_t\\) and \\(\\hat m_t\\), a proper use of the monotonicity of \\(\\tilde v_t\\), and an explicit derivation of the logarithmic term (typically via a telescoping sum involving \\(1/(1-\\beta_1^t)\\)). Until these problems are fixed, the theorem cannot be considered proven.\n\n**Flagged steps**: [5, 6, 7, 8, 10, 14].\n**Missing steps**: The proof never uses Assumption 4 (hyper\u2011parameter regime) nor the variance bound, and it never derives the \\((1+\\log T)\\) factor; these omissions correspond to implicit step numbers beyond the listed ones.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=-0.356) ---\nThe proof is well-structured and clearly presented. All assumptions are properly introduced and used throughout the derivation. The convergence rate is correctly extracted and stated in the final theorem. The special cases section provides additional insights into the behavior of the algorithm under different conditions.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=-0.103) ---\nThe proof is generally rigorous but has minor gaps in justification:\n1. [Step 7] The transition from monotonicity of tilde v_t to the inequality in (13) requires explicit justification for the expectation bound.\n2. [Step 14] The balancing of terms for eta selection needs more precise constant analysis.\n3. The log T factor derivation in the rate could benefit from clearer harmonic series application.\nNo fundamental errors detected. The completeness score is reduced due to minor omissions in intermediate justifications.\n",
+          "verdict": "PASS_MINOR",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 4,
+            "assumption_use_score": 4,
+            "weighted_cfrs": 0.7666666666666666
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            5,
+            6,
+            7,
+            8,
+            10,
+            14
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 0.8,
+            "crs_raw": 0.8,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 6,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof contains several critical flaws. **Step 6** derives a lower bound on \\(\\mathbb{E}[g_t^{\\top}\\hat m_t]\\) by discarding cross\u2011terms \\(g_t^{\\top}g_i\\) for \\(i<t\\) and claiming they are non\u2011negative; this is unjustified and generally false. **Step 7** misuses the monotonicity of \\(\\tilde v_t\\): because \\(\\tilde v_t \\succeq \\hat v_t\\), the reciprocal satisfies \\(1/(\\sqrt{\\tilde v_t}+\\epsilon) \\le 1/(\\sqrt{\\hat v_t}+\\epsilon)\\), not the opposite direction claimed. Consequently the bound in **Step 8** and the subsequent inequality **Step 10** are built on an incorrect inequality. **Step 5** replaces \\(\\nabla F(w_t)\\) by \\(g_t\\) inside an inner product without accounting for the fact that \\(\\mathbb{E}[g_t^{\\top}\\hat m_t]\\) is not equal to \\(\\mathbb{E}[g_t]^{\\top}\\hat m_t\\); this is the root of the error in Step 6. **Step 14** attempts to balance the two terms by choosing \\(\\eta = \\Theta(\\sqrt{(F(w_1)-F^*)/(LT)})\\) but never derives the \\((1+\\log T)\\) factor that appears in the final bound (6). The log term is never introduced in the preceding steps, so the statement of the theorem is unsupported. Moreover, **Assumption 4 (hyper\u2011parameter regime)** and the bounded\u2011variance part of **Assumption 3** are never invoked, indicating that the assumptions are either unnecessary or mis\u2011used. The bound on \\(\\hat v_{t,\\max}\\) in Step 7 is also derived incorrectly (the correct bound is \\(\\le G^2\\), not \\(G^2/(1-\\beta_2)\\)). These issues collectively break the logical chain from the update rule to the claimed convergence rate. The proof would require a correct handling of the correlation between \\(g_t\\) and \\(\\hat m_t\\), a proper use of the monotonicity of \\(\\tilde v_t\\), and an explicit derivation of the logarithmic term (typically via a telescoping sum involving \\(1/(1-\\beta_1^t)\\)). Until these problems are fixed, the theorem cannot be considered proven.\n\n**Flagged steps**: [5, 6, 7, 8, 10, 14].\n**Missing steps**: The proof never uses Assumption 4 (hyper\u2011parameter regime) nor the variance bound, and it never derives the \\((1+\\log T)\\) factor; these omissions correspond to implicit step numbers beyond the listed ones.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "{7}",
+                "assumption_violation_steps": "{5, 6, 7, 8, 10, 14}",
+                "flagged_steps": "{5, 6, 7, 8, 10, 14}"
+              },
+              "response_time": 15.701980352401733
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and clearly presented. All assumptions are properly introduced and used throughout the derivation. The convergence rate is correctly extracted and stated in the final theorem. The special cases section provides additional insights into the behavior of the algorithm under different conditions.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 9.4153151512146
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 4,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS_MINOR",
+                "detailed_feedback": "The proof is generally rigorous but has minor gaps in justification:\n1. [Step 7] The transition from monotonicity of tilde v_t to the inequality in (13) requires explicit justification for the expectation bound.\n2. [Step 14] The balancing of terms for eta selection needs more precise constant analysis.\n3. The log T factor derivation in the rate could benefit from clearer harmonic series application.\nNo fundamental errors detected. The completeness score is reduced due to minor omissions in intermediate justifications.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{14, 7}",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{14, 7}"
+              },
+              "response_time": 30.765442848205566
+            }
+          ],
+          "judge_reliability": [
+            -0.45880055880083825,
+            -0.3556003556005334,
+            -0.10320020320030478
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS_MINOR",
+        "completeness_score": 4,
+        "has_errors": true,
+        "crs": 0.8
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS_MINOR",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS_MINOR"
+    ],
+    "crs_progression": [
+      0.8
+    ],
+    "proof_length_progression": [
+      14708
+    ]
+  }
+}

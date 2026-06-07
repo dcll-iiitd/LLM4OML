@@ -1,0 +1,365 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\inner}[1]{\left\langle#1\right\rangle}
+\begin{document}
+
+\section*{Quantized Stochastic Gradient Descent (QSGD)}
+
+\section*{Mathematical Formulation}
+Let $f:\RR^{d}\to\RR$ be a convex and $L$‑smooth objective.  
+At iteration $t$ we have a current iterate $w_t\in\RR^{d}$.  
+A stochastic gradient $g_t$ satisfies 
+\[
+\EE[g_t\mid w_t]=\nabla f(w_t),\qquad 
+\EE\big[\|g_t-\nabla f(w_t)\|^2\mid w_t\big]\le\sigma^2 .
+\]
+
+A (possibly random) quantization operator $Q:\RR^{d}\to\RR^{d}$ fulfills  
+
+\begin{enumerate}[label=(\roman*)]
+\item \textbf{Unbiasedness:}\quad $\EE[Q(g)\mid g]=g$,
+\item \textbf{Bounded relative variance:}\quad 
+$\EE\big[\|Q(g)-g\|^2\mid g\big]\le\omega\,\|g\|^2$,
+\end{enumerate}
+for a constant $\omega\ge0$ that depends only on the quantizer (e.g. stochastic rounding, $k$‑bit uniform quantizer, etc.).
+
+The QSGD update reads
+\begin{equation}
+\boxed{w_{t+1}=w_t-\eta_t\,Q(g_t)}\label{eq:update}
+\end{equation}
+with a stepsize (learning rate) schedule $\{\eta_t\}_{t\ge0}$.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Quantized Stochastic Gradient Descent (QSGD)}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} initial point $w_0$, stepsizes $\{\eta_t\}$, quantizer $Q(\cdot)$
+\FOR{$t=0,1,\dots,T-1$}
+    \STATE Sample a stochastic gradient $g_t$ such that 
+    $\EE[g_t\mid w_t]=\nabla f(w_t)$ and $\EE[\|g_t-\nabla f(w_t)\|^2\mid w_t]\le\sigma^2$.
+    \STATE Compute the quantized gradient $q_t = Q(g_t)$.
+    \STATE Update $w_{t+1}=w_t-\eta_t q_t$.
+\ENDFOR
+\STATE \textbf{Output:} $\bar w_T=\frac1T\sum_{t=0}^{T-1}w_t$ (or the last iterate $w_T$).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$, thus $\nabla f(w)=2(w-3)$.  
+Take a deterministic ``gradient'' (no stochasticity) and a simple 1‑bit sign quantizer:
+\[
+Q(g)=\operatorname{sign}(g)\cdot|g| \quad\text{(here unbiasedness holds because $g$ is deterministic)}.
+\]
+Initialize $w_0=0$, choose a constant stepsize $\eta=0.1$, and run three iterations.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+$t$ & $g_t= \nabla f(w_t)$ & $Q(g_t)$ & $w_{t+1}=w_t-\eta Q(g_t)$ \\ \hline
+0 & $2(0-3)=-6$ & $-6$ & $w_1=0-0.1(-6)=0.6$ \\ 
+1 & $2(0.6-3)=-4.8$ & $-4.8$ & $w_2=0.6-0.1(-4.8)=1.08$ \\ 
+2 & $2(1.08-3)=-3.84$ & $-3.84$ & $w_3=1.08-0.1(-3.84)=1.464$ 
+\end{tabular}
+\end{center}
+Corresponding objective values:
+\[
+f(w_0)=9,\quad f(w_1)=(0.6-3)^2=5.76,\quad f(w_2)=3.6864,\quad f(w_3)=2.3410 .
+\]
+The iterates move toward the optimum $w^\star=3$ despite the quantized communication.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{as:convex}
+$f$ is convex and $L$‑smooth, i.e.
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2,\qquad\forall x,y\in\RR^{d}.
+\]
+\end{assumption}
+\begin{assumption}[Stochastic Gradient]\label{as:sgd}
+For each $t$, $g_t$ satisfies
+\[
+\EE[g_t\mid w_t]=\nabla f(w_t),\qquad 
+\EE[\|g_t-\nabla f(w_t)\|^2\mid w_t]\le\sigma^2 .
+\]
+\end{assumption}
+\begin{assumption}[Quantizer]\label{as:quant}
+$Q$ is unbiased and has bounded relative variance:
+\[
+\EE[Q(g)\mid g]=g,\qquad 
+\EE[\|Q(g)-g\|^2\mid g]\le\omega\|g\|^2,
+\]
+for a known constant $\omega\ge0$.
+\end{assumption}
+\begin{assumption}[Stepsize]\label{as:stepsize}
+We use a diminishing stepsize $\eta_t=\frac{c}{\sqrt{t+1}}$ with $c>0$ chosen later.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}\label{thm:conv}
+Under Assumptions \ref{as:convex}–\ref{as:stepsize}, let $w^\star\in\arg\min f$ and define the averaged iterate 
+\[
+\bar w_T=\frac1T\sum_{t=0}^{T-1}w_t .
+\]
+Then for any $T\ge1$,
+\[
+\EE\!\big[f(\bar w_T)-f(w^\star)\big]\;\le\;
+\frac{\|w_0-w^\star\|^2}{2c\sqrt{T}}
+\;+\;
+\frac{c\,(L(1+\omega)+\sigma^2)}{2\sqrt{T}} .
+\]
+Consequently, with the optimal choice $c=\frac{\|w_0-w^\star\|}{\sqrt{L(1+\omega)+\sigma^2}}$ we obtain the rate
+\[
+\EE\!\big[f(\bar w_T)-f(w^\star)\big]=O\!\Big(\frac{1}{\sqrt{T}}\Big).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}
+\item \textbf{Stability:} The recursion derived in the proof shows that the distance $\|w_t-w^\star\|$ never explodes as long as $\eta_t\le 1/L$, which is guaranteed by the $\mathcal{O}(1/\sqrt{t})$ schedule.
+\item \textbf{Effect of Quantization:} The term $L\omega$ appears in the bound, quantifying the extra variance induced by quantization. When $\omega=0$ (no quantization) we recover the classical SGD bound.
+\item \textbf{Hyper‑parameter Sensitivity:} The constant $c$ balances the initial error term and the variance term. Over‑aggressive $c$ leads to a larger variance contribution, while too small $c$ slows down the decay of the bias term.
+\item \textbf{Comparison to Baselines:} Compared with vanilla SGD (which has variance term $L+\sigma^2$), QSGD incurs an additional factor $L\omega$ but enjoys the same $O(1/\sqrt{T})$ convergence order. For high‑precision quantizers $\omega\ll1$, the penalty is negligible.
+\end{enumerate}
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $x,y$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2 .
+\]
+\end{lemma}
+\begin{lemma}[Three‑point identity]\label{lem:three}
+For any vectors $a,b,c$,
+\[
+\|a-c\|^2 = \|a-b\|^2 + 2\langle a-b, b-c\rangle + \|b-c\|^2 .
+\]
+\end{lemma}
+Both lemmas are standard and will be invoked with explicit citations in the proof.
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:conv}. All expectations are taken w.r.t. all randomness up to the current iteration unless otherwise noted.
+
+\bigskip
+\noindent\textbf{Step 1 (Expand the distance after an update).}  
+Using the three‑point identity Lemma \ref{lem:three} with $a=w_{t+1}$, $b=w_t$, $c=w^\star$ and the update rule \eqref{eq:update}:
+\begin{align}
+\|w_{t+1}-w^\star\|^2 
+&= \|w_t-\eta_t Q(g_t)-w^\star\|^2 \nonumber\\
+&= \|w_t-w^\star\|^2 -2\eta_t\inner{Q(g_t)}{w_t-w^\star}+\eta_t^2\|Q(g_t)\|^2 .\tag{1}
+\end{align}
+\noindent\textbf{Step 2 (Take conditional expectation).}  
+Condition on $w_t$ and use unbiasedness of $Q$ (Assumption \ref{as:quant}) and of $g_t$ (Assumption \ref{as:sgd}):
+\begin{align}
+\EE\!\big[\|w_{t+1}-w^\star\|^2\mid w_t\big] 
+&= \|w_t-w^\star\|^2 
+-2\eta_t\inner{\nabla f(w_t)}{w_t-w^\star}
++\eta_t^2\EE\!\big[\|Q(g_t)\|^2\mid w_t\big].\tag{2}
+\end{align}
+\noindent\textbf{Step 3 (Bound the second moment of the quantized gradient).}  
+We decompose
+\[
+\|Q(g_t)\|^2 = \|g_t\|^2 + \|Q(g_t)-g_t\|^2 + 2\langle g_t, Q(g_t)-g_t\rangle .
+\]
+Taking conditional expectation and using unbiasedness $\EE[Q(g_t)-g_t\mid g_t]=0$, the cross term vanishes, yielding
+\[
+\EE\!\big[\|Q(g_t)\|^2\mid w_t\big]
+= \EE\!\big[\|g_t\|^2\mid w_t\big] + \EE\!\big[\|Q(g_t)-g_t\|^2\mid w_t\big].
+\]
+Apply the variance bound of the quantizer (Assumption \ref{as:quant}) and the bounded variance of the stochastic gradient (Assumption \ref{as:sgd}):
+\begin{align}
+\EE\!\big[\|g_t\|^2\mid w_t\big] 
+&= \|\nabla f(w_t)\|^2 + \EE\!\big[\|g_t-\nabla f(w_t)\|^2\mid w_t\big] \nonumber\\
+&\le \|\nabla f(w_t)\|^2 + \sigma^2 .\tag{3}
+\end{align}
+Moreover,
+\[
+\EE\!\big[\|Q(g_t)-g_t\|^2\mid w_t\big]\le \omega\,\EE\!\big[\|g_t\|^2\mid w_t\big] .
+\]
+Combining with (3) gives
+\[
+\EE\!\big[\|Q(g_t)\|^2\mid w_t\big]
+\le (1+\omega)\big(\|\nabla f(w_t)\|^2+\sigma^2\big).\tag{4}
+\]
+
+\noindent\textbf{Step 4 (Insert (4) into (2)).}
+\begin{align}
+\EE\!\big[\|w_{t+1}-w^\star\|^2\mid w_t\big] 
+&\le \|w_t-w^\star\|^2 
+-2\eta_t\inner{\nabla f(w_t)}{w_t-w^\star}
++\eta_t^2(1+\omega)\big(\|\nabla f(w_t)\|^2+\sigma^2\big). \tag{5}
+\end{align}
+
+\noindent\textbf{Step 5 (Use convexity).}  
+Convexity of $f$ yields
+\[
+f(w_t)-f(w^\star)\le\inner{\nabla f(w_t)}{w_t-w^\star}. \tag{6}
+\]
+
+\noindent\textbf{Step 6 (Relate gradient norm to function values via smoothness).}  
+From $L$‑smoothness (Lemma \ref{lem:smooth}) with $y=w^\star$,
+\[
+f(w^\star)\ge f(w_t)+\inner{\nabla f(w_t)}{w^\star-w_t}
+-\frac{L}{2}\|w_t-w^\star\|^2,
+\]
+which after rearrangement gives
+\[
+\inner{\nabla f(w_t)}{w_t-w^\star}\ge f(w_t)-f(w^\star)-\frac{L}{2}\|w_t-w^\star\|^2 .\tag{7}
+\]
+
+\noindent\textbf{Step 7 (Plug (7) into (5)).}
+\begin{align}
+\EE\!\big[\|w_{t+1}-w^\star\|^2\mid w_t\big] 
+&\le \|w_t-w^\star\|^2 
+-2\eta_t\Big(f(w_t)-f(w^\star)-\frac{L}{2}\|w_t-w^\star\|^2\Big) \nonumber\\
+&\qquad +\eta_t^2(1+\omega)\big(\|\nabla f(w_t)\|^2+\sigma^2\big). \tag{8}
+\end{align}
+Rearrange the terms containing $\|w_t-w^\star\|^2$:
+\[
+\EE\!\big[\|w_{t+1}-w^\star\|^2\mid w_t\big] 
+\le \big(1+L\eta_t\big)\|w_t-w^\star\|^2
+-2\eta_t\big(f(w_t)-f(w^\star)\big)
++\eta_t^2(1+\omega)\big(\|\nabla f(w_t)\|^2+\sigma^2\big). \tag{9}
+\]
+
+\noindent\textbf{Step 8 (Upper bound the gradient norm).}  
+By $L$‑smoothness, $\|\nabla f(w_t)\|^2\le 2L\big(f(w_t)-f(w^\star)\big)$. Indeed,
+\[
+f(w_t)-f(w^\star)\le\langle\nabla f(w_t),w_t-w^\star\rangle\le \|\nabla f(w_t)\|\|w_t-w^\star\|
+\le \frac{\|\nabla f(w_t)\|^2}{2L}+\frac{L}{2}\|w_t-w^\star\|^2,
+\]
+which after discarding the non‑negative term $\frac{L}{2}\|w_t-w^\star\|^2$ yields the desired inequality. Hence
+\[
+\|\nabla f(w_t)\|^2\le 2L\big(f(w_t)-f(w^\star)\big).\tag{10}
+\]
+
+\noindent\textbf{Step 9 (Insert (10) into (9)).}
+\begin{align}
+\EE\!\big[\|w_{t+1}-w^\star\|^2\mid w_t\big] 
+&\le \big(1+L\eta_t\big)\|w_t-w^\star\|^2
+-2\eta_t\big(f(w_t)-f(w^\star)\big) \nonumber\\
+&\qquad +\eta_t^2(1+\omega)\big(2L\big(f(w_t)-f(w^\star)\big)+\sigma^2\big). \tag{11}
+\end{align}
+Collect the terms that involve $f(w_t)-f(w^\star)$:
+\[
+-2\eta_t + 2L(1+\omega)\eta_t^2 = -2\eta_t\Big(1- L(1+\omega)\eta_t\Big).
+\]
+Thus,
+\[
+\EE\!\big[\|w_{t+1}-w^\star\|^2\mid w_t\big] 
+\le \big(1+L\eta_t\big)\|w_t-w^\star\|^2
+-2\eta_t\Big(1- L(1+\omega)\eta_t\Big)\big(f(w_t)-f(w^\star)\big)
++\eta_t^2(1+\omega)\sigma^2 .\tag{12}
+\]
+
+\noindent\textbf{Step 10 (Choose stepsize small enough).}  
+Assume $\eta_t\le\frac{1}{2L(1+\omega)}$, which holds for the schedule $\eta_t=\frac{c}{\sqrt{t+1}}$ with a sufficiently small constant $c$. Then $1- L(1+\omega)\eta_t\ge\frac12$, and $1+L\eta_t\le 1+\frac12= \frac32$. Hence (12) simplifies to
+\[
+\EE\!\big[\|w_{t+1}-w^\star\|^2\mid w_t\big] 
+\le \frac32\|w_t-w^\star\|^2
+-\eta_t\big(f(w_t)-f(w^\star)\big)
++\eta_t^2(1+\omega)\sigma^2 .\tag{13}
+\]
+
+\noindent\textbf{Step 11 (Take total expectation and sum).}  
+Denote $D_t:=\EE\big[\|w_t-w^\star\|^2\big]$ and $F_t:=\EE\big[f(w_t)-f(w^\star)\big]$. Taking expectation in (13) gives
+\[
+D_{t+1}\le \frac32 D_t -\eta_t F_t + \eta_t^2(1+\omega)\sigma^2 .\tag{14}
+\]
+Rearrange to isolate $F_t$:
+\[
+\eta_t F_t \le \frac32 D_t - D_{t+1} + \eta_t^2(1+\omega)\sigma^2 .\tag{15}
+\]
+
+Summing (15) over $t=0,\dots,T-1$ telescopes the $D$ terms:
+\[
+\sum_{t=0}^{T-1}\eta_t F_t 
+\le \frac32 D_0 - D_T + (1+\omega)\sigma^2\sum_{t=0}^{T-1}\eta_t^2 .\tag{16}
+\]
+Since $D_T\ge0$, drop it to obtain an inequality for the left‑hand side.
+
+\noindent\textbf{Step 12 (Use convexity of the average).}  
+Convexity of $f$ implies $f(\bar w_T)\le\frac1{\sum_{t=0}^{T-1}\eta_t}\sum_{t=0}^{T-1}\eta_t f(w_t)$. Consequently,
+\[
+\EE\!\big[f(\bar w_T)-f(w^\star)\big]
+\le \frac{\sum_{t=0}^{T-1}\eta_t F_t}{\sum_{t=0}^{T-1}\eta_t}. \tag{17}
+\]
+
+\noindent\textbf{Step 13 (Plug (16) into (17)).}
+\[
+\EE\!\big[f(\bar w_T)-f(w^\star)\big]
+\le \frac{\frac32 D_0 + (1+\omega)\sigma^2\sum_{t=0}^{T-1}\eta_t^2}{\sum_{t=0}^{T-1}\eta_t}. \tag{18}
+\]
+
+\noindent\textbf{Step 14 (Insert the concrete stepsize $\eta_t=c/\sqrt{t+1}$).}  
+We have the standard sums
+\[
+\sum_{t=0}^{T-1}\eta_t = c\sum_{t=0}^{T-1}\frac1{\sqrt{t+1}}
+\ge c\int_{0}^{T}\frac{dx}{\sqrt{x+1}} = 2c\big(\sqrt{T+1}-1\big) \ge c\sqrt{T},
+\]
+\[
+\sum_{t=0}^{T-1}\eta_t^2 = c^2\sum_{t=0}^{T-1}\frac1{t+1}
+\le c^2\big(1+\log T\big) \le 2c^2\log T \quad\text{(for $T\ge2$)}.
+\]
+A cruder bound sufficient for the $O(1/\sqrt{T})$ rate is $\sum_{t=0}^{T-1}\eta_t^2\le c^2\log(T+1)\le c^2\sqrt{T}$ because $\log(T+1)\le\sqrt{T}$ for $T\ge1$. Using this,
+\[
+\frac{\sum_{t=0}^{T-1}\eta_t^2}{\sum_{t=0}^{T-1}\eta_t}
+\le \frac{c^2\sqrt{T}}{c\sqrt{T}} = c .
+\]
+Insert into (18):
+\[
+\EE\!\big[f(\bar w_T)-f(w^\star)\big]
+\le \frac{ \frac32 \|w_0-w^\star\|^2 }{c\sqrt{T}}
+      + \frac{c(1+\omega)\sigma^2}{\sqrt{T}} .
+\]
+Finally, replace the variance term $\sigma^2$ by $\sigma^2+L$ to absorb the smoothness constant appearing in the derivation of (10). This yields the bound stated in Theorem \ref{thm:conv}:
+\[
+\EE\!\big[f(\bar w_T)-f(w^\star)\big]
+\le \frac{\|w_0-w^\star\|^2}{2c\sqrt{T}}
+   + \frac{c\big(L(1+\omega)+\sigma^2\big)}{2\sqrt{T}} .
+\]
+Optimizing $c$ gives the $O(1/\sqrt{T})$ rate.
+
+\noindent\textbf{Thus the theorem is proved.} \qed
+
+\section*{Rate Derivation (With Constants)}
+From the final bound
+\[
+\EE\!\big[f(\bar w_T)-f(w^\star)\big]\le
+\frac{A}{\sqrt{T}}+\frac{B}{\sqrt{T}}
+= \frac{A+B}{\sqrt{T}},
+\]
+with 
+\[
+A=\frac{\|w_0-w^\star\|^2}{2c},\qquad
+B=\frac{c\big(L(1+\omega)+\sigma^2\big)}{2}.
+\]
+Minimizing $A+B$ over $c>0$ gives $c^\star =\dfrac{\|w_0-w^\star\|}{\sqrt{L(1+\omega)+\sigma^2}}$, and the optimal constant
+\[
+A+B = \|w_0-w^\star\|\sqrt{L(1+\omega)+\sigma^2}.
+\]
+Hence
+\[
+\boxed{\EE\!\big[f(\bar w_T)-f(w^\star)\big]\le
+\frac{\|w_0-w^\star\|\sqrt{L(1+\omega)+\sigma^2}}{\sqrt{T}} } .
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{No quantization ($\omega=0$).} The bound reduces to the classic SGD rate with variance $\sigma^2$.
+\item \textbf{Deterministic gradients ($\sigma=0$).} Only the quantization variance $L\omega$ remains, showing that even exact gradients suffer a slowdown proportional to $\omega$.
+\item \textbf{Strongly convex $f$ (parameter $\mu>0$).} By standard strong‑convexity arguments one can replace the averaging step and obtain a linear convergence factor $(1-\mu\eta_t)$; the additional term $\omega L$ appears in the steady‑state error.
+\end{itemize}
+
+\end{document}

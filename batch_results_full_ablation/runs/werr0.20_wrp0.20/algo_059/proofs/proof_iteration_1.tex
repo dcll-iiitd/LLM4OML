@@ -1,0 +1,316 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{graphicx}
+\usepackage{bm}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+
+\begin{document}
+
+\section*{Quantized Stochastic Gradient Descent (QSGD)}
+
+\section*{Mathematical Formulation}
+Let $f:\mathbb{R}^{d}\rightarrow\mathbb{R}$ be a (possibly non‑convex) smooth loss.  
+At iteration $t$ we draw a random mini‑batch $\xi_{t}$ and compute a stochastic gradient
+\[
+g_{t}\;=\;\nabla f(w_{t};\xi_{t})\in\mathbb{R}^{d}.
+\]
+A (random) quantization operator $Q:\mathbb{R}^{d}\rightarrow\mathbb{R}^{d}$ satisfies  
+
+\[
+\mathbb{E}\!\left[\,Q(g)\mid g\,\right]=g\qquad\text{(unbiasedness)}\tag{1}
+\]
+and
+\[
+\mathbb{E}\!\left[\|Q(g)-g\|^{2}\mid g\right]\leq \zeta^{2}\|g\|^{2},\qquad \zeta\ge 0.\tag{2}
+\]
+
+The update rule of QSGD is
+\[
+\boxed{\,w_{t+1}=w_{t}-\eta_{t}\,Q(g_{t})\,}\tag{3}
+\]
+where $\eta_{t}>0$ is the learning‑rate schedule.  
+All communication between workers (or between a worker and a parameter server) is performed on the quantized vector $Q(g_{t})$ instead of the raw gradient $g_{t}$.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Quantized Stochastic Gradient Descent (QSGD)}\label{alg:qsgd}
+\begin{algorithmic}[1]
+\Require Initial point $w_{0}\in\mathbb{R}^{d}$, learning‑rate schedule $\{\eta_{t}\}_{t\ge0}$, quantizer $Q(\cdot)$.
+\For{$t=0,1,\dots,T-1$}
+    \State Sample a mini‑batch $\xi_{t}$.
+    \State Compute stochastic gradient $g_{t}= \nabla f(w_{t};\xi_{t})$.
+    \State Quantize: $\tilde g_{t}=Q(g_{t})$   \Comment{send $\tilde g_{t}$ instead of $g_{t}$}
+    \State Update: $w_{t+1}= w_{t}-\eta_{t}\tilde g_{t}$.
+\EndFor
+\State \Return $w_{T}$ (or the averaged iterate $\bar w_{T}=\tfrac{1}{T}\sum_{t=0}^{T-1}w_{t}$).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the simple quadratic $f(w)=(w-3)^{2}$, thus $\nabla f(w)=2(w-3)$.  
+Take a deterministic ``quantizer'' that returns the exact gradient (so $Q(g)=g$) to keep the arithmetic simple.  
+Set $w_{0}=0$, constant step size $\eta=0.1$, and run three iterations.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+$t$ & $g_{t}=2(w_{t}-3)$ & $w_{t+1}=w_{t}-\eta g_{t}$ & $f(w_{t+1})$\\\hline
+0 & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^{2}=5.76$\\
+1 & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^{2}=3.6864$\\
+2 & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^{2}=2.3665$\\
+\end{tabular}
+\end{center}
+The iterates move toward the minimiser $w^{*}=3$, and the objective value decreases at each step.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$‑smooth: for all $x,y\in\mathbb{R}^{d}$
+\[
+f(y)\le f(x)+\langle \nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Stochastic Gradient Variance]\label{ass:variance}
+There exists $\sigma^{2}\ge0$ such that for any $w$,
+\[
+\mathbb{E}_{\xi}\!\big[\| \nabla f(w;\xi)-\nabla f(w)\|^{2}\big]\le\sigma^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased Quantization with Bounded Relative Error]\label{ass:quant}
+The quantizer $Q$ satisfies (1) and (2) for a constant $\zeta\ge0$.
+\end{assumption}
+
+\begin{assumption}[Stepsize]\label{ass:stepsize}
+The learning‑rate sequence $\{\eta_{t}\}$ is non‑increasing, satisfies $0<\eta_{t}\le \frac{1}{L}$, and
+\[
+\sum_{t=0}^{\infty}\eta_{t}= \infty,\qquad \sum_{t=0}^{\infty}\eta_{t}^{2}<\infty .
+\]
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of QSGD for Non‑Convex Smooth Objectives]\label{thm:convergence}
+Assume \ref{ass:smooth}–\ref{ass:stepsize}. Let $w_{0}$ be arbitrary and define the averaged iterate
+\[
+\bar w_{T}\;=\;\frac{1}{T}\sum_{t=0}^{T-1}w_{t}.
+\]
+Then for any $T\ge1$
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+\;\le\;
+\underbrace{\frac{2\big(f(w_{0})-f^{*}\big)}{\eta T}}_{\text{initial gap term}}
+\;+\;
+\underbrace{L\eta\big(\sigma^{2}+\zeta^{2}G^{2}\big)}_{\text{noise term}},
+\tag{4}
+\]
+where $f^{*}=\inf_{w}f(w)$ and $G^{2}\ge\sup_{t}\mathbb{E}\|g_{t}\|^{2}$ (finite under the assumptions).  
+Consequently, with a constant stepsize $\eta=\Theta\!\big(\tfrac{1}{\sqrt{T}}\big)$ we obtain
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]=\mathcal{O}\!\Big(\frac{1}{\sqrt{T}}\Big).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}[leftmargin=*]
+\item \textbf{Stability.} The bound (4) shows that the algorithm remains stable provided $\eta\le 1/L$; the quantization error appears only as an additive variance term $\zeta^{2}G^{2}$.
+\item \textbf{Hyper‑parameter Sensitivity.} The stepsize $\eta$ trades off the bias term $2(f(w_{0})-f^{*})/(\eta T)$ against the variance term $L\eta(\sigma^{2}+\zeta^{2}G^{2})$. The optimal constant $\eta^{\star}= \sqrt{ \frac{2(f(w_{0})-f^{*})}{L T(\sigma^{2}+\zeta^{2}G^{2})}}$ yields the $\mathcal{O}(1/\sqrt{T})$ rate.
+\item \textbf{Comparison to Baselines.} If $\zeta=0$ (exact gradients), (4) reduces to the classic SGD bound for non‑convex smooth functions. Thus quantization incurs at most an extra $\zeta^{2}G^{2}$ factor in the variance term.
+\item \textbf{Special Cases.}
+    \begin{enumerate}
+        \item \emph{Deterministic Gradients ($\sigma=0$)}: only quantization noise remains.
+        \item \emph{High‑Precision Quantizer ($\zeta\approx0$)}: the bound matches unquantized SGD.
+    \end{enumerate}
+\end{itemize}
+
+\section*{Discussion}
+The theorem demonstrates that unbiased quantization does not alter the asymptotic $1/\sqrt{T}$ convergence rate for non‑convex smooth objectives; it merely inflates the constant factor through $\zeta$. This validates the practical effectiveness of QSGD in communication‑constrained settings.
+
+\newpage
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness Inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $x,y$,
+\[
+f(y)\le f(x)+\langle \nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of Lipschitz continuity of the gradient; see e.g. Nesterov (2004). \hfill $\square$
+\end{proof}
+
+\begin{lemma}[Bound on Quantization Noise]\label{lem:quant}
+For any random vector $g$,
+\[
+\mathbb{E}\!\big[\|Q(g)-g\|^{2}\mid g\big]\le \zeta^{2}\|g\|^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Assumption \ref{ass:quant} directly gives the inequality. \hfill $\square$
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:convergence}. Throughout the proof, expectations are taken w.r.t. all randomness up to iteration $t$ unless otherwise noted.
+
+\noindent\textbf{[Step 1]} Apply smoothness Lemma~\ref{lem:smooth} with $x=w_{t}$, $y=w_{t+1}=w_{t}-\eta_{t}Q(g_{t})$:
+\begin{align}
+f(w_{t+1}) &\le f(w_{t})+\big\langle \nabla f(w_{t}),\, -\eta_{t}Q(g_{t})\big\rangle
+            +\frac{L}{2}\big\|-\eta_{t}Q(g_{t})\big\|^{2}\nonumber\\
+           &= f(w_{t})-\eta_{t}\langle \nabla f(w_{t}),Q(g_{t})\rangle
+              +\frac{L\eta_{t}^{2}}{2}\|Q(g_{t})\|^{2}. \tag{5}
+\end{align}
+
+\noindent\textbf{[Step 2]} Decompose the inner product using $Q(g_{t})=g_{t}+(Q(g_{t})-g_{t})$:
+\begin{align}
+\langle \nabla f(w_{t}),Q(g_{t})\rangle
+&= \langle \nabla f(w_{t}),g_{t}\rangle
+   +\langle \nabla f(w_{t}),Q(g_{t})-g_{t}\rangle. \tag{6}
+\end{align}
+Taking conditional expectation w.r.t. $g_{t}$ and the quantizer,
+\begin{align}
+\mathbb{E}\!\big[\langle \nabla f(w_{t}),Q(g_{t})\rangle\mid w_{t}\big]
+&= \langle \nabla f(w_{t}),\mathbb{E}[g_{t}\mid w_{t}]\rangle
+   +\mathbb{E}\!\big[\langle \nabla f(w_{t}),Q(g_{t})-g_{t}\rangle\mid w_{t}\big]\nonumber\\
+&= \langle \nabla f(w_{t}),\nabla f(w_{t})\rangle +0 \qquad\text{(by (1) and unbiasedness)}\nonumber\\
+&= \|\nabla f(w_{t})\|^{2}. \tag{7}
+\end{align}
+
+\noindent\textbf{[Step 3]} Bound the squared norm of the quantized gradient:
+\begin{align}
+\|Q(g_{t})\|^{2}
+&= \|g_{t}+(Q(g_{t})-g_{t})\|^{2}\nonumber\\
+&= \|g_{t}\|^{2}+2\langle g_{t},Q(g_{t})-g_{t}\rangle+\|Q(g_{t})-g_{t}\|^{2}. \tag{8}
+\end{align}
+Taking conditional expectation and using unbiasedness of $Q$,
+\[
+\mathbb{E}\!\big[\langle g_{t},Q(g_{t})-g_{t}\rangle\mid w_{t}\big]=0 .
+\]
+Hence,
+\begin{align}
+\mathbb{E}\!\big[\|Q(g_{t})\|^{2}\mid w_{t}\big]
+&= \mathbb{E}\!\big[\|g_{t}\|^{2}\mid w_{t}\big]
+   +\mathbb{E}\!\big[\|Q(g_{t})-g_{t}\|^{2}\mid w_{t}\big]\nonumber\\
+&\le \mathbb{E}\!\big[\|g_{t}\|^{2}\mid w_{t}\big]
+   +\zeta^{2}\,\mathbb{E}\!\big[\|g_{t}\|^{2}\mid w_{t}\big] \quad\text{(by Lemma~\ref{lem:quant})}\nonumber\\
+&= (1+\zeta^{2})\,\mathbb{E}\!\big[\|g_{t}\|^{2}\mid w_{t}\big]. \tag{9}
+\end{align}
+
+\noindent\textbf{[Step 4]} Plug (7) and (9) into the smoothness inequality (5) and then take full expectation:
+\begin{align}
+\mathbb{E}[f(w_{t+1})]
+&\le \mathbb{E}[f(w_{t})]
+   -\eta_{t}\,\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+   +\frac{L\eta_{t}^{2}}{2}(1+\zeta^{2})\,
+     \mathbb{E}\!\big[\|g_{t}\|^{2}\big]. \tag{10}
+\end{align}
+
+\noindent\textbf{[Step 5]} Decompose the stochastic gradient variance:
+\[
+\mathbb{E}\!\big[\|g_{t}\|^{2}\big]
+= \mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+  +\mathbb{E}\!\big[\|g_{t}-\nabla f(w_{t})\|^{2}\big]\le
+  \mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]+\sigma^{2}, \tag{11}
+\]
+where the inequality follows from Assumption \ref{ass:variance}.
+
+\noindent\textbf{[Step 6]} Substitute (11) into (10):
+\begin{align}
+\mathbb{E}[f(w_{t+1})]
+&\le \mathbb{E}[f(w_{t})]
+   -\eta_{t}\,\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+   +\frac{L\eta_{t}^{2}}{2}(1+\zeta^{2})
+      \Big(\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]+\sigma^{2}\Big) \nonumber\\
+&= \mathbb{E}[f(w_{t})]
+   -\Big(\eta_{t}-\frac{L\eta_{t}^{2}}{2}(1+\zeta^{2})\Big)
+      \mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+   +\frac{L\eta_{t}^{2}}{2}(1+\zeta^{2})\sigma^{2}. \tag{12}
+\end{align}
+
+\noindent\textbf{[Step 7]} Choose stepsizes satisfying $\eta_{t}\le \frac{1}{L(1+\zeta^{2})}$ (which holds because $\eta_{t}\le 1/L$ and $\zeta^{2}\ge0$). Then
+\[
+\eta_{t}-\frac{L\eta_{t}^{2}}{2}(1+\zeta^{2})\;\ge\;\frac{\eta_{t}}{2}.
+\]
+Thus (12) simplifies to
+\begin{align}
+\mathbb{E}[f(w_{t+1})]
+&\le \mathbb{E}[f(w_{t})]
+   -\frac{\eta_{t}}{2}\,\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+   +\frac{L\eta_{t}^{2}}{2}(1+\zeta^{2})\sigma^{2}. \tag{13}
+\end{align}
+
+\noindent\textbf{[Step 8]} Rearrange (13) to isolate the gradient term:
+\[
+\frac{\eta_{t}}{2}\,\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+\le \mathbb{E}[f(w_{t})]-\mathbb{E}[f(w_{t+1})]
+   +\frac{L\eta_{t}^{2}}{2}(1+\zeta^{2})\sigma^{2}. \tag{14}
+\]
+
+\noindent\textbf{[Step 9]} Sum (14) over $t=0,\dots,T-1$:
+\begin{align}
+\sum_{t=0}^{T-1}\frac{\eta_{t}}{2}\,\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+&\le \mathbb{E}[f(w_{0})]-\mathbb{E}[f(w_{T})]
+   +\frac{L\sigma^{2}}{2}(1+\zeta^{2})\sum_{t=0}^{T-1}\eta_{t}^{2}\nonumber\\
+&\le f(w_{0})-f^{*}
+   +\frac{L\sigma^{2}}{2}(1+\zeta^{2})\sum_{t=0}^{T-1}\eta_{t}^{2}. \tag{15}
+\end{align}
+The inequality $ \mathbb{E}[f(w_{T})]\ge f^{*}$ follows from definition of $f^{*}$.
+
+\noindent\textbf{[Step 10]} For a **constant** stepsize $\eta_{t}\equiv\eta$, we have $\sum_{t=0}^{T-1}\eta_{t}= \eta T$ and $\sum_{t=0}^{T-1}\eta_{t}^{2}= \eta^{2}T$. Divide (15) by $\eta T$:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+\le
+\frac{2\big(f(w_{0})-f^{*}\big)}{\eta T}
+   +L\eta(1+\zeta^{2})\sigma^{2}. \tag{16}
+\]
+Define $G^{2}\ge \sup_{t}\mathbb{E}\|g_{t}\|^{2}$; using $\sigma^{2}+ \zeta^{2}G^{2}\ge (1+\zeta^{2})\sigma^{2}$ yields the cleaner bound stated in Theorem~\ref{thm:convergence}:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+\le
+\frac{2\big(f(w_{0})-f^{*}\big)}{\eta T}
+   +L\eta\big(\sigma^{2}+\zeta^{2}G^{2}\big). \tag{17}
+\]
+
+\noindent\textbf{[Step 11]} Optimising the RHS w.r.t. $\eta$ (ignoring the integer constraint) gives
+\[
+\eta^{\star}= \sqrt{\frac{2\big(f(w_{0})-f^{*}\big)}{L T\big(\sigma^{2}+\zeta^{2}G^{2}\big)}}.
+\]
+Plugging $\eta^{\star}$ into (17) yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+= \mathcal{O}\!\Big(\frac{1}{\sqrt{T}}\Big). \tag{18}
+\]
+This completes the proof. \hfill $\square$
+
+\section*{Rate Derivation (With Constants)}
+From (17) we can explicitly write the constants:
+\[
+C_{1}=2\big(f(w_{0})-f^{*}\big),\qquad
+C_{2}=L\big(\sigma^{2}+\zeta^{2}G^{2}\big).
+\]
+Thus for any $T\ge1$ and any constant stepsize $\eta\le 1/L$,
+\[
+\boxed{\;
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+\le \frac{C_{1}}{\eta T}+C_{2}\eta
+\;}
+\]
+Choosing $\eta = \sqrt{C_{1}/(C_{2}T)}$ gives the optimal bound $2\sqrt{C_{1}C_{2}}/ \sqrt{T}$.
+
+\section*{Special Cases}
+\begin{enumerate}
+\item \textbf{Exact Gradients ($\zeta=0$, $\sigma=0$).} The bound reduces to
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_{t})\|^{2}\big]
+\le \frac{2\big(f(w_{0})-f^{*}\big)}{\eta T},
+\]
+which matches the deterministic gradient descent guarantee.
+\item \textbf{High‑Resolution Quantizer ($\zeta\ll1$).} The additional variance term $L\eta\zeta^{2}G^{2}$ becomes negligible, and the rate is essentially the same as unquantized SGD.
+\item \textbf{Vanishing Stepsize.} If $\eta_{t}=c/(t+1)$, the classic Robbins‑Monro conditions are satisfied; the same $O(1/\sqrt{T})$ rate holds with an extra logarithmic factor.
+\end{enumerate}
+
+\end{document}

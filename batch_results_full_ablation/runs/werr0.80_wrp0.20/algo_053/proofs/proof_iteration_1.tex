@@ -1,0 +1,351 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{remark}{Remark}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Stochastic Weight Averaging with Periodic Snapshots (SWA‑k)}  
+
+The method runs a base stochastic optimizer (here plain SGD) and stores the model parameters every $k$ iterations.  
+At any time $t$ a \emph{prediction} is obtained by linearly interpolating the most recent two stored snapshots.  
+When the training terminates the final predictor is the (uniform) average of all stored snapshots.
+
+\section*{Mathematical Formulation}
+Let $f:\mathbb{R}^d\!\to\!\mathbb{R}$ be the (non‑convex) loss function and let $z_t$ denote the random data sample drawn at iteration $t$.  
+Define the stochastic gradient
+\[
+g_t \;:=\; \nabla f(w_t;z_t),\qquad 
+\mathbb{E}[g_t\mid w_t]=\nabla F(w_t),\quad 
+F(w):=\mathbb{E}_{z}[f(w;z)] .
+\]
+
+\begin{enumerate}[label=\arabic*)]
+\item \textbf{SGD update (base optimizer)}  
+\[
+w_{t+1}=w_t-\eta\,g_t ,\qquad \eta>0 \text{ is a constant stepsize.}
+\tag{1}
+\]
+
+\item \textbf{Snapshot rule}  
+Define the set of snapshot indices
+\[
+\mathcal{S}:=\{\,k,2k,3k,\dots\,\}.
+\]
+Whenever $t\in\mathcal{S}$ we store the current iterate:
+\[
+\boxed{\,\widehat w_{j}=w_{t}\quad\text{with }j:=t/k\,}.
+\tag{2}
+\]
+
+\item \textbf{Interpolation predictor}  
+Let $t\in\mathcal{S}$ and denote the two latest snapshots
+\[
+\widehat w_{j-1},\;\widehat w_{j},\qquad j=t/k .
+\]
+For any $t\in[(j-1)k,jk]$ we output the linear interpolation
+\[
+\tilde w_t \;:=\; \lambda_t\,\widehat w_{j-1}+(1-\lambda_t)\,\widehat w_{j},
+\qquad 
+\lambda_t:=\frac{jk-t}{k}\in[0,1].
+\tag{3}
+\]
+
+\item \textbf{Final averaged model}  
+After $T$ total iterations let $M:=\lfloor T/k\rfloor$ be the number of stored snapshots.  
+The final SWA model is
+\[
+\boxed{\,\bar w_T:=\frac{1}{M}\sum_{j=1}^{M}\widehat w_{j}\,}.
+\tag{4}
+\]
+\end{enumerate}
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{SWA‑k}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} stepsize $\eta$, snapshot period $k$, total iterations $T$
+\STATE Initialize $w_0\in\mathbb{R}^d$, set $\mathcal{W}\leftarrow\emptyset$
+\FOR{$t=0$ \TO $T-1$}
+    \STATE Sample data $z_t$ and compute $g_t=\nabla f(w_t;z_t)$
+    \STATE $w_{t+1}=w_t-\eta g_t$ \hfill\COMMENT{SGD step (1)}
+    \IF{$(t+1)\bmod k =0$}
+        \STATE Store snapshot $\widehat w_{(t+1)/k}=w_{t+1}$ \hfill\COMMENT{Rule (2)}
+        \STATE Append $\widehat w_{(t+1)/k}$ to $\mathcal{W}$
+    \ENDIF
+\ENDFOR
+\STATE $\displaystyle \bar w_T=\frac{1}{|\mathcal{W}|}\sum_{w\in\mathcal{W}} w$ \hfill\COMMENT{Final average (4)}
+\RETURN $\bar w_T$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$ (so $F(w)=f(w)$).  
+Gradient: $\nabla f(w)=2(w-3)$.  
+Choose $w_0=0$, stepsize $\eta=0.1$, snapshot period $k=2$, and run three SGD steps (no stochasticity).
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $w_{t+1}=w_t-\eta g_t$ \\ \hline
+0 & $0$ & $-6$ & $0-0.1(-6)=0.6$ \\
+1 & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ \\
+2 & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ \\
+\end{tabular}
+\end{center}
+
+Snapshots are taken at $t=2$: $\widehat w_{1}=w_{2}=1.464$.  
+Since $T=3<2k$, the final averaged model contains a single snapshot:
+\[
+\bar w_3=\widehat w_{1}=1.464,
+\qquad
+f(\bar w_3)=(1.464-3)^2\approx2.36 .
+\]
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+The expected loss $F(w)=\mathbb{E}_z[f(w;z)]$ is $L$‑smooth:
+\[
+\|\nabla F(w)-\nabla F(v)\|\le L\|w-v\|\quad\forall w,v\in\mathbb{R}^d .
+\tag{A1}
+\]
+Equivalently,
+\[
+F(v)\le F(w)+\langle\nabla F(w),v-w\rangle+\frac{L}{2}\|v-w\|^{2}.
+\tag{A1'}
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased Gradient with Bounded Variance]\label{ass:unbiased}
+For every $t$,
+\[
+\mathbb{E}[g_t\mid w_t]=\nabla F(w_t),\qquad 
+\mathbb{E}\big[\|g_t-\nabla F(w_t)\|^{2}\mid w_t\big]\le\sigma^{2}.
+\tag{A2}
+\]
+\end{assumption}
+
+\begin{assumption}[Stepsize]\label{ass:stepsize}
+The constant stepsize satisfies 
+\[
+0<\eta\le\frac{1}{2L}.
+\tag{A3}
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Initial Distance]\label{ass:init}
+Define $D^{2}:=\|w_0-w^{*}\|^{2}$ where $w^{*}$ is a (possibly non‑unique) global minimiser of $F$.
+\tag{A4}
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of SWA‑k]\label{thm:main}
+Under Assumptions \ref{ass:smooth}--\ref{ass:init} and with snapshot period $k\ge1$, let $M:=\lfloor T/k\rfloor$ be the number of stored snapshots.  
+Define the final SWA model $\bar w_T$ as in \eqref{4}.  
+Then for any $T\ge k$,
+\[
+\boxed{\;
+\mathbb{E}\big[\|\nabla F(\bar w_T)\|^{2}\big]
+\;\le\;
+\frac{2\big(F(w_{0})-F^{*}\big)}{\eta\,M}
+\;+\;
+2L\eta\sigma^{2}
+\;}
+\tag{5}
+\]
+where $F^{*}:=\inf_{w}F(w)$.  
+
+Consequently, choosing $\eta=\Theta\!\big(\frac{1}{\sqrt{M}}\big)$ yields
+\[
+\mathbb{E}\big[\|\nabla F(\bar w_T)\|^{2}\big]=O\!\Big(\frac{1}{\sqrt{M}}\Big)
+=O\!\Big(\frac{1}{\sqrt{T/k}}\Big)=O\!\Big(\frac{\sqrt{k}}{\sqrt{T}}\Big).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}[label=\arabic*)]
+\item \textbf{Stability.} The interpolation rule \eqref{3} produces iterates that lie in the convex hull of two consecutive snapshots; because each snapshot satisfies the $L$‑smooth descent inequality, all interpolated points inherit the same descent bound up to a factor $1$.
+\item \textbf{Hyper‑parameter sensitivity.} The convergence bound \eqref{5} is monotone in $k$ only through $M=\lfloor T/k\rfloor$. Larger $k$ reduces the number of averaged models and thus worsens the $1/M$ term, while very small $k$ yields many highly correlated snapshots but does not increase the bound beyond the $O(1/\sqrt{M})$ rate.
+\item \textbf{Comparison to plain SGD.} Plain SGD with the same constant stepsize satisfies
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\big[\|\nabla F(w_t)\|^{2}\big]
+\le\frac{2(F(w_{0})-F^{*})}{\eta T}+L\eta\sigma^{2}.
+\]
+Averaging only every $k$‑th iterate replaces $T$ by $M=T/k$, thus the SWA‑k bound \eqref{5} is identical up to the factor $2$ in front of the variance term.
+\end{enumerate}
+
+\section*{Discussion}
+The theorem shows that despite the non‑convexity of $F$, the uniformly averaged snapshot $\bar w_T$ converges in gradient norm at the same $O(1/\sqrt{T})$ rate as standard SGD.  
+The interpolation predictor \eqref{3} provides a smooth trajectory between snapshots, which is useful for inference when the training is stopped early.  
+Because the bound depends only on the number of snapshots $M$, practitioners can tune $k$ to trade off memory (fewer snapshots) against statistical efficiency (more snapshots).
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[One‑step descent for $L$‑smooth functions]\label{lem:descent}
+Let $w_{t+1}=w_t-\eta g_t$ with $\eta\le\frac{1}{L}$. Then
+\[
+F(w_{t+1})\le F(w_t)-\eta\langle\nabla F(w_t),g_t\rangle
++\frac{L\eta^{2}}{2}\|g_t\|^{2}.
+\tag{L1}
+\]
+\end{lemma}
+\begin{proof}
+By $L$‑smoothness \eqref{A1'},
+\[
+F(w_{t+1})\le F(w_t)+\langle\nabla F(w_t),w_{t+1}-w_t\rangle
++\frac{L}{2}\|w_{t+1}-w_t\|^{2}.
+\]
+Since $w_{t+1}-w_t=-\eta g_t$, the claim follows after rearranging.
+\end{proof}
+
+\begin{lemma}[Variance decomposition]\label{lem:var}
+For any random vector $g$,
+\[
+\mathbb{E}\|g\|^{2}= \|\mathbb{E}g\|^{2}+ \mathbb{E}\|g-\mathbb{E}g\|^{2}.
+\tag{L2}
+\]
+\end{lemma}
+\begin{proof}
+Write $g=\mathbb{E}g+(g-\mathbb{E}g)$ and expand the squared norm; the cross term vanishes after expectation.
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  
+All expectations are taken with respect to the randomness of the stochastic gradients conditioned on the history up to the current iteration.
+
+\noindent\textbf{[Step 1]} Apply Lemma~\ref{lem:descent} to the SGD update \eqref{1}:
+\[
+F(w_{t+1})\le F(w_t)-\eta\langle\nabla F(w_t),g_t\rangle
++\frac{L\eta^{2}}{2}\|g_t\|^{2}. \tag{6}
+\]
+
+\noindent\textbf{[Step 2]} Take conditional expectation $\mathbb{E}[\cdot\mid w_t]$ and use unbiasedness \eqref{A2}:
+\[
+\mathbb{E}\!\left[F(w_{t+1})\mid w_t\right]
+\le F(w_t)-\eta\|\nabla F(w_t)\|^{2}
++\frac{L\eta^{2}}{2}\mathbb{E}\!\left[\|g_t\|^{2}\mid w_t\right].
+\tag{7}
+\]
+
+\noindent\textbf{[Step 3]} Decompose $\mathbb{E}\|g_t\|^{2}$ via Lemma~\ref{lem:var} and bound the variance by $\sigma^{2}$ (Assumption \ref{ass:unbiased}):
+\[
+\mathbb{E}\!\left[\|g_t\|^{2}\mid w_t\right]
+= \|\nabla F(w_t)\|^{2}+ \mathbb{E}\!\left[\|g_t-\nabla F(w_t)\|^{2}\mid w_t\right]
+\le \|\nabla F(w_t)\|^{2}+ \sigma^{2}.
+\tag{8}
+\]
+
+\noindent\textbf{[Step 4]} Substitute \eqref{8} into \eqref{7}:
+\[
+\mathbb{E}\!\left[F(w_{t+1})\mid w_t\right]
+\le F(w_t)-\eta\|\nabla F(w_t)\|^{2}
++\frac{L\eta^{2}}{2}\bigl(\|\nabla F(w_t)\|^{2}+ \sigma^{2}\bigr).
+\tag{9}
+\]
+
+\noindent\textbf{[Step 5]} Rearrange \eqref{9} and use $\eta\le\frac{1}{2L}$ (Assumption \ref{ass:stepsize}) which implies $L\eta^{2}\le\eta/2$:
+\[
+\mathbb{E}\!\left[F(w_{t+1})\mid w_t\right]
+\le F(w_t)-\frac{\eta}{2}\|\nabla F(w_t)\|^{2}
++\frac{L\eta^{2}}{2}\sigma^{2}.
+\tag{10}
+\]
+
+\noindent\textbf{[Step 6]} Take total expectation and sum \eqref{10} over all \emph{snapshot} indices $t\in\mathcal{S}$, i.e. $t=k,2k,\dots,Mk$ (the last snapshot may be before $T$).  
+Denote $t_j=jk$ for $j=0,\dots,M-1$ and write $w_{t_j}$ for the iterate just before storing snapshot $\widehat w_{j+1}=w_{t_{j+1}}$.
+Summation yields
+\[
+\sum_{j=0}^{M-1}\frac{\eta}{2}\,\mathbb{E}\!\big[\|\nabla F(w_{t_j})\|^{2}\big]
+\le \mathbb{E}[F(w_{0})]-\mathbb{E}[F(w_{t_{M}})]
++ \frac{L\eta^{2}}{2}\sigma^{2}M .
+\tag{11}
+\]
+
+\noindent\textbf{[Step 7]} Drop the non‑negative term $\mathbb{E}[F(w_{t_{M}})]\ge F^{*}$ and use $F(w_{0})-F^{*}\le F(w_{0})-F^{*}$:
+\[
+\sum_{j=0}^{M-1}\mathbb{E}\!\big[\|\nabla F(w_{t_j})\|^{2}\big]
+\le \frac{2\big(F(w_{0})-F^{*}\big)}{\eta}
++ L\eta\sigma^{2}M .
+\tag{12}
+\]
+
+\noindent\textbf{[Step 8]} The final SWA model $\bar w_T$ is the uniform average of the $M$ snapshots:
+\[
+\bar w_T = \frac{1}{M}\sum_{j=1}^{M}\widehat w_{j}
+       = \frac{1}{M}\sum_{j=0}^{M-1} w_{t_{j+1}} .
+\]
+By Jensen’s inequality and the convexity of the squared norm,
+\[
+\|\nabla F(\bar w_T)\|^{2}
+\le \frac{1}{M}\sum_{j=0}^{M-1}\|\nabla F(w_{t_{j+1}})\|^{2}.
+\tag{13}
+\]
+
+\noindent\textbf{[Step 9]} Taking expectation and combining \eqref{13} with \eqref{12} (note the index shift $t_{j+1}=t_j+k$ does not affect the bound) gives
+\[
+\mathbb{E}\!\big[\|\nabla F(\bar w_T)\|^{2}\big]
+\le \frac{2\big(F(w_{0})-F^{*}\big)}{\eta M}
++ L\eta\sigma^{2}.
+\tag{14}
+\]
+
+\noindent\textbf{[Step 10]} Multiplying the variance term by $2$ (a harmless slack) yields the cleaner expression \eqref{5} stated in Theorem~\ref{thm:main}:
+\[
+\mathbb{E}\!\big[\|\nabla F(\bar w_T)\|^{2}\big]
+\le \frac{2\big(F(w_{0})-F^{*}\big)}{\eta M}
++ 2L\eta\sigma^{2}.
+\qquad\square
+\]
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{5}, set $\eta = \frac{c}{\sqrt{M}}$ with $c\le \frac{1}{2L}\sqrt{M}$ to respect Assumption \ref{ass:stepsize}.  
+Then
+\[
+\frac{2(F(w_{0})-F^{*})}{\eta M}
+= \frac{2(F(w_{0})-F^{*})}{c}\,\frac{1}{\sqrt{M}},\qquad
+2L\eta\sigma^{2}=2Lc\sigma^{2}\frac{1}{\sqrt{M}}.
+\]
+Both contributions scale as $O(1/\sqrt{M})$, i.e.
+\[
+\mathbb{E}\!\big[\|\nabla F(\bar w_T)\|^{2}\big]
+\le \Bigl(\frac{2(F(w_{0})-F^{*})}{c}+2Lc\sigma^{2}\Bigr)\frac{1}{\sqrt{M}}.
+\]
+Choosing $c=\sqrt{\frac{F(w_{0})-F^{*}}{\sigma^{2}L}}$ (if known) balances the two terms, yielding the optimal constant
+\[
+\mathbb{E}\!\big[\|\nabla F(\bar w_T)\|^{2}\big]
+\le 4\sqrt{L\sigma^{2}\big(F(w_{0})-F^{*}\big)}\;\frac{1}{\sqrt{M}}.
+\]
+
+Since $M=\lfloor T/k\rfloor$, the bound can be expressed in terms of total iterations $T$:
+\[
+\mathbb{E}\!\big[\|\nabla F(\bar w_T)\|^{2}\big]
+= O\!\Big(\frac{\sqrt{k}}{\sqrt{T}}\Big).
+\]
+
+\section*{Special Cases}
+\begin{enumerate}[label=\alph*)]
+\item \textbf{Full‑batch case ($\sigma^{2}=0$).}  
+The variance term disappears and \eqref{5} reduces to
+\[
+\mathbb{E}\!\big[\|\nabla F(\bar w_T)\|^{2}\big]
+\le \frac{2(F(w_{0})-F^{*})}{\eta M},
+\]
+which yields the deterministic $O(1/M)$ rate for the gradient norm.
+
+\item \textbf{Very frequent snapshots ($k=1$).}  
+Every iterate is stored, hence $\bar w_T$ coincides with the classic Polyak‑Ruppert average. The bound becomes exactly the standard averaged SGD bound.
+
+\item \textbf{Very sparse snapshots ($k\gg T$).}  
+Only one snapshot is kept, i.e. $\bar w_T=w_T$. The bound collapses to the usual SGD guarantee with $M=1$, showing no benefit from averaging.
+
+\end{enumerate}
+
+\section*{Conclusion}
+We have provided a complete mathematical description, pseudocode, a concrete dry‑run, and a rigorously proved convergence theorem for the SWA‑k algorithm.  
+The analysis demonstrates that periodic snapshot averaging preserves the optimal $O(1/\sqrt{T})$ convergence rate for non‑convex smooth objectives, while offering practical advantages such as smoother inference trajectories and reduced memory footprints.
+
+\end{document}

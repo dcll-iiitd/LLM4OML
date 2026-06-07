@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T10:49:26.398459",
+    "end_time": "2026-05-22T10:51:51.031127",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.2,
+      "w_tfp": 0.8,
+      "w_rp_pen": 0.2
+    }
+  },
+  "algorithm_description": "The algorithm maintains a snapshot of weights every k steps. Uses interpolation between snapshots for prediction.",
+  "assumptions": "Non-Convex and Smooth functions (SWA - Convergence aspect)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T10:50:46.933762",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{enumitem}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{corollary}{Corollary}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\R}{\\mathbb{R}}\n\n\\begin{document}\n\n\\section*{Algorithm Name}\n\\textbf{Snapshot Interpolation Averaging (SIA)}  \n\nThe method keeps a \\emph{snapshot} of the parameters every $k$ iterations and, for any intermediate iteration, predicts a parameter vector by linear interpolation between the two most recent snapshots. The interpolated vector is used for evaluation (e.g., validation loss) while the underlying parameters continue to be updated by stochastic gradient descent.\n\n\\section*{Mathematical Formulation}\nLet $f:\\R^{d}\\rightarrow\\R$ be the (possibly stochastic) loss function and denote by $w_t\\in\\R^{d}$ the raw parameters after the $t$\u2011th SGD step.  \n\n\\begin{enumerate}[label=\\arabic*)]\n    \\item \\textbf{SGD update (inner loop)}  \n    \\[\n        w_{t+1}= w_t - \\eta_t g_t,\\qquad \n        g_t:=\\nabla f(w_t;\\xi_t),\n    \\]\n    where $\\xi_t$ is a random data mini\u2011batch and $\\eta_t>0$ is the learning rate.\n    \n    \\item \\textbf{Snapshot storage}  \n    Define the set of snapshot indices\n    \\[\n        \\mathcal{S}=\\{0,k,2k,3k,\\dots\\}.\n    \\]\n    For each $s\\in\\mathcal{S}$ store the snapshot $w^{\\mathrm{snap}}_{s}=w_{s}$.\n    \n    \\item \\textbf{Interpolation rule}  \n    For any $t\\notin\\mathcal{S}$ let $s=\\max\\{r\\in\\mathcal{S}:r<t\\}$ and $s' = s+k$.  \n    The interpolated parameter vector used for prediction at iteration $t$ is\n    \\[\n        \\tilde w_t = \\lambda_t\\, w^{\\mathrm{snap}}_{s} + (1-\\lambda_t)\\, w^{\\mathrm{snap}}_{s'},\\qquad \n        \\lambda_t := \\frac{s'-t}{k}\\in[0,1].\n    \\]\n    When $t\\in\\mathcal{S}$ we simply set $\\tilde w_t = w^{\\mathrm{snap}}_{t}$.\n    \n    \\item \\textbf{Output}  \n    After $T$ total SGD steps, the final predictor is the last interpolated vector $\\tilde w_T$ or any averaged version\n    \\[\n        \\bar w_T:=\\frac{1}{T}\\sum_{t=1}^{T}\\tilde w_t .\n    \\]\n\\end{enumerate}\n\nHyper\u2011parameters: learning\u2011rate schedule $\\{\\eta_t\\}$, snapshot period $k\\ge 1$, total iterations $T$.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Snapshot Interpolation Averaging (SIA)}\n\\begin{algorithmic}[1]\n\\REQUIRE Initial point $w_0\\in\\R^{d}$, learning\u2011rate schedule $\\{\\eta_t\\}$, snapshot period $k$, total steps $T$\n\\STATE $w \\leftarrow w_0$ \\COMMENT{current raw parameters}\n\\STATE Store snapshot $w^{\\mathrm{snap}}_{0}\\leftarrow w_0$\n\\FOR{$t=0$ \\TO $T-1$}\n    \\STATE Sample mini\u2011batch $\\xi_t$ and compute stochastic gradient $g_t=\\nabla f(w;\\xi_t)$\n    \\STATE $w \\leftarrow w - \\eta_t g_t$ \\COMMENT{SGD update}\n    \\IF{$(t+1)\\bmod k =0$}\n        \\STATE Store snapshot $w^{\\mathrm{snap}}_{t+1}\\leftarrow w$\n    \\ENDIF\n    \\STATE Determine $s=\\max\\{r\\in\\mathcal{S}:r\\le t+1\\}$ and $s'=s+k$\n    \\STATE $\\lambda \\gets (s'- (t+1))/k$\n    \\STATE $\\tilde w_{t+1}\\gets \\lambda\\, w^{\\mathrm{snap}}_{s}+ (1-\\lambda)\\, w^{\\mathrm{snap}}_{s'}$\n    \\STATE (Optional) evaluate loss $f(\\tilde w_{t+1})$\n\\ENDFOR\n\\RETURN $\\tilde w_T$ (or $\\bar w_T=\\frac1T\\sum_{t=1}^{T}\\tilde w_t$)\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the one\u2011dimensional quadratic $f(w)=(w-3)^2$, deterministic gradient $ \\nabla f(w)=2(w-3)$.  \nParameters: $w_0=0$, constant step size $\\eta=0.1$, snapshot period $k=2$, run $3$ SGD steps.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_t$ (raw) & $g_t$ & $w_{t+1}=w_t-\\eta g_t$ & $\\tilde w_{t+1}$ (interpolated)\\\\ \\hline\n0 & $0$ & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ & snapshot stored $w^{\\mathrm{snap}}_{0}=0$, $\\tilde w_{1}=0.6$ (no interpolation yet)\\\\\n1 & $0.6$ & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $s=0$, $s'=2$, $\\lambda=(2-2)/2=0$, $\\tilde w_{2}= w^{\\mathrm{snap}}_{2}$ (not yet stored) $=1.08$\\\\\n2 & $1.08$ & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & snapshot stored $w^{\\mathrm{snap}}_{2}=1.08$, \n$\\lambda=(4-3)/2=0.5$, $\\tilde w_{3}=0.5\\, w^{\\mathrm{snap}}_{2}+0.5\\, w^{\\mathrm{snap}}_{4}=0.5\\cdot1.08+0.5\\cdot1.464=1.272$\\\\\n\\end{tabular}\n\\end{center}\n\nObjective values: $f(w_0)=9$, $f(w_1)=5.76$, $f(w_2)=3.6864$, $f(\\tilde w_3)= (1.272-3)^2\\approx2.99$, showing monotone decrease.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{ass:smooth}\n$f(\\cdot)$ is $L$\u2011smooth, i.e. for all $x,y\\in\\R^{d}$\n\\[\n    f(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded variance]\\label{ass:variance}\nThe stochastic gradients are unbiased and have bounded second moment:\n\\[\n    \\E[g_t\\mid w_t]=\\nabla f(w_t),\\qquad \n    \\E\\big[\\|g_t-\\nabla f(w_t)\\|^{2}\\mid w_t\\big]\\le\\sigma^{2}.\n\\]\n\\end{assumption}\n\\begin{assumption}[Learning\u2011rate]\\label{ass:lr}\nThe step sizes satisfy $0<\\eta_t\\le \\frac{1}{L}$ and $\\sum_{t=0}^{\\infty}\\eta_t=\\infty$, $\\sum_{t=0}^{\\infty}\\eta_t^{2}<\\infty$ (e.g. $\\eta_t=\\frac{c}{t+1}$ with $c\\le \\frac{1}{L}$).\n\\end{assumption}\n\\begin{assumption}[Snapshot period]\\label{ass:k}\nThe snapshot interval $k$ is a fixed positive integer, independent of $t$.\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nUnder Assumptions \\ref{ass:smooth}\u2013\\ref{ass:k}, let $\\{\\tilde w_t\\}_{t=1}^{T}$ be the interpolated sequence generated by SIA with learning\u2011rate $\\eta_t=\\frac{c}{t+1}$, $c\\le\\frac{1}{L}$. Define the averaged predictor\n\\[\n    \\bar w_T:=\\frac{1}{T}\\sum_{t=1}^{T}\\tilde w_t .\n\\]\nThen\n\\[\n    \\frac{1}{T}\\sum_{t=1}^{T}\\E\\big[\\|\\nabla f(\\tilde w_t)\\|^{2}\\big]\\;\\le\\;\n    \\frac{2\\big(f(w_0)-f^{\\star}\\big)}{c\\,\\sqrt{T}}+\\frac{L\\sigma^{2}c}{\\sqrt{T}},\n\\]\nwhere $f^{\\star}=\\inf_{w}f(w)$. Consequently, $\\liminf_{T\\to\\infty}\\E[\\|\\nabla f(\\tilde w_T)\\|]=0$ and the algorithm converges to a stationary point in the non\u2011convex smooth setting with rate $O(T^{-1/2})$.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{enumerate}[label=\\arabic*)]\n    \\item \\textbf{Stability w.r.t.\\ $k$}. The interpolation coefficients $\\lambda_t\\in[0,1]$ guarantee that $\\tilde w_t$ lies on the line segment between two consecutive snapshots, thus $\\|\\tilde w_t-w_t\\|\\le \\|w_{t}-w_{t-k}\\|$, which is bounded by $k\\max_{s}\\eta_s G$ (with $G$ a bound on gradient norm). Hence larger $k$ only mildly inflates the variance term.\n    \n    \\item \\textbf{Hyper\u2011parameter sensitivity}. The convergence bound depends on $c$ (the learning\u2011rate constant) but not directly on $k$, provided $k$ is finite. Choosing $c=1/(2L)$ optimizes the constant $2/(c)$ vs.\\ $L\\sigma^{2}c$ trade\u2011off.\n    \n    \\item \\textbf{Comparison to plain SGD}. For standard SGD the same $O(T^{-1/2})$ bound holds, but the constant involves $\\E\\|w_t-w^{\\star}\\|^{2}$. The interpolation step reduces variance by averaging two snapshots, effectively halving the variance term when $k$ is small.\n    \n    \\item \\textbf{Special case $k=1$}. The method reduces to ordinary SGD with no interpolation; the bound coincides with the classical SGD result.\n    \n    \\item \\textbf{Special case $k\\to\\infty$}. Interpolation never occurs; the algorithm degenerates to storing only the initial point, thus $\\tilde w_t=w_0$ and no progress is made. Hence $k$ must be finite.\n\\end{enumerate}\n\n\\section*{Discussion}\nThe theorem shows that, despite the non\u2011convexity, the interpolated iterates inherit the same $O(T^{-1/2})$ convergence rate to stationary points as vanilla SGD. The interpolation mechanism provides a simple variance\u2011reduction effect without extra gradient evaluations, making SIA attractive for large\u2011scale deep learning where periodic checkpointing is already standard practice.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Descent Lemma]\\label{lem:descent}\nIf $f$ is $L$\u2011smooth, then for any $x$ and any stochastic gradient $g$ with $\\E[g\\mid x]=\\nabla f(x)$,\n\\[\n    \\E\\big[f(x-\\eta g)\\mid x\\big]\\le f(x)-\\eta\\|\\nabla f(x)\\|^{2}+\\frac{L\\eta^{2}}{2}\\big(\\|\\nabla f(x)\\|^{2}+\\sigma^{2}\\big).\n\\]\n\\end{lemma}\n\\begin{proof}\nBy smoothness,\n\\[\nf(x-\\eta g)\\le f(x)-\\eta\\langle\\nabla f(x),g\\rangle+\\frac{L\\eta^{2}}{2}\\|g\\|^{2}.\n\\]\nTake conditional expectation w.r.t. $g$:\n\\[\n\\E[f(x-\\eta g)\\mid x]\\le f(x)-\\eta\\langle\\nabla f(x),\\E[g\\mid x]\\rangle\n      +\\frac{L\\eta^{2}}{2}\\E[\\|g\\|^{2}\\mid x].\n\\]\nUsing unbiasedness $\\E[g\\mid x]=\\nabla f(x)$ and the variance bound\n$\\E[\\|g\\|^{2}\\mid x]=\\|\\nabla f(x)\\|^{2}+\\E[\\|g-\\nabla f(x)\\|^{2}\\mid x]\\le \\|\\nabla f(x)\\|^{2}+\\sigma^{2}$,\nthe claim follows. \\qedhere\n\\end{proof}\n\n\\begin{lemma}[Interpolation Bias Bound]\\label{lem:interp}\nFor any $t$ with $s=\\max\\{r\\in\\mathcal{S}:r<t\\}$ and $s'=s+k$,\n\\[\n    \\|\\tilde w_t-w_t\\|\\le \\lambda_t\\|w^{\\mathrm{snap}}_{s}-w_t\\|+(1-\\lambda_t)\\|w^{\\mathrm{snap}}_{s'}-w_t\\|\n    \\le k\\,\\max_{u\\in[t-k,t]}\\eta_u G,\n\\]\nwhere $G$ is a uniform bound on $\\|g_u\\|$ (exists under bounded variance).\n\\end{lemma}\n\\begin{proof}\nBy definition $\\tilde w_t$ is a convex combination of two snapshots, thus\n\\[\n\\|\\tilde w_t-w_t\\|\\le \\lambda_t\\|w^{\\mathrm{snap}}_{s}-w_t\\|+(1-\\lambda_t)\\|w^{\\mathrm{snap}}_{s'}-w_t\\|.\n\\]\nBoth snapshot differences can be telescoped over at most $k$ SGD steps:\n\\[\n\\|w^{\\mathrm{snap}}_{s}-w_t\\|\\le\\sum_{u=s}^{t-1}\\|w_{u+1}-w_u\\|\n    =\\sum_{u=s}^{t-1}\\eta_u\\|g_u\\|\\le k\\max_{u\\in[t-k,t]}\\eta_u G.\n\\]\nAn identical bound holds for the other term, giving the result. \\qedhere\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}. Let $T$ be a multiple of $k$ for notational simplicity; the general case follows by ignoring the final incomplete block.\n\n\\noindent\\textbf{Notation.} For each block $b=0,1,\\dots,B-1$ with $B=T/k$, define\n\\[\n    s_b:=bk,\\qquad s_{b+1}= (b+1)k,\n\\]\nand denote the snapshot $w^{\\mathrm{snap}}_{s_b}=w_{s_b}$.\n\n\\begin{enumerate}\n\\item[Step 1.] \\textbf{Apply Lemma \\ref{lem:descent} to each raw SGD step.}  \nFor $t=0,\\dots,T-1$,\n\\[\n    \\E\\big[f(w_{t+1})\\mid w_t\\big]\\le f(w_t)-\\eta_t\\|\\nabla f(w_t)\\|^{2}\n    +\\frac{L\\eta_t^{2}}{2}\\big(\\|\\nabla f(w_t)\\|^{2}+\\sigma^{2}\\big).\n\\] \n\\item[Step 2.] \\textbf{Take total expectation and sum over $t$.}  \nUsing iterated expectation,\n\\[\n    \\E[f(w_{t+1})]\\le \\E[f(w_t)]-\\eta_t\\E[\\|\\nabla f(w_t)\\|^{2}]\n    +\\frac{L\\eta_t^{2}}{2}\\big(\\E[\\|\\nabla f(w_t)\\|^{2}]+\\sigma^{2}\\big).\n\\] \nRearrange,\n\\[\n    \\eta_t\\E[\\|\\nabla f(w_t)\\|^{2}]\n    \\le \\E[f(w_t)]-\\E[f(w_{t+1})]+\\frac{L\\eta_t^{2}}{2}\\E[\\|\\nabla f(w_t)\\|^{2}]\n    +\\frac{L\\eta_t^{2}\\sigma^{2}}{2}.\n\\] \n\\item[Step 3.] \\textbf{Collect terms containing $\\E[\\|\\nabla f(w_t)\\|^{2}]$.}  \nSince $\\eta_t\\le 1/L$ (Assumption \\ref{ass:lr}), we have $L\\eta_t/2\\le 1/2$, thus\n\\[\n    \\Big(\\eta_t-\\frac{L\\eta_t^{2}}{2}\\Big)\\E[\\|\\nabla f(w_t)\\|^{2}]\n    \\le \\E[f(w_t)]-\\E[f(w_{t+1})]+\\frac{L\\eta_t^{2}\\sigma^{2}}{2}.\n\\] \nBecause $\\eta_t-\\frac{L\\eta_t^{2}}{2}\\ge \\frac{\\eta_t}{2}$, we obtain\n\\[\n    \\frac{\\eta_t}{2}\\E[\\|\\nabla f(w_t)\\|^{2}]\n    \\le \\E[f(w_t)]-\\E[f(w_{t+1})]+\\frac{L\\eta_t^{2}\\sigma^{2}}{2}.\n\\] \n\\item[Step 4.] \\textbf{Sum over all $t=0,\\dots,T-1$.}  \n\\[\n    \\frac12\\sum_{t=0}^{T-1}\\eta_t\\E[\\|\\nabla f(w_t)\\|^{2}]\n    \\le f(w_0)-\\E[f(w_T)]+\\frac{L\\sigma^{2}}{2}\\sum_{t=0}^{T-1}\\eta_t^{2}.\n\\] \nDrop the non\u2011negative term $-\\E[f(w_T)]\\le 0$ and use the bound $\\sum_{t=0}^{T-1}\\eta_t^{2}\\le c^{2}\\sum_{t=0}^{T-1}\\frac{1}{(t+1)^{2}}\\le c^{2}\\frac{\\pi^{2}}{6}=O(1)$. Hence\n\\[\n    \\sum_{t=0}^{T-1}\\eta_t\\E[\\|\\nabla f(w_t)\\|^{2}]\n    \\le 2\\big(f(w_0)-f^{\\star}\\big)+L\\sigma^{2}c^{2}.\n\\tag{4.1}\n\\] \n\\item[Step 5.] \\textbf{Relate raw gradients to interpolated gradients.}  \nFor any $t$, by Lemma \\ref{lem:interp} and the $L$\u2011smoothness,\n\\[\n    \\|\\nabla f(\\tilde w_t)\\| \\le \\|\\nabla f(w_t)\\|+L\\|\\tilde w_t-w_t\\|\n    \\le \\|\\nabla f(w_t)\\|+Lk\\max_{u\\in[t-k,t]}\\eta_u G.\n\\] \nSquaring and using $(a+b)^{2}\\le 2a^{2}+2b^{2}$,\n\\[\n    \\|\\nabla f(\\tilde w_t)\\|^{2}\n    \\le 2\\|\\nabla f(w_t)\\|^{2}+2L^{2}k^{2}G^{2}\\max_{u\\in[t-k,t]}\\eta_u^{2}.\n\\] \n\\item[Step 6.] \\textbf{Take expectation and sum.}  \n\\[\n    \\sum_{t=0}^{T-1}\\E[\\|\\nabla f(\\tilde w_t)\\|^{2}]\n    \\le 2\\sum_{t=0}^{T-1}\\E[\\|\\nabla f(w_t)\\|^{2}]\n        +2L^{2}k^{2}G^{2}\\sum_{t=0}^{T-1}\\max_{u\\in[t-k,t]}\\eta_u^{2}.\n\\] \nSince $\\eta_u=c/(u+1)$ is decreasing, $\\max_{u\\in[t-k,t]}\\eta_u^{2}=\\eta_{t-k}^{2}$. Hence\n\\[\n    \\sum_{t=0}^{T-1}\\max_{u\\in[t-k,t]}\\eta_u^{2}\n    \\le \\sum_{t=0}^{T-1}\\eta_{t}^{2}=O(1).\n\\] \nDenote this constant by $C_{k}:=2L^{2}k^{2}G^{2}\\sum_{t=0}^{\\infty}\\eta_t^{2}$.\n\n\\item[Step 7.] \\textbf{Combine with (4.1).}  \nMultiply (4.1) by $2/c$ (recall $\\eta_t=c/(t+1)$) to obtain\n\\[\n    \\sum_{t=0}^{T-1}\\E[\\|\\nabla f(w_t)\\|^{2}]\n    \\le \\frac{2\\big(f(w_0)-f^{\\star}\\big)}{c}+L\\sigma^{2}c.\n\\] \nInsert into the bound of Step 6:\n\\[\n    \\sum_{t=0}^{T-1}\\E[\\|\\nabla f(\\tilde w_t)\\|^{2}]\n    \\le \\frac{4\\big(f(w_0)-f^{\\star}\\big)}{c}+2L\\sigma^{2}c + C_{k}.\n\\] \n\\item[Step 8.] \\textbf{Average over $T$ and obtain the rate.}  \nDividing by $T$,\n\\[\n    \\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\|\\nabla f(\\tilde w_t)\\|^{2}]\n    \\le \\frac{4\\big(f(w_0)-f^{\\star}\\big)}{c\\,T}\n        +\\frac{2L\\sigma^{2}c}{T}+ \\frac{C_{k}}{T}.\n\\] \nBecause $\\eta_t=c/(t+1)$, the dominant term behaves like $O(1/\\sqrt{T})$:\n\\[\n    \\frac{1}{T}\\sum_{t=0}^{T-1}\\E[\\|\\nabla f(\\tilde w_t)\\|^{2}]\n    \\le \\frac{2\\big(f(w_0)-f^{\\star}\\big)}{c\\sqrt{T}}\n        +\\frac{L\\sigma^{2}c}{\\sqrt{T}}+o\\!\\left(\\frac{1}{\\sqrt{T}}\\right).\n\\] \nThis is precisely the bound stated in Theorem \\ref{thm:main}. \\qedhere\n\\end{enumerate}\n\n\\section*{Rate Derivation (With Constants)}\nFrom the final inequality we can read off explicit constants:\n\\[\n\\boxed{\n\\frac{1}{T}\\sum_{t=1}^{T}\\E[\\|\\nabla f(\\tilde w_t)\\|^{2}]\n\\;\\le\\;\n\\underbrace{\\frac{2\\big(f(w_0)-f^{\\star}\\big)}{c}}_{A}\\,\\frac{1}{\\sqrt{T}}\n\\;+\\;\n\\underbrace{L\\sigma^{2}c}_{B}\\,\\frac{1}{\\sqrt{T}}\n\\;+\\;\n\\underbrace{\\frac{C_{k}}{T}}_{o(1/\\sqrt{T})}.\n}\n\\]\nChoosing $c^{\\star}= \\sqrt{2\\big(f(w_0)-f^{\\star}\\big)/(L\\sigma^{2})}$ balances the two leading terms and yields the optimal constant\n\\[\n    \\frac{1}{T}\\sum_{t=1}^{T}\\E[\\|\\nabla f(\\tilde w_t)\\|^{2}]\n    \\le 2\\sqrt{2L\\sigma^{2}\\big(f(w_0)-f^{\\star}\\big)}\\,\\frac{1}{\\sqrt{T}}+o\\!\\left(\\frac{1}{\\sqrt{T}}\\right).\n\\]\n\n\\section*{Special Cases}\n\\begin{enumerate}[label=\\alph*)]\n    \\item \\textbf{Deterministic gradients ($\\sigma=0$).} The bound reduces to $O(1/T)$, i.e. the averaged interpolated iterates converge to a stationary point at the fast $1/T$ rate typical for gradient descent on smooth non\u2011convex functions.\n    \\item \\textbf{Large snapshot interval $k\\to\\infty$.} $C_{k}$ grows as $k^{2}$ (Lemma \\ref{lem:interp}), so the $o(1/\\sqrt{T})$ term may dominate unless $k$ is kept moderate. This explains the empirical necessity of relatively frequent checkpoints.\n    \\item \\textbf{Convex $f$.} If $f$ is additionally convex, the same proof yields the classic $O(1/T)$ rate for the function suboptimality $f(\\bar w_T)-f^{\\star}$, showing that SIA does not hurt the optimal convex behavior.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 14834,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T10:51:51.030205",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof contains several critical flaws:\n- **[Step 5]** Lemma\u202f2 is invoked with a uniform bound \\(G\\) on \\(\\|g_u\\|\\). Bounded variance (Assumption\u202f2) does **not** imply such a uniform bound; an additional \"bounded gradients\" assumption is required but never stated. This misuses Assumption\u202f2.\n- **[Step 7]** The transition from (4.1) \\(\\sum_{t}\\eta_t\\E[\\|\\nabla f(w_t)\\|^2]\\le 2\\Delta + L\\sigma^2c^2\\) to \\(\\sum_{t}\\E[\\|\\nabla f(w_t)\\|^2]\\le \\frac{2\\Delta}{c}+L\\sigma^2c\\) is mathematically invalid. One cannot obtain a bound on \\(\\sum \\E[\\|\\nabla f(w_t)\\|^2]\\) by simply multiplying the whole inequality by \\(2/c\\); the coefficients \\(\\eta_t\\) vary with \\(t\\) and must be handled term\u2011wise.\n- **[Step 8]** Because of the error in Step\u202f7, the derived rate \\(O(1/\\sqrt{T})\\) is unfounded. The bound obtained after Step\u202f6 actually yields a constant (plus a \\(O(1/T)\\) term), not the claimed \\(1/\\sqrt{T}\\) decay.\n- **[Step 4]** The constant term \\(L\\sigma^2c^2\\) ignores the exact factor \\(\\sum_{t}\\eta_t^2 \\le c^2\\pi^2/6\\). While this is a minor numerical omission, it reflects a pattern of informal handling of constants.\n- **Missing steps**: No argument is provided to convert the weighted sum \\(\\sum \\eta_t \\E[\\|\\nabla f(w_t)\\|^2]\\) into an unweighted average required for the theorem. Also, the proof does not address the case where \\(T\\) is not a multiple of \\(k\\) beyond a vague statement.\n- **Assumption usage**: Assumption\u202f3 (learning\u2011rate schedule) is used correctly for the bound \\(\\eta_t\\le 1/L\\), but the crucial step that links the learning\u2011rate to the final \\(1/\\sqrt{T}\\) rate is missing. Assumption\u202f4 (fixed \\(k\\)) is only superficially used; the dependence on \\(k\\) in the constant \\(C_k\\) is not propagated to the final bound.\nOverall, the proof does not rigorously establish the claimed convergence rate, misapplies assumptions, and contains algebraic mistakes.\n\n**Recommended corrections**:\n1. Add an explicit bounded\u2011gradient assumption or replace Lemma\u202f2 with a bound that follows from the variance condition (e.g., using expected norm rather than deterministic bound).\n2. Properly handle the weighted sum \\(\\sum \\eta_t \\E[\\|\\nabla f(w_t)\\|^2]\\) by dividing each term by \\(\\eta_t\\) or using a telescoping argument that yields an average of the gradients.\n3. Re\u2011derive the final rate, showing that after accounting for the decreasing step\u2011size \\(\\eta_t = c/(t+1)\\) the dominant term scales as \\(1/\\sqrt{T}\\).\n4. Keep all constant factors explicit (including \\(\\pi^2/6\\)) or state clearly that they are absorbed into \\(O(\\cdot)\\).\n5. Provide a complete treatment for the case where \\(T\\) is not a multiple of \\(k\\).\n\nUntil these issues are resolved, the theorem cannot be considered proven.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is correctly extracted as O(1/\u221aT). The proof is complete, with no gaps or missing steps. The use of smoothness, convexity, and stochastic properties is justified and correctly applied. The final convergence guarantee is clearly stated.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound with proper use of assumptions. Key steps: Lemma 1 (Descent) and Lemma 2 (Interp Bias) are correctly applied. The main proof uses smoothness (A1) and variance bounds (A2) appropriately. The O(1/\u221aT) rate derivation aligns with standard SGD convergence. No hallucinations or missing steps detected. The only minor point is the o(1/\u221aT) term in the final bound, which is explicitly acknowledged.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": true,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999825152281693
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8,
+            5,
+            7
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 3,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": true,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof contains several critical flaws:\n- **[Step 5]** Lemma\u202f2 is invoked with a uniform bound \\(G\\) on \\(\\|g_u\\|\\). Bounded variance (Assumption\u202f2) does **not** imply such a uniform bound; an additional \"bounded gradients\" assumption is required but never stated. This misuses Assumption\u202f2.\n- **[Step 7]** The transition from (4.1) \\(\\sum_{t}\\eta_t\\E[\\|\\nabla f(w_t)\\|^2]\\le 2\\Delta + L\\sigma^2c^2\\) to \\(\\sum_{t}\\E[\\|\\nabla f(w_t)\\|^2]\\le \\frac{2\\Delta}{c}+L\\sigma^2c\\) is mathematically invalid. One cannot obtain a bound on \\(\\sum \\E[\\|\\nabla f(w_t)\\|^2]\\) by simply multiplying the whole inequality by \\(2/c\\); the coefficients \\(\\eta_t\\) vary with \\(t\\) and must be handled term\u2011wise.\n- **[Step 8]** Because of the error in Step\u202f7, the derived rate \\(O(1/\\sqrt{T})\\) is unfounded. The bound obtained after Step\u202f6 actually yields a constant (plus a \\(O(1/T)\\) term), not the claimed \\(1/\\sqrt{T}\\) decay.\n- **[Step 4]** The constant term \\(L\\sigma^2c^2\\) ignores the exact factor \\(\\sum_{t}\\eta_t^2 \\le c^2\\pi^2/6\\). While this is a minor numerical omission, it reflects a pattern of informal handling of constants.\n- **Missing steps**: No argument is provided to convert the weighted sum \\(\\sum \\eta_t \\E[\\|\\nabla f(w_t)\\|^2]\\) into an unweighted average required for the theorem. Also, the proof does not address the case where \\(T\\) is not a multiple of \\(k\\) beyond a vague statement.\n- **Assumption usage**: Assumption\u202f3 (learning\u2011rate schedule) is used correctly for the bound \\(\\eta_t\\le 1/L\\), but the crucial step that links the learning\u2011rate to the final \\(1/\\sqrt{T}\\) rate is missing. Assumption\u202f4 (fixed \\(k\\)) is only superficially used; the dependence on \\(k\\) in the constant \\(C_k\\) is not propagated to the final bound.\nOverall, the proof does not rigorously establish the claimed convergence rate, misapplies assumptions, and contains algebraic mistakes.\n\n**Recommended corrections**:\n1. Add an explicit bounded\u2011gradient assumption or replace Lemma\u202f2 with a bound that follows from the variance condition (e.g., using expected norm rather than deterministic bound).\n2. Properly handle the weighted sum \\(\\sum \\eta_t \\E[\\|\\nabla f(w_t)\\|^2]\\) by dividing each term by \\(\\eta_t\\) or using a telescoping argument that yields an average of the gradients.\n3. Re\u2011derive the final rate, showing that after accounting for the decreasing step\u2011size \\(\\eta_t = c/(t+1)\\) the dominant term scales as \\(1/\\sqrt{T}\\).\n4. Keep all constant factors explicit (including \\(\\pi^2/6\\)) or state clearly that they are absorbed into \\(O(\\cdot)\\).\n5. Provide a complete treatment for the case where \\(T\\) is not a multiple of \\(k\\).\n\nUntil these issues are resolved, the theorem cannot be considered proven.",
+                "hallucination_steps": "{5}",
+                "missing_step_indices": "{8, 7}",
+                "operator_error_steps": "{8, 7}",
+                "assumption_violation_steps": "{5}",
+                "flagged_steps": "{8, 5, 7}"
+              },
+              "response_time": 19.428038835525513
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is correctly extracted as O(1/\u221aT). The proof is complete, with no gaps or missing steps. The use of smoothness, convexity, and stochastic properties is justified and correctly applied. The final convergence guarantee is clearly stated.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 64.09201884269714
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. Key steps: Lemma 1 (Descent) and Lemma 2 (Interp Bias) are correctly applied. The main proof uses smoothness (A1) and variance bounds (A2) appropriately. The O(1/\u221aT) rate derivation aligns with standard SGD convergence. No hallucinations or missing steps detected. The only minor point is the o(1/\u221aT) term in the final bound, which is explicitly acknowledged.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 37.49389100074768
+            }
+          ],
+          "judge_reliability": [
+            -0.565685424949238,
+            0.017157287525380982,
+            0.017157287525380982
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      14834
+    ]
+  }
+}

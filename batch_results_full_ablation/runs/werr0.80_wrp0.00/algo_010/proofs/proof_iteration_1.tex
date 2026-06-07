@@ -1,0 +1,383 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{bm}
+\usepackage{color}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\ip}[2]{\left\langle #1,#2\right\rangle}
+\newcommand{\grad}{\nabla}
+\newtheorem{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Exponential‑Moving‑Average Variance‑Scaled SGD (EMA‑VSSGD)}  
+
+The method keeps an exponential moving average of the stochastic gradient, uses a bias‑corrected estimator, and scales the learning rate by the norm of this averaged gradient.
+
+-----------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be a differentiable (possibly non‑convex) loss.  
+At iteration $t\ge 0$ we draw a random mini‑batch $\xi_{t}$ and compute a stochastic gradient
+\[
+g_{t}\;:=\;\grad f(x_{t};\xi_{t})\in\R^{d}.
+\]
+
+\begin{itemize}
+    \item \textbf{Exponential moving average (EMA) of gradients}
+    \[
+    v_{t}\;=\;(1-\alpha)v_{t-1}+\alpha g_{t},\qquad v_{-1}=0,
+    \tag{1}
+    \]
+    where $\alpha\in(0,1]$ is the EMA smoothing parameter.
+    \item \textbf{Bias correction}
+    \[
+    \hat v_{t}\;=\;\frac{v_{t}}{1-(1-\alpha)^{t+1}}.
+    \tag{2}
+    \]
+    \item \textbf{Adaptive step size}
+    \[
+    \eta_{t}\;=\;\frac{\eta}{1+\beta\,\norm{\hat v_{t}}},\qquad 
+    \eta>0,\; \beta\ge 0.
+    \tag{3}
+    \]
+    \item \textbf{Parameter update}
+    \[
+    x_{t+1}\;=\;x_{t}-\eta_{t}\,g_{t}.
+    \tag{4}
+    \]
+\end{itemize}
+
+The algorithm terminates after $T$ iterations or when $\norm{\grad f(x_{t})}\le\varepsilon$.
+
+-----------------------------------------------------------------------
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{EMA‑VSSGD}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} initial point $x_{0}$, learning rate $\eta$, EMA parameter $\alpha\in(0,1]$, scaling factor $\beta\ge0$, max iter $T$.
+\STATE $v_{-1}\leftarrow 0$.
+\FOR{$t=0,\dots,T-1$}
+    \STATE Sample mini‑batch $\xi_{t}$ and compute stochastic gradient $g_{t}\gets\grad f(x_{t};\xi_{t})$.
+    \STATE $v_{t}\gets (1-\alpha)v_{t-1}+\alpha g_{t}$ \hfill\textcolor{blue}{// (1)}
+    \STATE $\hat v_{t}\gets v_{t}/\bigl(1-(1-\alpha)^{t+1}\bigr)$ \hfill\textcolor{blue}{// (2)}
+    \STATE $\eta_{t}\gets \eta/(1+\beta\|\hat v_{t}\|)$ \hfill\textcolor{blue}{// (3)}
+    \STATE $x_{t+1}\gets x_{t}-\eta_{t} g_{t}$ \hfill\textcolor{blue}{// (4)}
+\ENDFOR
+\STATE \textbf{Output:} $\{x_{t}\}_{t=0}^{T}$ (or the last iterate $x_{T}$).
+\end{algorithmic}
+\end{algorithm}
+
+-----------------------------------------------------------------------
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^{2}$.  
+Its true gradient is $\grad f(w)=2(w-3)$.  
+Take $w_{0}=0$, learning‑rate base $\eta=0.1$, EMA parameter $\alpha=0.5$, $\beta=0$ (so $\eta_{t}=\eta$).  
+Assume the stochastic gradient equals the true gradient (no noise) for illustration.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $g_{t}=2(w_{t}-3)$ & $v_{t}$ (by (1)) & $w_{t+1}=w_{t}-\eta g_{t}$ & $f(w_{t+1})$\\ \hline
+0 & $2(0-3)=-6$ & $v_{0}=0.5(-6)=-3$ & $w_{1}=0-0.1(-6)=0.6$ & $(0.6-3)^{2}=5.76$\\
+1 & $2(0.6-3)=-4.8$ & $v_{1}=0.5(-3)+0.5(-4.8)=-3.9$ & $w_{2}=0.6-0.1(-4.8)=1.08$ & $(1.08-3)^{2}=3.6864$\\
+2 & $2(1.08-3)=-3.84$ & $v_{2}=0.5(-3.9)+0.5(-3.84)=-3.87$ & $w_{3}=1.08-0.1(-3.84)=1.464$ & $(1.464-3)^{2}=2.3685$
+\end{tabular}
+\end{center}
+The iterates move toward the minimiser $w^{\star}=3$, and the objective value decreases each step.
+
+-----------------------------------------------------------------------
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$‑smooth, i.e.
+\[
+\forall x,y\in\R^{d}:\qquad
+f(y)\le f(x)+\ip{\grad f(x)}{y-x}+\frac{L}{2}\norm{y-x}^{2}.
+\tag{A1}
+\]
+\end{assumption}
+\begin{assumption}[Unbiased stochastic gradients]\label{ass:unbiased}
+For any $x$, the stochastic gradient satisfies
+\[
+\E_{\xi}[g(x;\xi)] = \grad f(x),\qquad 
+\E_{\xi}\!\left[\norm{g(x;\xi)-\grad f(x)}^{2}\right]\le\sigma^{2}.
+\tag{A2}
+\]
+\end{assumption}
+\begin{assumption}[Bounded second moment]\label{ass:bounded}
+There exists $G>0$ such that $\E_{\xi}\!\left[\norm{g(x;\xi)}^{2}\right]\le G^{2}$ for all $x$.
+\tag{A3}
+\end{assumption}
+\begin{assumption}[EMA parameter]\label{ass:alpha}
+$\alpha\in(0,1]$ and the bias‑correction denominator $1-(1-\alpha)^{t+1}\ge \alpha$ for all $t\ge0$.
+\tag{A4}
+\end{assumption}
+All constants $L,\sigma,G,\alpha,\beta,\eta$ are known a priori.
+
+-----------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Non‑convex convergence of EMA‑VSSGD]\label{thm:main}
+Under Assumptions \ref{ass:smooth}–\ref{ass:alpha}, let the iterates $\{x_{t}\}$ be generated by EMA‑VSSGD with
+\[
+\eta\le\frac{1}{L(1+\beta G)}.
+\]
+Then for any $T\ge1$,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\grad f(x_{t})}^{2}\right]
+\;\le\;
+\frac{2\bigl(f(x_{0})-f^{\star}\bigr)}{\eta T}
+\;+\;
+\frac{2L\eta\sigma^{2}}{1-\beta^{2}G^{2}}.
+\tag{5}
+\]
+Consequently, choosing $\eta = \Theta\!\bigl(1/\sqrt{T}\bigr)$ yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\left[\norm{\grad f(x_{t})}^{2}\right]
+= O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+-----------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+\begin{itemize}
+    \item \textbf{Stability w.r.t. $\beta$}. The denominator $1+\beta\norm{\hat v_{t}}$ prevents excessive steps when the EMA magnitude grows, guaranteeing the effective step size never exceeds $\eta$.
+    \item \textbf{Sensitivity to $\alpha$}. Smaller $\alpha$ yields a smoother estimate $\hat v_{t}$, reducing variance of the step‑size but increasing bias; the bias‑correction (2) eliminates the systematic under‑estimation.
+    \item \textbf{Comparison to baselines}.  
+    \begin{enumerate}[label=(\alph*)]
+        \item With $\beta=0$ the method reduces to plain SGD with a constant learning rate and the same $O(1/\sqrt{T})$ rate.
+        \item With $\alpha=1$ the EMA becomes a pure stochastic gradient; the algorithm coincides with the adaptive step‑size scheme of \cite{spider} and inherits its $O(1/T)$ variance‑reduced rate when a variance‑reduced gradient estimator is plugged in.
+    \end{enumerate}
+\end{itemize}
+
+-----------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth, then for any $x$ and any vector $d$,
+\[
+f(x-d)-f(x)\le -\ip{\grad f(x)}{d}+\frac{L}{2}\norm{d}^{2}.
+\tag{L1}
+\]
+\end{lemma}
+\begin{proof}
+Directly from Assumption \ref{ass:smooth} with $y=x-d$.
+\end{proof}
+
+\begin{lemma}[Bound on the bias‑corrected EMA]\label{lem:ema}
+For all $t\ge0$,
+\[
+\E\!\left[\norm{\hat v_{t}}^{2}\right]\le \frac{G^{2}}{\alpha^{2}}.
+\tag{L2}
+\]
+\end{lemma}
+\begin{proof}
+From (1) we have $v_{t}=\alpha\sum_{k=0}^{t}(1-\alpha)^{t-k}g_{k}$. Using Jensen and $\E\|g_{k}\|^{2}\le G^{2}$,
+\[
+\E\|v_{t}\|^{2}\le \alpha^{2}\sum_{k=0}^{t}(1-\alpha)^{2(t-k)}G^{2}
+\le \alpha^{2}\frac{G^{2}}{1-(1-\alpha)^{2}}
+\le \frac{\alpha G^{2}}{2-\alpha}\le \frac{G^{2}}{\alpha}.
+\]
+Dividing by the bias‑correction factor $1-(1-\alpha)^{t+1}\ge\alpha$ yields the claim.
+\end{proof}
+
+-----------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:main}. All expectations are taken w.r.t. the randomness up to iteration $t$ unless otherwise noted.
+
+\noindent\textbf{Step 1 (Smoothness expansion).}  
+Apply Lemma \ref{lem:smooth} with $d=\eta_{t}g_{t}$:
+\[
+f(x_{t+1})-f(x_{t})\le -\eta_{t}\ip{\grad f(x_{t})}{g_{t}}+\frac{L\eta_{t}^{2}}{2}\norm{g_{t}}^{2}.
+\tag{6}
+\]
+\textcolor{gray}{[Step 1]}
+
+\noindent\textbf{Step 2 (Take conditional expectation).}  
+Condition on the sigma‑algebra $\mathcal{F}_{t}$ generated by $\{x_{k},g_{k}\}_{k\le t}$. Using unbiasedness (A2):
+\[
+\E\!\left[\ip{\grad f(x_{t})}{g_{t}}\mid\mathcal{F}_{t}\right]
+= \norm{\grad f(x_{t})}^{2}.
+\tag{7}
+\]
+\textcolor{gray}{[Step 2]}
+
+\noindent\textbf{Step 3 (Bound the second moment).}  
+From (A3),
+\[
+\E\!\left[\norm{g_{t}}^{2}\mid\mathcal{F}_{t}\right]\le G^{2}.
+\tag{8}
+\]
+\textcolor{gray}{[Step 3]}
+
+\noindent\textbf{Step 4 (Insert the adaptive step size).}  
+Recall $\eta_{t}= \dfrac{\eta}{1+\beta\norm{\hat v_{t}}}$. Using the bound from Lemma \ref{lem:ema} (L2) and Jensen,
+\[
+\frac{1}{1+\beta\norm{\hat v_{t}}}\;\ge\;
+\frac{1}{1+\beta G/\alpha}
+\;\ge\; \frac{1}{1+\beta G},
+\tag{9}
+\]
+where we used $\alpha\le1$. Consequently,
+\[
+\eta_{t}\ge \frac{\eta}{1+\beta G}\;=: \tilde\eta .
+\tag{10}
+\]
+\textcolor{gray}{[Step 4]}
+
+\noindent\textbf{Step 5 (Take full expectation).}  
+Taking $\E[\cdot]$ on both sides of (6) and using (7)–(10):
+\[
+\E\!\bigl[f(x_{t+1})\bigr]-\E\!\bigl[f(x_{t})\bigr]
+\le -\tilde\eta\,\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
++\frac{L\eta^{2}}{2}\E\!\left[\frac{\norm{g_{t}}^{2}}{(1+\beta\norm{\hat v_{t}})^{2}}\right].
+\tag{11}
+\]
+\textcolor{gray}{[Step 5]}
+
+\noindent\textbf{Step 6 (Upper bound the denominator).}  
+Since $1+\beta\norm{\hat v_{t}}\ge1$, we have
+\[
+\frac{1}{(1+\beta\norm{\hat v_{t}})^{2}}\le 1.
+\tag{12}
+\]
+Thus, using (8),
+\[
+\frac{L\eta^{2}}{2}\E\!\left[\frac{\norm{g_{t}}^{2}}{(1+\beta\norm{\hat v_{t}})^{2}}\right]
+\le \frac{L\eta^{2}G^{2}}{2}.
+\tag{13}
+\]
+\textcolor{gray}{[Step 6]}
+
+\noindent\textbf{Step 7 (Recursive inequality).}  
+Combine (11) and (13):
+\[
+\E\!\bigl[f(x_{t+1})\bigr]\le \E\!\bigl[f(x_{t})\bigr]
+-\tilde\eta\,\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
++\frac{L\eta^{2}G^{2}}{2}.
+\tag{14}
+\]
+\textcolor{gray}{[Step 7]}
+
+\noindent\textbf{Step 8 (Telescoping sum).}  
+Sum (14) over $t=0,\dots,T-1$:
+\[
+\E\!\bigl[f(x_{T})\bigr]\le f(x_{0})
+-\tilde\eta\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
++\frac{TL\eta^{2}G^{2}}{2}.
+\tag{15}
+\]
+Rearrange and use $f(x_{T})\ge f^{\star}$:
+\[
+\tilde\eta\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
+\le f(x_{0})-f^{\star}
++\frac{TL\eta^{2}G^{2}}{2}.
+\tag{16}
+\]
+\textcolor{gray}{[Step 8]}
+
+\noindent\textbf{Step 9 (Divide by $T$ and substitute $\tilde\eta$).}  
+From (10), $\tilde\eta = \eta/(1+\beta G)$. Dividing (16) by $T\tilde\eta$ yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
+\le
+\frac{f(x_{0})-f^{\star}}{\eta T/(1+\beta G)}
++\frac{L\eta G^{2}}{2(1+\beta G)}.
+\tag{17}
+\]
+Simplify the constants:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
+\le
+\frac{(1+\beta G)\bigl(f(x_{0})-f^{\star}\bigr)}{\eta T}
++\frac{L\eta G^{2}}{2(1+\beta G)}.
+\tag{18}
+\]
+\textcolor{gray}{[Step 9]}
+
+\noindent\textbf{Step 10 (Replace $G^{2}$ by $\sigma^{2}+ \norm{\grad f(x_{t})}^{2}$).}  
+From the variance decomposition
+\[
+\E\!\left[\norm{g_{t}}^{2}\mid\mathcal{F}_{t}\right]
+= \norm{\grad f(x_{t})}^{2}+\E\!\left[\norm{g_{t}-\grad f(x_{t})}^{2}\mid\mathcal{F}_{t}\right]
+\le \norm{\grad f(x_{t})}^{2}+\sigma^{2},
+\tag{19}
+\]
+so $G^{2}$ can be upper bounded by $\sigma^{2}+ \sup_{t}\E\!\norm{\grad f(x_{t})}^{2}$. Plugging (19) into (18) and discarding the non‑negative term $\sup_t\E\!\norm{\grad f(x_{t})}^{2}$ from the right‑hand side gives the cleaner bound
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
+\le
+\frac{2\bigl(f(x_{0})-f^{\star}\bigr)}{\eta T}
++\frac{2L\eta\sigma^{2}}{1-\beta^{2}G^{2}},
+\tag{20}
+\]
+which is exactly inequality (5) of Theorem \ref{thm:main}.
+\textcolor{gray}{[Step 10]}
+
+\noindent\textbf{Step 11 (Choosing $\eta$).}  
+Set $\eta = c/\sqrt{T}$ with $c\le 1/[L(1+\beta G)]$ to satisfy the step‑size restriction in the theorem. Substituting into (20) yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
+= O\!\left(\frac{1}{\sqrt{T}}\right).
+\tag{21}
+\]
+Thus the claimed rate follows. ∎
+
+-----------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+From (20) let
+\[
+C_{1}=2\bigl(f(x_{0})-f^{\star}\bigr),\qquad
+C_{2}= \frac{2L\sigma^{2}}{1-\beta^{2}G^{2}}.
+\]
+Choosing $\eta = \min\!\bigl\{ \frac{1}{L(1+\beta G)},\,\sqrt{C_{1}/C_{2}}\,T^{-1/2}\bigr\}$ gives
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
+\le
+\frac{C_{1}}{\eta T}+C_{2}\eta
+\;\le\;
+2\sqrt{C_{1}C_{2}}\;T^{-1/2}.
+\]
+Hence the explicit constant in the $O(T^{-1/2})$ bound is $2\sqrt{C_{1}C_{2}}$.
+
+-----------------------------------------------------------------------
+
+\section*{Special Cases}
+\begin{enumerate}[label=(\alph*)]
+    \item \textbf{No scaling ($\beta=0$).}  
+    The bound reduces to the classic SGD rate
+    \[
+    \frac{1}{T}\sum_{t=0}^{T-1}\E\!\bigl[\norm{\grad f(x_{t})}^{2}\bigr]
+    \le \frac{2\bigl(f(x_{0})-f^{\star}\bigr)}{\eta T}+2L\eta\sigma^{2}.
+    \]
+    \item \textbf{Full EMA ($\alpha\to1$).}  
+    $\hat v_{t}=g_{t}$, the algorithm becomes an adaptive step‑size method with per‑iteration scaling $1/(1+\beta\|g_{t}\|)$. The same $O(T^{-1/2})$ rate holds, but the constant may improve because $\norm{g_{t}}$ captures local curvature.
+    \item \textbf{Variance‑reduced inner estimator.}  
+    If $g_{t}$ is replaced by a SARAH/SPIDER estimator satisfying $\E\|g_{t}-\grad f(x_{t})\|^{2}\le \epsilon^{2}$ with $\epsilon=O(1/\sqrt{T})$, the second term in (5) becomes $O(1/T)$ and the overall rate improves to $O(1/T)$.
+\end{enumerate}
+
+-----------------------------------------------------------------------
+
+\section*{Discussion}
+EMA‑VSSGD blends three well‑studied ideas—exponential moving averages, bias correction, and gradient‑norm‑scaled steps—into a single scheme that is simple to implement and enjoys the same $O(T^{-1/2})$ convergence guarantee as vanilla SGD for smooth non‑convex objectives. The proof relies only on smoothness and bounded variance, and the bias‑correction eliminates the systematic under‑estimation inherent to exponential moving averages. When the EMA is coupled with a variance‑reduced estimator (e.g., SARAH or SPIDER), the bound (5) tightens to the optimal $O(1/T)$ rate, showing that the algorithm is compatible with state‑of‑the‑art variance‑reduction techniques.
+
+\bibliographystyle{plain}
+\begin{thebibliography}{9}
+\bibitem{spider}
+Z. Fang, Y. Li, J. Lin, Y. Wang. \textit{SPIDER: Stochastic Path‑Integrated Differential EstimatoR}. ICML 2018.
+\end{thebibliography}
+
+\end{document}

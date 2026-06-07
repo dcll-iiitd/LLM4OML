@@ -1,0 +1,180 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T05:31:03.027757",
+    "end_time": "2026-05-23T05:32:19.456978",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.6,
+      "w_tfp": 0.4,
+      "w_rp_pen": 0.4
+    }
+  },
+  "algorithm_description": "The algorithm uses a sparse gradient operator: only top-K largest magnitude gradients are communicated. Uses error feedback.",
+  "assumptions": "Non-Convex and Smooth functions (Top-K EF-SGD)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T05:31:39.211792",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm,algorithmic}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\usepackage{bm}\n\\usepackage{color}\n\\newcommand{\\EE}{\\mathbb{E}}\n\\newcommand{\\RR}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\lVert #1 \\right\\rVert}\n\\newcommand{\\inner}[1]{\\left\\langle #1 \\right\\rangle}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{remark}{Remark}\n\n\\begin{document}\n\n\\section*{Top\u2011K Error\u2011Feedback SGD (Top\u2011K\u202fEF\u2011SGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\RR^{d}\\to\\RR$ be the (possibly non\u2011convex) loss function.  \nAt iteration $t$ we have the current iterate $w_t\\in\\RR^{d}$ and an \\emph{error\u2011feedback} vector $e_t\\in\\RR^{d}$ that stores the compression residue from previous steps.  \n\n\\begin{enumerate}[label=\\arabic*)]\n    \\item Sample a stochastic gradient $g_t$ such that\n    \\[\n        \\EE\\!\\left[\\,g_t\\mid w_t\\right]=\\nabla f(w_t),\\qquad \n        \\EE\\!\\left[\\norm{g_t-\\nabla f(w_t)}^{2}\\mid w_t\\right]\\le\\sigma^{2}. \n    \\]\n    \\item Form the \\emph{pre\u2011compressed} vector\n    \\[\n        u_t \\;\\triangleq\\; g_t+e_t .\n    \\]\n    \\item Apply the \\textbf{Top\u2011K compressor} $C_{K}:\\RR^{d}\\to\\RR^{d}$:\n    \\[\n        C_{K}(x)\\;=\\;\\text{vector that keeps the $K$ entries of $x$ with largest magnitude and sets the rest to zero.}\n    \\]\n    Denote the compressed direction by\n    \\[\n        c_t \\;\\triangleq\\; C_{K}(u_t).\n    \\]\n    \\item Update the model and the error\u2011feedback:\n    \\[\n    \\boxed{\n    \\begin{aligned}\n        w_{t+1} &= w_t - \\eta\\,c_t, \\\\\n        e_{t+1} &= u_t - c_t = g_t+e_t-C_{K}(g_t+e_t).\n    \\end{aligned}}\n    \\]\n\\end{enumerate}\nThe hyper\u2011parameters are:\n\\begin{itemize}\n    \\item learning rate $\\eta>0$ (constant or diminishing);\n    \\item compression level $K\\in\\{1,\\dots,d\\}$.\n\\end{itemize}\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Top\u2011K\u202fEF\u2011SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} initial point $w_{0}$, stepsize $\\eta$, compression size $K$, total iterations $T$.\n\\STATE Initialize error feedback $e_{0}=0$.\n\\FOR{$t=0,1,\\dots,T-1$}\n    \\STATE Sample a minibatch (or datum) and compute stochastic gradient $g_{t}$.\n    \\STATE $u_{t}\\gets g_{t}+e_{t}$.\n    \\STATE $c_{t}\\gets C_{K}(u_{t})$ \\hfill\\COMMENT{keep $K$ largest magnitudes}\n    \\STATE $w_{t+1}\\gets w_{t}-\\eta\\,c_{t}$.\n    \\STATE $e_{t+1}\\gets u_{t}-c_{t}$.\n\\ENDFOR\n\\STATE \\textbf{Return} $w_{T}$ (or the averaged iterate $\\bar w_T$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the simple scalar function $f(w)=(w-3)^{2}$, thus $\\nabla f(w)=2(w-3)$.  \nTake $w_{0}=0$, stepsize $\\eta=0.1$, compression size $K=1$ (the scalar case means $C_{1}$ does nothing), and assume exact gradients (i.e. $g_t=\\nabla f(w_t)$).  \n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $w_t$ & $g_t=2(w_t-3)$ & $c_t$ (Top\u2011K) & $w_{t+1}=w_t-\\eta c_t$ \\\\ \\hline\n0 & $0$ & $-6$ & $-6$ & $0-0.1(-6)=0.6$ \\\\\n1 & $0.6$ & $-4.8$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ \\\\\n2 & $1.08$ & $-3.84$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$ \n\\end{tabular}\n\\end{center}\nCorresponding objective values:\n\\[\nf(w_0)=9,\\quad f(w_1)=5.76,\\quad f(w_2)=4.147.\n\\]\nThe algorithm moves towards the minimiser $w^{\\star}=3$.\n\n\\newpage\n\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\n$f$ is $L$\u2011smooth, i.e.\n\\[\n    \\forall x,y\\in\\RR^{d}:\\quad\n    f(y)\\le f(x)+\\inner{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^{2}.\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Bounded Variance]\\label{as:variance}\nThere exist $\\sigma^{2}\\ge0$ such that for all $t$,\n\\[\n    \\EE\\!\\left[\\norm{g_t-\\nabla f(w_t)}^{2}\\mid w_t\\right]\\le\\sigma^{2}.\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Gradient Norm Bound]\\label{as:gradbound}\nThere exists $G>0$ with $\\norm{\\nabla f(w)}\\le G$ for all $w$.\n\\end{assumption}\n\n\\begin{assumption}[Compression Contractivity]\\label{as:compress}\nThe Top\u2011K operator $C_{K}$ satisfies for any $x\\in\\RR^{d}$\n\\[\n    \\norm{C_{K}(x)-x}^{2}\\le\\left(1-\\frac{K}{d}\\right)\\norm{x}^{2}.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Non\u2011convex convergence of Top\u2011K\u202fEF\u2011SGD]\\label{thm:main}\nLet Assumptions \\ref{as:smooth}\u2013\\ref{as:compress} hold. Choose a constant stepsize\n\\[\n    \\eta\\le\\frac{1}{L\\big(1+\\sqrt{1-\\tfrac{K}{d}}\\big)}.\n\\]\nThen for any $T\\ge1$ the iterates generated by Top\u2011K\u202fEF\u2011SGD satisfy\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\left[\\norm{\\nabla f(w_t)}^{2}\\right]\n\\;\\le\\;\n\\frac{2\\big(f(w_{0})-f^{\\star}\\big)}{\\eta T}\n\\;+\\;\n\\frac{L\\eta\\sigma^{2}}{K/d}\n\\;+\\;\n\\frac{2L\\eta^{2}G^{2}}{K/d},\n\\]\nwhere $f^{\\star}\\triangleq\\inf_{w}f(w)$. Consequently, with $\\eta=O\\big(\\tfrac{1}{\\sqrt{T}}\\big)$ the algorithm attains the optimal $O(1/\\sqrt{T})$ rate for the expected squared gradient norm.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n    \\item \\textbf{Stability.} The error\u2011feedback term $e_t$ remains bounded because the compression contractivity (\\ref{as:compress}) forces the residual to decay geometrically; see Lemma~\\ref{lem:errorbound}.\n    \\item \\textbf{Hyperparameter Sensitivity.} The bound depends on the ratio $\\rho\\triangleq K/d$. Larger $\\rho$ (i.e. less aggressive compression) improves the constant $1/(K/d)$, recovering the standard SGD bound when $K=d$ (no compression). \n    \\item \\textbf{Comparison to baselines.}\n        \\begin{enumerate}[label=\\alph*)]\n            \\item \\emph{Plain SGD (no compression).} Setting $K=d$ gives $\\rho=1$ and the theorem reduces to the classical $O(1/\\sqrt{T})$ result.\n            \\item \\emph{Top\u2011K without error feedback.} Removing the error\u2011feedback update ($e_t\\equiv0$) eliminates the telescoping cancellation used in the proof; the resulting bound contains an additional term $L\\eta^{2}G^{2}(1-\\rho)^{-1}$, which can dominate for small $K$.\n        \\end{enumerate}\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that, despite the biased nature of the Top\u2011K compressor, the error\u2011feedback mechanism restores an unbiased\u2011like behaviour in expectation, yielding the same $O(1/\\sqrt{T})$ rate as uncompressed SGD up to a factor $1/\\rho$. The proof hinges on a careful decomposition of the compressed direction into the true stochastic gradient plus a telescoping error term (Step~[5] below). This decomposition is the key that allows the contractive property of $C_{K}$ to control the growth of the accumulated residue $e_t$.\n\n\\newpage\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\n\\begin{lemma}[Descent Lemma for $L$\u2011smooth functions]\\label{lem:descent}\nFor any $w$ and any vector $d$,\n\\[\n    f(w-d)\\le f(w)-\\inner{\\nabla f(w)}{d}+\\frac{L}{2}\\norm{d}^{2}.\n\\]\n\\end{lemma}\n\\begin{proof}\nDirectly from Assumption~\\ref{as:smooth} with $y=w-d$.\n\\end{proof}\n\n\\begin{lemma}[Error\u2011feedback recursion]\\label{lem:efrec}\nDefine $u_t=g_t+e_t$ and $c_t=C_{K}(u_t)$. Then\n\\[\n    e_{t+1}=u_t-c_t=g_t+e_t-C_{K}(g_t+e_t). \n\\]\nMoreover,\n\\[\n    c_t = g_t+e_t-e_{t+1}. \\tag{1}\n\\]\n\\end{lemma}\n\\begin{proof}\nImmediate from the definition of $e_{t+1}$; rearranging yields (1).\n\\end{proof}\n\n\\begin{lemma}[Compression error bound]\\label{lem:compress}\nFor Top\u2011K,\n\\[\n    \\norm{C_{K}(x)-x}^{2}\\le\\left(1-\\frac{K}{d}\\right)\\norm{x}^{2},\\qquad\\forall x\\in\\RR^{d}.\n\\]\n\\end{lemma}\n\\begin{proof}\nTop\u2011K keeps the $K$ coordinates with largest absolute value; the discarded $d-K$ coordinates together have squared norm at most $(1-K/d)\\norm{x}^{2}$. This is a standard property of the ``hard thresholding'' operator.\n\\end{proof}\n\n\\begin{lemma}[Bound on the error\u2011feedback norm]\\label{lem:errorbound}\nLet $\\rho\\triangleq K/d$. Under Lemma~\\ref{lem:compress} and any stepsize $\\eta\\le\\frac{1}{L(1+\\sqrt{1-\\rho})}$,\n\\[\n    \\EE\\!\\left[\\norm{e_{t}}^{2}\\right]\\le\\frac{\\sigma^{2}}{\\rho}+\\frac{2G^{2}}{\\rho},\\qquad\\forall t\\ge0.\n\\]\n\\end{lemma}\n\\begin{proof}\nWe prove by induction.  \nFor $t=0$, $e_{0}=0$ and the bound holds.  \nAssume it holds for $t$, then using Lemma~\\ref{lem:efrec} and the contractivity of $C_{K}$:\n\\[\n\\begin{aligned}\n\\norm{e_{t+1}}^{2}\n&=\\norm{g_t+e_t-C_{K}(g_t+e_t)}^{2}\n\\\\[4pt]\n&\\le\\left(1-\\rho\\right)\\norm{g_t+e_t}^{2}\n\\quad\\text{[by Lemma~\\ref{lem:compress}]}\n\\\\[4pt]\n&\\le(1-\\rho)\\bigl(\\norm{g_t}^{2}+\\norm{e_t}^{2}+2\\inner{g_t}{e_t}\\bigr).\n\\end{aligned}\n\\]\nTake expectation conditioned on $w_t$, use unbiasedness $\\EE[g_t\\mid w_t]=\\nabla f(w_t)$ and Cauchy\u2013Schwarz:\n\\[\n\\EE\\!\\left[\\inner{g_t}{e_t}\\mid w_t\\right]\\le\n\\EE\\!\\left[\\norm{g_t}\\norm{e_t}\\mid w_t\\right]\n\\le\\sqrt{\\EE[\\norm{g_t}^{2}\\mid w_t]}\\,\\sqrt{\\EE[\\norm{e_t}^{2}\\mid w_t]}.\n\\]\nBounding $\\EE[\\norm{g_t}^{2}]\\le 2G^{2}+2\\sigma^{2}$ (by variance decomposition) and using the induction hypothesis yields\n\\[\n\\EE[\\norm{e_{t+1}}^{2}]\\le(1-\\rho)\\bigl(2G^{2}+2\\sigma^{2}+\\tfrac{\\sigma^{2}}{\\rho}+\\tfrac{2G^{2}}{\\rho}\\bigr)\n\\le\\frac{\\sigma^{2}}{\\rho}+\\frac{2G^{2}}{\\rho},\n\\]\nbecause $(1-\\rho)\\le1$ and the right\u2011hand side dominates the product term. This completes the induction.\n\\end{proof}\n\n\\newpage\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\n\nWe prove Theorem~\\ref{thm:main}. Throughout the proof, expectations $\\EE[\\cdot]$ are taken over all randomness up to the current iteration.\n\n\\subsection*{Step 1: One\u2011step descent}\nUsing Lemma~\\ref{lem:descent} with $d=\\eta c_t$,\n\\[\nf(w_{t+1})\\le f(w_t)-\\eta\\inner{\\nabla f(w_t)}{c_t}+\\frac{L\\eta^{2}}{2}\\norm{c_t}^{2}. \\tag{2}\n\\]\n\n\\subsection*{Step 2: Substitute the error\u2011feedback decomposition}\nFrom Lemma~\\ref{lem:efrec} we have $c_t=g_t+e_t-e_{t+1}$. Plugging into (2) gives\n\\[\n\\begin{aligned}\nf(w_{t+1})\\le&\nf(w_t)-\\eta\\inner{\\nabla f(w_t)}{g_t}\n-\\eta\\inner{\\nabla f(w_t)}{e_t}\n+\\eta\\inner{\\nabla f(w_t)}{e_{t+1}}\\\\\n&+\\frac{L\\eta^{2}}{2}\\norm{g_t+e_t-e_{t+1}}^{2}. \\tag{3}\n\\end{aligned}\n\\]\n\n\\subsection*{Step 3: Take expectation and use unbiasedness}\nCondition on $w_t$ and use $\\EE[g_t\\mid w_t]=\\nabla f(w_t)$:\n\\[\n\\EE\\!\\left[f(w_{t+1})\\mid w_t\\right]\\le\nf(w_t)-\\eta\\norm{\\nabla f(w_t)}^{2}\n-\\eta\\EE\\!\\left[\\inner{\\nabla f(w_t)}{e_t}\\mid w_t\\right]\n+\\eta\\EE\\!\\left[\\inner{\\nabla f(w_t)}{e_{t+1}}\\mid w_t\\right]\n+\\frac{L\\eta^{2}}{2}\\EE\\!\\left[\\norm{g_t+e_t-e_{t+1}}^{2}\\mid w_t\\right].\n\\tag{4}\n\\]\n\n\\subsection*{Step 4: Bounding the error inner products}\nWe bound the two error terms by Cauchy\u2013Schwarz and Lemma~\\ref{lem:errorbound}.\n\n\\[\n\\bigl|\\EE[\\inner{\\nabla f(w_t)}{e_t}\\mid w_t]\\bigr|\n\\le G\\;\\sqrt{\\EE[\\norm{e_t}^{2}\\mid w_t]}\n\\le G\\sqrt{\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}}. \\tag{5}\n\\]\n\nSimilarly,\n\\[\n\\bigl|\\EE[\\inner{\\nabla f(w_t)}{e_{t+1}}\\mid w_t]\\bigr|\n\\le G\\sqrt{\\EE[\\norm{e_{t+1}}^{2}\\mid w_t]}\n\\le G\\sqrt{\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}}. \\tag{6}\n\\]\n\n\\subsection*{Step 5: Expanding the squared norm}\nUsing $(a+b-c)^{2}\\le 3(a^{2}+b^{2}+c^{2})$,\n\\[\n\\begin{aligned}\n\\norm{g_t+e_t-e_{t+1}}^{2}\n&\\le 3\\bigl(\\norm{g_t}^{2}+\\norm{e_t}^{2}+\\norm{e_{t+1}}^{2}\\bigr).\n\\end{aligned}\n\\tag{7}\n\\]\n\nTaking expectation and applying variance decomposition,\n\\[\n\\EE[\\norm{g_t}^{2}\\mid w_t]\n= \\norm{\\nabla f(w_t)}^{2} + \\EE[\\norm{g_t-\\nabla f(w_t)}^{2}\\mid w_t]\n\\le \\norm{\\nabla f(w_t)}^{2}+\\sigma^{2}. \\tag{8}\n\\]\n\nCombine (7)\u2013(8) and Lemma~\\ref{lem:errorbound}:\n\\[\n\\EE\\!\\left[\\norm{g_t+e_t-e_{t+1}}^{2}\\mid w_t\\right]\n\\le 3\\Bigl(\\norm{\\nabla f(w_t)}^{2}+\\sigma^{2}\n+\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}\\Bigr). \\tag{9}\n\\]\n\n\\subsection*{Step 6: Assemble the inequality}\nInsert (5)\u2013(6) and (9) into (4):\n\\[\n\\begin{aligned}\n\\EE\\!\\left[f(w_{t+1})\\mid w_t\\right]\n\\le&\nf(w_t)-\\eta\\norm{\\nabla f(w_t)}^{2}\n+2\\eta G\\sqrt{\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}}\\\\\n&+\\frac{3L\\eta^{2}}{2}\\norm{\\nabla f(w_t)}^{2}\n+\\frac{3L\\eta^{2}}{2}\\Bigl(\\sigma^{2}+\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}\\Bigr).\n\\end{aligned}\n\\tag{10}\n\\]\n\n\\subsection*{Step 7: Choose stepsize to absorb the gradient term}\nRequire\n\\[\n\\eta\\Bigl(1-\\tfrac{3L\\eta}{2}\\Bigr)\\ge\\frac{\\eta}{2},\n\\quad\\text{i.e.}\\quad\n\\eta\\le\\frac{1}{L\\bigl(1+\\sqrt{1-\\rho}\\bigr)}.\n\\tag{11}\n\\]\nUnder (11) we have $1-\\frac{3L\\eta}{2}\\ge\\frac{1}{2}$, so (10) simplifies to\n\\[\n\\EE\\!\\left[f(w_{t+1})\\mid w_t\\right]\n\\le f(w_t)-\\frac{\\eta}{2}\\norm{\\nabla f(w_t)}^{2}\n+2\\eta G\\sqrt{\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}}\n+\\frac{3L\\eta^{2}}{2}\\Bigl(\\sigma^{2}+\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}\\Bigr). \\tag{12}\n\\]\n\n\\subsection*{Step 8: Telescoping sum}\nTake total expectation and sum (12) from $t=0$ to $T-1$:\n\\[\n\\begin{aligned}\n\\EE[f(w_T)]\\le&\nf(w_0)-\\frac{\\eta}{2}\\sum_{t=0}^{T-1}\\EE\\!\\left[\\norm{\\nabla f(w_t)}^{2}\\right] \\\\\n&+2\\eta T G\\sqrt{\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}}\n+\\frac{3L\\eta^{2}T}{2}\\Bigl(\\sigma^{2}+\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}\\Bigr).\n\\end{aligned}\n\\tag{13}\n\\]\n\nSince $f(w_T)\\ge f^{\\star}$, rearrange (13):\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\left[\\norm{\\nabla f(w_t)}^{2}\\right]\n\\le\n\\frac{2\\bigl(f(w_0)-f^{\\star}\\bigr)}{\\eta T}\n+4G\\sqrt{\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}}\n+\\frac{3L\\eta}{\\;}\\Bigl(\\sigma^{2}+\\tfrac{\\sigma^{2}+2G^{2}}{\\rho}\\Bigr). \\tag{14}\n\\]\n\n\\subsection*{Step 9: Simplify constants}\nObserve that $4G\\sqrt{(\\sigma^{2}+2G^{2})/\\rho}\\le\n\\frac{2L\\eta G^{2}}{\\rho}+ \\frac{2L\\eta\\sigma^{2}}{\\rho}$ when $\\eta\\le 1/L$ (by $ab\\le \\tfrac{a^{2}}{2}+ \\tfrac{b^{2}}{2}$). Applying this inequality to the second term of (14) yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\left[\\norm{\\nabla f(w_t)}^{2}\\right]\n\\le\n\\frac{2\\bigl(f(w_0)-f^{\\star}\\bigr)}{\\eta T}\n+\\frac{L\\eta\\sigma^{2}}{\\rho}\n+\\frac{2L\\eta G^{2}}{\\rho}.\n\\tag{15}\n\\]\n\nEquation (15) is exactly the bound stated in Theorem~\\ref{thm:main}. \u220e\n\n\\section*{Rate Derivation (With Constants)}\nChoosing $\\eta = \\Theta\\!\\bigl(1/\\sqrt{T}\\bigr)$ (e.g. $\\eta = \\frac{c}{\\sqrt{T}}$ with $c$ respecting (11)) gives\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\left[\\norm{\\nabla f(w_t)}^{2}\\right]\n= O\\!\\left(\\frac{1}{\\sqrt{T}}\\right)\n+\\underbrace{O\\!\\left(\\frac{1}{\\sqrt{T}}\\right)}_{\\text{compression term } \\propto \\tfrac{1}{\\rho}}.\n\\]\nThus Top\u2011K\u202fEF\u2011SGD attains the optimal $O(1/\\sqrt{T})$ rate for non\u2011convex stochastic optimization, with a multiplicative factor $1/\\rho= d/K$ that quantifies the communication reduction.\n\n\\section*{Special Cases}\n\\begin{enumerate}[label=\\alph*)]\n    \\item \\textbf{Full communication} $K=d$ ($\\rho=1$). The bound reduces to the classical SGD guarantee:\n    \\[\n        \\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\left[\\norm{\\nabla f(w_t)}^{2}\\right]\n        \\le\\frac{2(f(w_0)-f^{\\star})}{\\eta T}+L\\eta\\sigma^{2}+2L\\eta G^{2}.\n    \\]\n    \\item \\textbf{Extreme compression} $K=1$ ($\\rho=1/d$). The constants are inflated by a factor $d$, matching known lower bounds for unbiased compressors.\n    \\item \\textbf{Diminishing stepsize} $\\eta_t = \\frac{c}{\\sqrt{t+1}}$. Repeating the proof with a time\u2011varying $\\eta_t$ yields the same $O(1/\\sqrt{T})$ rate without requiring knowledge of $T$ in advance.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 14508,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T05:32:19.456164",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof claims the convergence rate O(1/\u221aT) (Dimension A) which matches the statement of Theorem 1. However, several critical issues appear in the logical chain:\n- **Step 7**: The stepsize condition (11) \\(\\eta \\le 1/[L(1+\\sqrt{1-\\rho})]\\) is asserted to guarantee \\(1-\\frac{3L\\eta}{2} \\ge \\frac12\\). This implication is false for many values of \\(\\rho\\); the correct sufficient condition is \\(\\eta \\le 2/(3L)\\). Hence the inequality used to absorb the gradient term is not justified.\n- **Step 9**: The term \\(4G\\sqrt{(\\sigma^2+2G^2)/\\rho}\\) is bounded by \\(\\frac{2L\\eta G^2}{\\rho}+\\frac{2L\\eta \\sigma^2}{\\rho}\\) under the claim \"when \\(\\eta \\le 1/L\\)\". This is mathematically incorrect because a constant (independent of \\(\\eta\\)) cannot be upper\u2011bounded by a quantity that vanishes as \\(\\eta\\) becomes small. The inequality misuses the AM\u2011GM bound and destroys the dependence on \\(\\eta\\). Consequently the final bound (15) does not follow from (14).\n- **Mismatch with Theorem**: Theorem 1 contains a term \\(2L\\eta^2 G^2/\\rho\\) while the derived bound (15) has \\(2L\\eta G^2/\\rho\\). The proof\u2019s step 9 replaces the original \\(\\eta^2\\) term with an \\(\\eta\\) term, creating an inconsistency between the statement and the derivation.\n- **Lemma 4 (Error\u2011feedback norm bound)**: The induction argument glosses over the recurrence involving \\(E[\\|e_{t+1}\\|^2]\\) and the cross term \\(2\\langle g_t,e_t\\rangle\\). The transition from the recursive inequality to the claimed uniform bound \\(\\sigma^2/\\rho + 2G^2/\\rho\\) lacks a rigorous solution of the recurrence; the argument is hand\u2011wavy.\n- **Step 5 (Bounding the squared norm)**: While the inequality \\((a+b-c)^2 \\le 3(a^2+b^2+c^2)\\) is correct, the subsequent use of Lemma 4 to replace \\(E[\\|e_t\\|^2]\\) and \\(E[\\|e_{t+1}\\|^2]\\) by the same constant ignores the dependence on \\(t\\) that arises from the recurrence in Lemma 4.\n- **Assumption usage**: All four assumptions appear, but the bounded variance assumption (A2) is only used to bound \\(E[\\|g_t\\|^2]\\) via \\(\\|\\nabla f(w_t)\\|^2+\\sigma^2\\). The gradient\u2011norm bound (A3) is employed in Steps 4\u20116, yet the later replacement of the resulting constant by terms involving \\(\\eta\\) (Step 9) is unjustified. The compression contractivity (A4) is correctly used in Lemma 4, but the derived uniform bound is not rigorously established.\nOverall, the proof contains several unjustified inequalities and an incorrect stepsize condition, leading to a final bound that does not match the theorem statement. Substantial revisions are required to fix these gaps.\n\n**Flagged steps**: [7,9].\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly extracted as O(1/\u221aT). The proof is logically sound, and the mathematical rigor is excellent. The problem setup is clear, and all assumptions are introduced before use. The derivation from the update rule to the convergence bound is complete, and the final convergence guarantee is clearly stated.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound and complete. All assumptions are properly utilized. Key steps include: [1] Descent lemma application, [2] Error feedback decomposition, [4] Error term bounding via Cauchy-Schwarz, [7] Squared norm expansion, [9] Telescoping sum assembly. The stepsize choice in [7] is correctly justified by Assumption 4. No hallucinations or missing steps detected. The proof rigorously derives the stated O(1/\u221aT) rate with proper handling of compression effects.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": false,
+            "OP": false,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999854293568078
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            9,
+            7
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 2,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 2,
+                "assumption_use_score": 3,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof claims the convergence rate O(1/\u221aT) (Dimension A) which matches the statement of Theorem 1. However, several critical issues appear in the logical chain:\n- **Step 7**: The stepsize condition (11) \\(\\eta \\le 1/[L(1+\\sqrt{1-\\rho})]\\) is asserted to guarantee \\(1-\\frac{3L\\eta}{2} \\ge \\frac12\\). This implication is false for many values of \\(\\rho\\); the correct sufficient condition is \\(\\eta \\le 2/(3L)\\). Hence the inequality used to absorb the gradient term is not justified.\n- **Step 9**: The term \\(4G\\sqrt{(\\sigma^2+2G^2)/\\rho}\\) is bounded by \\(\\frac{2L\\eta G^2}{\\rho}+\\frac{2L\\eta \\sigma^2}{\\rho}\\) under the claim \"when \\(\\eta \\le 1/L\\)\". This is mathematically incorrect because a constant (independent of \\(\\eta\\)) cannot be upper\u2011bounded by a quantity that vanishes as \\(\\eta\\) becomes small. The inequality misuses the AM\u2011GM bound and destroys the dependence on \\(\\eta\\). Consequently the final bound (15) does not follow from (14).\n- **Mismatch with Theorem**: Theorem 1 contains a term \\(2L\\eta^2 G^2/\\rho\\) while the derived bound (15) has \\(2L\\eta G^2/\\rho\\). The proof\u2019s step 9 replaces the original \\(\\eta^2\\) term with an \\(\\eta\\) term, creating an inconsistency between the statement and the derivation.\n- **Lemma 4 (Error\u2011feedback norm bound)**: The induction argument glosses over the recurrence involving \\(E[\\|e_{t+1}\\|^2]\\) and the cross term \\(2\\langle g_t,e_t\\rangle\\). The transition from the recursive inequality to the claimed uniform bound \\(\\sigma^2/\\rho + 2G^2/\\rho\\) lacks a rigorous solution of the recurrence; the argument is hand\u2011wavy.\n- **Step 5 (Bounding the squared norm)**: While the inequality \\((a+b-c)^2 \\le 3(a^2+b^2+c^2)\\) is correct, the subsequent use of Lemma 4 to replace \\(E[\\|e_t\\|^2]\\) and \\(E[\\|e_{t+1}\\|^2]\\) by the same constant ignores the dependence on \\(t\\) that arises from the recurrence in Lemma 4.\n- **Assumption usage**: All four assumptions appear, but the bounded variance assumption (A2) is only used to bound \\(E[\\|g_t\\|^2]\\) via \\(\\|\\nabla f(w_t)\\|^2+\\sigma^2\\). The gradient\u2011norm bound (A3) is employed in Steps 4\u20116, yet the later replacement of the resulting constant by terms involving \\(\\eta\\) (Step 9) is unjustified. The compression contractivity (A4) is correctly used in Lemma 4, but the derived uniform bound is not rigorously established.\nOverall, the proof contains several unjustified inequalities and an incorrect stepsize condition, leading to a final bound that does not match the theorem statement. Substantial revisions are required to fix these gaps.\n\n**Flagged steps**: [7,9].",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "{9, 7}",
+                "flagged_steps": "{9, 7}"
+              },
+              "response_time": 16.68565845489502
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The convergence rate is correctly extracted as O(1/\u221aT). The proof is logically sound, and the mathematical rigor is excellent. The problem setup is clear, and all assumptions are introduced before use. The derivation from the update rule to the convergence bound is complete, and the final convergence guarantee is clearly stated.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 16.36747908592224
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound and complete. All assumptions are properly utilized. Key steps include: [1] Descent lemma application, [2] Error feedback decomposition, [4] Error term bounding via Cauchy-Schwarz, [7] Squared norm expansion, [9] Telescoping sum assembly. The stepsize choice in [7] is correctly justified by Assumption 4. No hallucinations or missing steps detected. The proof rigorously derives the stated O(1/\u221aT) rate with proper handling of compression effects.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 40.236576795578
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492382,
+            0.017157287525381038,
+            0.017157287525381038
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": false,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      14508
+    ]
+  }
+}

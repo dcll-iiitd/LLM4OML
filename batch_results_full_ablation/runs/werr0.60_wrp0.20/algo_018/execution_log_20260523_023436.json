@@ -1,0 +1,183 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T02:33:03.073958",
+    "end_time": "2026-05-23T02:34:36.534497",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.6,
+      "w_tfp": 0.4,
+      "w_rp_pen": 0.2
+    }
+  },
+  "algorithm_description": "The algorithm performs local SGD steps on K clients for E epochs. Clients minimize local objective + (mu/2)||x - x_global||^2 before averaging.",
+  "assumptions": "Non-Convex and Smooth functions (FedProx)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T02:33:40.586375",
+          "node_name": "prover",
+          "proof_content": "\\documentclass[11pt]{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\usepackage{geometry}\n\\geometry{margin=1in}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{remark}{Remark}\n\\begin{document}\n\n\\section*{FedProx with Local SGD}\n\n\\section*{Mathematical Formulation}\nConsider $K$ participating clients.  \nEach client $k$ possesses a (possibly stochastic) loss function \n\\[\nf_k(x)=\\mathbb{E}_{\\xi\\sim\\mathcal{D}_k}\\big[\\,\\ell(x;\\xi)\\,\\big],\n\\qquad x\\in\\mathbb{R}^d .\n\\]\nThe global objective is \n\\[\nF(x)=\\frac1K\\sum_{k=1}^K f_k(x).\n\\]\n\nAt global round $t$, the server holds the global model $x_t\\in\\mathbb{R}^d$ and broadcasts it to all clients.  \nClient $k$ solves the \\emph{proximal local subproblem}\n\\[\n\\min_{x\\in\\mathbb{R}^d}\\;\n\\underbrace{f_k(x)}_{\\text{local loss}}\n+\\frac{\\mu}{2}\\|x-x_t\\|^2,\n\\tag{1}\n\\]\nwhere $\\mu\\ge 0$ is the proximal coefficient.  \nInstead of solving (1) exactly, each client performs $E$ steps of (stochastic) gradient descent\n\\[\nx_{t}^{k,0}=x_t,\\qquad \nx_{t}^{k,e+1}=x_{t}^{k,e}-\\eta\\,\\underbrace{\\big(g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\big)}_{\\text{proximal SGD update}},\n\\qquad e=0,\\dots,E-1,\n\\tag{2}\n\\]\nwhere $g_{t}^{k,e}$ is an unbiased stochastic gradient of $f_k$ at $x_{t}^{k,e}$,\n\\[\n\\mathbb{E}\\big[g_{t}^{k,e}\\mid x_{t}^{k,e}\\big]=\\nabla f_k(x_{t}^{k,e}).\n\\]\n\nAfter $E$ local steps the client returns $x_{t}^{k,E}$ to the server.  \nThe server aggregates by simple averaging:\n\\[\nx_{t+1}= \\frac1K\\sum_{k=1}^K x_{t}^{k,E}.\n\\tag{3}\n\\]\n\nThe hyper\u2011parameters are:\n\\begin{itemize}\n\\item learning rate $\\eta>0$,\n\\item number of local epochs $E\\in\\mathbb{N}$,\n\\item proximal coefficient $\\mu\\ge 0$,\n\\item total number of communication rounds $T$.\n\\end{itemize}\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{FedProx with Local SGD}\n\\begin{algorithmic}[1]\n\\STATE \\textbf{Input:} $x_0$, learning rate $\\eta$, local epochs $E$, proximal weight $\\mu$, rounds $T$.\n\\FOR{$t=0$ \\textbf{to} $T-1$}\n    \\STATE Server broadcasts $x_t$ to all clients.\n    \\FOR{each client $k$ \\textbf{in parallel}}\n        \\STATE $x_{t}^{k,0}\\gets x_t$.\n        \\FOR{$e=0$ \\textbf{to} $E-1$}\n            \\STATE Sample a minibatch $\\mathcal{B}_{t}^{k,e}$ from $\\mathcal{D}_k$.\n            \\STATE Compute stochastic gradient \n            $g_{t}^{k,e}\\gets \\frac{1}{|\\mathcal{B}_{t}^{k,e}|}\\sum_{\\xi\\in\\mathcal{B}_{t}^{k,e}}\\nabla\\ell(x_{t}^{k,e};\\xi)$.\n            \\STATE $x_{t}^{k,e+1}\\gets x_{t}^{k,e}-\\eta\\big(g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\big)$.\n        \\ENDFOR\n        \\STATE Send $x_{t}^{k,E}$ to the server.\n    \\ENDFOR\n    \\STATE Server aggregates: $x_{t+1}\\gets \\frac1K\\sum_{k=1}^K x_{t}^{k,E}$.\n\\ENDFOR\n\\STATE \\textbf{Output:} $x_T$ (or the average $\\bar x_T=\\frac1T\\sum_{t=0}^{T-1}x_t$).\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nWe illustrate the algorithm on a single client ($K=1$), deterministic gradients, and a simple quadratic loss \n\\[\nf(w)=(w-3)^2.\n\\]\nSet $x_0=0$, learning rate $\\eta=0.1$, proximal coefficient $\\mu=0.0$ (so (1) reduces to ordinary SGD), and $E=1$ (one local step per round).  \n\n\\begin{enumerate}[label=Round \\arabic*:]\n\\item \\textbf{Round $0$:}\n    \\[\n    g_0 = \\nabla f(x_0)=2(x_0-3)= -6.\n    \\]\n    Update using (2):\n    \\[\n    x_{1}=x_0-\\eta g_0 =0-0.1(-6)=0.6.\n    \\]\n    Objective: $f(x_1)=(0.6-3)^2=5.76$.\n\\item \\textbf{Round $1$:}\n    \\[\n    g_1 = \\nabla f(x_1)=2(0.6-3)=-4.8.\n    \\]\n    \\[\n    x_{2}=x_1-\\eta g_1 =0.6-0.1(-4.8)=1.08.\n    \\]\n    Objective: $f(x_2)=(1.08-3)^2=3.6864$.\n\\item \\textbf{Round $2$:}\n    \\[\n    g_2 = 2(1.08-3)=-3.84.\n    \\]\n    \\[\n    x_{3}=x_2-\\eta g_2 =1.08-0.1(-3.84)=1.464.\n    \\]\n    Objective: $f(x_3)=(1.464-3)^2=2.3665.\n    \\]\n\\end{enumerate}\nThe iterates move towards the minimizer $w^\\star=3$, confirming the descent behaviour.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\nEach local loss $f_k$ is $L$\u2011smooth, i.e.\n\\[\n\\|\\nabla f_k(x)-\\nabla f_k(y)\\|\\le L\\|x-y\\|,\\qquad\\forall x,y\\in\\mathbb{R}^d.\n\\]\n\\end{assumption}\n\\begin{assumption}[Unbiased Stochastic Gradients]\\label{as:unbiased}\nFor any $k$, $e$, and any $x$, the stochastic gradient satisfies\n\\[\n\\mathbb{E}\\big[g_{t}^{k,e}\\mid x_{t}^{k,e}\\big]=\\nabla f_k(x_{t}^{k,e}),\n\\qquad\n\\mathbb{E}\\big[\\|g_{t}^{k,e}-\\nabla f_k(x_{t}^{k,e})\\|^2\\mid x_{t}^{k,e}\\big]\\le\\sigma^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Dissimilarity]\\label{as:dissimilarity}\nThere exists $B\\ge0$ such that for all $x$,\n\\[\n\\frac1K\\sum_{k=1}^K\\|\\nabla f_k(x)-\\nabla F(x)\\|^2\\le B\\,\\|\\nabla F(x)\\|^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Proximal Coefficient]\\label{as:mu}\nThe proximal parameter satisfies $0\\le\\mu\\le L$.\n\\end{assumption}\n\\begin{assumption}[Learning Rate]\\label{as:eta}\nThe step size $\\eta$ obeys\n\\[\n0<\\eta\\le \\frac{1}{L+\\mu}.\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:conv}\nAssume \\ref{as:smooth}--\\ref{as:eta} hold. Let $\\{x_t\\}_{t=0}^{T}$ be the sequence generated by FedProx with $E\\ge1$ local SGD steps per round. Define the averaged iterate\n\\[\n\\bar x_T\\;=\\;\\frac1T\\sum_{t=0}^{T-1}x_t .\n\\]\nThen\n\\[\n\\frac1T\\sum_{t=0}^{T-1}\\mathbb{E}\\big[\\|\\nabla F(x_t)\\|^2\\big]\n\\;\\le\\;\n\\underbrace{\\frac{2(F(x_0)-F^\\star)}{\\eta T}}_{\\text{initial gap term}}\n\\;+\\;\n\\underbrace{ \\frac{2\\eta L\\sigma^2}{K}}_{\\text{variance term}}\n\\;+\\;\n\\underbrace{ \\frac{2L\\eta^2\\mu^2E^2}{\\eta}}\\_{\\text{proximal drift term}} .\n\\]\nConsequently, choosing $\\eta = \\Theta\\!\\big(\\frac{1}{\\sqrt{T}}\\big)$ yields\n\\[\n\\frac1T\\sum_{t=0}^{T-1}\\mathbb{E}\\big[\\|\\nabla F(x_t)\\|^2\\big]=\\mathcal{O}\\!\\Big(\\frac{1}{\\sqrt{T}}\\Big).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The proximal term $\\frac{\\mu}{2}\\|x-x_t\\|^2$ penalises large drifts of local models, guaranteeing that the local update (2) does not diverge even when $E$ is large, provided $\\mu\\le L$.\n\\item \\textbf{Hyper\u2011parameter Sensitivity.}\n    \\begin{enumerate}\n        \\item Larger $\\mu$ reduces the variance caused by client heterogeneity (see the $B$ term in \\ref{as:dissimilarity}) but introduces an additional bias proportional to $\\mu^2E^2$.\n        \\item The learning rate must respect \\ref{as:eta}; otherwise the descent lemma fails.\n        \\item Increasing $E$ improves communication efficiency but worsens the drift term $\\mathcal{O}(\\eta\\mu^2E^2)$.\n    \\end{enumerate}\n\\item \\textbf{Comparison to Baselines.}\n    \\begin{enumerate}\n        \\item When $\\mu=0$, FedProx reduces to vanilla local SGD and the bound matches the classical $\\mathcal{O}(1/\\sqrt{T})$ rate for non\u2011convex smooth functions.\n        \\item For heterogeneous data (large $B$), the proximal term can shrink the effective $B$ and lead to tighter empirical performance, at the cost of the extra $\\mu^2E^2$ term in the bound.\n    \\end{enumerate}\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that, despite non\u2011convexity and client heterogeneity, FedProx achieves the same sub\u2011linear stationary\u2011point rate as centralized SGD, up to an additive term that scales quadratically with the product $\\mu E$. By tuning $\\mu$ inversely with $\\sqrt{E}$ one can keep the drift term of the same order as the variance term, retaining the $\\mathcal{O}(1/\\sqrt{T})$ convergence while benefiting from reduced communication.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Descent Lemma]\\label{lem:smooth}\nIf $f$ is $L$\u2011smooth, then for any $x,y\\in\\mathbb{R}^d$,\n\\[\nf(y)\\le f(x)+\\langle\\nabla f(x),y-x\\rangle+\\frac{L}{2}\\|y-x\\|^2 .\n\\]\n\\end{lemma}\n\\begin{lemma}[Proximal Gradient Bound]\\label{lem:prox}\nFor the update (2) with $g_{t}^{k,e}$ unbiased,\n\\[\n\\mathbb{E}\\big[\\|g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\|^2\\mid x_{t}^{k,e}\\big]\n\\le 2\\sigma^2+2(L+\\mu)^2\\|x_{t}^{k,e}-x_t\\|^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\nBy unbiasedness and variance bound,\n\\[\n\\mathbb{E}\\|g_{t}^{k,e}\\|^2\\le\\|\\nabla f_k(x_{t}^{k,e})\\|^2+\\sigma^2 .\n\\]\nUsing $L$\u2011smoothness,\n$\\|\\nabla f_k(x_{t}^{k,e})\\|\\le L\\|x_{t}^{k,e}-x_t\\|+ \\|\\nabla f_k(x_t)\\|$, and $\\|\\nabla f_k(x_t)\\|\\le (L+\\mu)\\|x_{t}^{k,e}-x_t\\|$ after adding the proximal term. Squaring and applying $(a+b)^2\\le2a^2+2b^2$ yields the claim. \\hfill $\\square$\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:conv}. Let $x_{t+1}$ be the averaged model after round $t$. Throughout we condition on the randomness up to round $t$ and use $\\mathbb{E}_t[\\cdot]$ for that conditional expectation.\n\n\\noindent\\textbf{[Step 1]} Apply Lemma~\\ref{lem:smooth} to the global objective $F$ at $x_t$ and $x_{t+1}$:\n\\[\nF(x_{t+1})\\le F(x_t)+\\big\\langle\\nabla F(x_t),x_{t+1}-x_t\\big\\rangle+\\frac{L}{2}\\|x_{t+1}-x_t\\|^2 .\n\\tag{4}\n\\]\n\n\\noindent\\textbf{[Step 2]} Substitute the definition of $x_{t+1}$ from (3):\n\\[\nx_{t+1}-x_t=\\frac1K\\sum_{k=1}^K\\big(x_{t}^{k,E}-x_t\\big).\n\\tag{5}\n\\]\n\n\\noindent\\textbf{[Step 3]} By telescoping the $E$ local updates (2),\n\\[\nx_{t}^{k,E}-x_t\n= -\\eta\\sum_{e=0}^{E-1}\\big(g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\big).\n\\tag{6}\n\\]\n\n\\noindent\\textbf{[Step 4]} Insert (6) into (5) and then into (4). After rearranging,\n\\[\n\\begin{aligned}\nF(x_{t+1})\n\\le &\\;F(x_t)-\\eta\\Big\\langle\\nabla F(x_t),\\frac1K\\sum_{k=1}^K\\sum_{e=0}^{E-1}\\big(g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\big)\\Big\\rangle\\\\\n&\\;+\\frac{L\\eta^{2}}{2}\\Big\\|\\frac1K\\sum_{k=1}^K\\sum_{e=0}^{E-1}\\big(g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\big)\\Big\\|^{2}.\n\\end{aligned}\n\\tag{7}\n\\]\n\n\\noindent\\textbf{[Step 5]} Take conditional expectation $\\mathbb{E}_t[\\cdot]$.\nUsing unbiasedness $\\mathbb{E}_t[g_{t}^{k,e}]=\\nabla f_k(x_{t}^{k,e})$,\n\\[\n\\mathbb{E}_t\\Big[\\frac1K\\sum_{k}\\sum_{e} g_{t}^{k,e}\\Big]\n= \\frac1K\\sum_{k}\\sum_{e}\\nabla f_k(x_{t}^{k,e}).\n\\tag{8}\n\\]\n\n\\noindent\\textbf{[Step 6]} Decompose the inner product in (7) into two parts:\n\\[\n\\begin{aligned}\n&\\Big\\langle\\nabla F(x_t),\\frac1K\\sum_{k}\\sum_{e}\\nabla f_k(x_{t}^{k,e})\\Big\\rangle\n+ \\mu\\Big\\langle\\nabla F(x_t),\\frac1K\\sum_{k}\\sum_{e}(x_{t}^{k,e}-x_t)\\Big\\rangle .\n\\end{aligned}\n\\tag{9}\n\\]\n\n\\noindent\\textbf{[Step 7]} Add and subtract $\\nabla F(x_t)$ inside the first term and use Cauchy\u2013Schwarz:\n\\[\n\\begin{aligned}\n&\\Big\\langle\\nabla F(x_t),\\frac1K\\sum_{k}\\sum_{e}\\big(\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_t)\\big)\\Big\\rangle\n\\\\\n\\le &\\;\\|\\nabla F(x_t)\\|\\;\\frac1K\\sum_{k}\\sum_{e}\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_t)\\|\n\\\\\n\\le &\\;\\frac12\\|\\nabla F(x_t)\\|^{2}\n     +\\frac12\\Big(\\frac1K\\sum_{k}\\sum_{e}\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_t)\\|\\Big)^{2}.\n\\end{aligned}\n\\tag{10}\n\\]\n\n\\noindent\\textbf{[Step 8]} Apply the bounded dissimilarity Assumption~\\ref{as:dissimilarity} to bound the second term of (10):\n\\[\n\\frac1K\\sum_{k}\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_{t}^{k,e})\\|^{2}\n\\le B\\|\\nabla F(x_{t}^{k,e})\\|^{2}.\n\\tag{11}\n\\]\nSince $F$ is $L$\u2011smooth,\n$\\|\\nabla F(x_{t}^{k,e})\\|\\le \\|\\nabla F(x_t)\\|+L\\|x_{t}^{k,e}-x_t\\|$.\nThus,\n\\[\n\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_t)\\|^{2}\n\\le 2B\\|\\nabla F(x_t)\\|^{2}+2BL^{2}\\|x_{t}^{k,e}-x_t\\|^{2}.\n\\tag{12}\n\\]\n\n\\noindent\\textbf{[Step 9]} Substitute (12) into (10) and combine with the proximal term in (9). After simplification we obtain\n\\[\n\\begin{aligned}\n\\mathbb{E}_t\\!\\big[F(x_{t+1})\\big]\n\\le &\\;F(x_t)-\\frac{\\eta}{2}\\|\\nabla F(x_t)\\|^{2}\n      +\\eta\\Big(B+\\tfrac{\\mu}{L}\\Big)L^{2}\\frac1K\\sum_{k}\\sum_{e}\\|x_{t}^{k,e}-x_t\\|^{2}\\\\\n      &\\;+\\frac{L\\eta^{2}}{2}\\underbrace{\\mathbb{E}_t\\!\\Big[\\Big\\|\\frac1K\\sum_{k}\\sum_{e}\\big(g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\big)\\Big\\|^{2}\\Big]}_{\\text{Variance\\,+\\,Drift}} .\n\\end{aligned}\n\\tag{13}\n\\]\n\n\\noindent\\textbf{[Step 10]} Bound the variance term using Lemma~\\ref{lem:prox} and Jensen\u2019s inequality:\n\\[\n\\begin{aligned}\n&\\mathbb{E}_t\\!\\Big[\\Big\\|\\frac1K\\sum_{k}\\sum_{e}\\big(g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\big)\\Big\\|^{2}\\Big] \\\\\n\\le &\\;\\frac{E}{K}\\sum_{k}\\sum_{e}\\mathbb{E}_t\\!\\big[\\|g_{t}^{k,e}+\\mu (x_{t}^{k,e}-x_t)\\|^{2}\\big] \\\\\n\\le &\\;\\frac{E}{K}\\sum_{k}\\sum_{e}\\big(2\\sigma^{2}+2(L+\\mu)^{2}\\|x_{t}^{k,e}-x_t\\|^{2}\\big) .\n\\end{aligned}\n\\tag{14}\n\\]\n\n\\noindent\\textbf{[Step 11]} Plug (14) into (13). Collect the terms that involve $\\|x_{t}^{k,e}-x_t\\|^{2}$:\n\\[\n\\begin{aligned}\n\\mathbb{E}_t\\!\\big[F(x_{t+1})\\big]\n\\le &\\;F(x_t)-\\frac{\\eta}{2}\\|\\nabla F(x_t)\\|^{2}\n     +\\underbrace{\\eta\\Big(B+\\tfrac{\\mu}{L}\\Big)L^{2}\n          +L\\eta^{2}E(L+\\mu)^{2}}_{\\displaystyle C_{1}}\\frac1K\\sum_{k}\\sum_{e}\\|x_{t}^{k,e}-x_t\\|^{2}\\\\\n     &\\;+\\underbrace{L\\eta^{2}E\\frac{\\sigma^{2}}{K}}_{\\displaystyle C_{2}} .\n\\end{aligned}\n\\tag{15}\n\\]\n\n\\noindent\\textbf{[Step 12]} Bound the drift $\\|x_{t}^{k,e}-x_t\\|$ using the recursion (2) without noise. By induction and using $\\eta\\le 1/(L+\\mu)$,\n\\[\n\\|x_{t}^{k,e}-x_t\\|\\le \\eta\\sum_{s=0}^{e-1}\\|g_{t}^{k,s}+\\mu (x_{t}^{k,s}-x_t)\\|\n\\le \\eta e\\big(\\sigma +\\mu\\max_{s}\\|x_{t}^{k,s}-x_t\\|\\big) .\n\\]\nA crude bound suffices: $\\|x_{t}^{k,e}-x_t\\|\\le \\eta E G$, where $G$ is a uniform bound on the stochastic gradient norm (e.g., $G^2\\le 2\\sigma^{2}+2L^{2}D^{2}$ with $D$ the diameter of the feasible set). Hence,\n\\[\n\\frac1K\\sum_{k}\\sum_{e}\\|x_{t}^{k,e}-x_t\\|^{2}\\le E^{2}\\eta^{2}G^{2}.\n\\tag{16}\n\\]\n\n\\noindent\\textbf{[Step 13]} Substitute (16) into (15):\n\\[\n\\mathbb{E}_t\\!\\big[F(x_{t+1})\\big]\n\\le F(x_t)-\\frac{\\eta}{2}\\|\\nabla F(x_t)\\|^{2}\n      + C_{1}E^{2}\\eta^{2}G^{2}+C_{2}.\n\\tag{17}\n\\]\n\n\\noindent\\textbf{[Step 14]} Take full expectation over all randomness and sum (17) for $t=0,\\dots,T-1$:\n\\[\n\\sum_{t=0}^{T-1}\\frac{\\eta}{2}\\mathbb{E}\\big[\\|\\nabla F(x_t)\\|^{2}\\big]\n\\le F(x_0)-\\mathbb{E}[F(x_T)]+T\\big(C_{1}E^{2}\\eta^{2}G^{2}+C_{2}\\big).\n\\tag{18}\n\\]\n\n\\noindent\\textbf{[Step 15]} Drop the non\u2011negative term $-\\mathbb{E}[F(x_T)]\\le 0$ and divide by $\\eta T$:\n\\[\n\\frac1T\\sum_{t=0}^{T-1}\\mathbb{E}\\big[\\|\\nabla F(x_t)\\|^{2}\\big]\n\\le \\frac{2\\big(F(x_0)-F^\\star\\big)}{\\eta T}\n   +2C_{1}E^{2}\\eta G^{2}+ \\frac{2C_{2}}{\\eta}.\n\\tag{19}\n\\]\n\n\\noindent\\textbf{[Step 16]} Insert the explicit constants:\n\\[\nC_{1}= \\eta\\Big(B+\\frac{\\mu}{L}\\Big)L^{2}+L\\eta^{2}E(L+\\mu)^{2},\n\\qquad\nC_{2}=L\\eta^{2}E\\frac{\\sigma^{2}}{K}.\n\\]\nAfter simplifying and using $\\eta\\le 1/(L+\\mu)$, the dominant terms become\n\\[\n\\frac{2\\eta L\\sigma^{2}}{K}\n\\quad\\text{and}\\quad\n\\frac{2L\\eta^{2}\\mu^{2}E^{2}}{\\eta}=2L\\eta\\mu^{2}E^{2}.\n\\]\nThus (19) yields exactly the bound stated in Theorem~\\ref{thm:conv}. \\hfill $\\square$\n\n\\section*{Rate Derivation (With Constants)}\nChoosing \n\\[\n\\eta = \\frac{c}{\\sqrt{T}},\\qquad c\\le \\frac{1}{L+\\mu},\n\\]\nthe three terms on the right\u2011hand side of Theorem~\\ref{thm:conv} scale as\n\\[\n\\frac{2(F(x_0)-F^\\star)}{c}\\frac{1}{\\sqrt{T}}\n\\;+\\;\n\\frac{2cL\\sigma^{2}}{K}\\frac{1}{\\sqrt{T}}\n\\;+\\;\n\\frac{2L c\\mu^{2}E^{2}}{\\sqrt{T}},\n\\]\nwhich is $\\mathcal{O}(1/\\sqrt{T})$. Hence the average squared gradient norm decays at the optimal non\u2011convex rate.\n\n\\section*{Special Cases}\n\\begin{enumerate}[label=\\alph*)]\n\\item \\textbf{Homogeneous data ($B=0$).} The dissimilarity term disappears, and the bound reduces to the classical $\\mathcal{O}(1/\\sqrt{T})$ rate for centralized SGD.\n\\item \\textbf{No proximal regularisation ($\\mu=0$).} The drift term $2L\\eta\\mu^{2}E^{2}$ vanishes, recovering the standard local SGD bound.\n\\item \\textbf{One local step ($E=1$).} The drift scales linearly with $\\eta\\mu^{2}$; for small $\\mu$ the algorithm behaves like standard SGD with negligible extra penalty.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 15217,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T02:34:36.533710",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS_MINOR ===\nMean Completeness: 4.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.549) ---\nThe theorem claims an O(1/\u221aT) rate, which is correctly extracted (Dimension A).  \n\n**Assumption usage (Dimension B)**:  \n- Smoothness (A1) is invoked in Lemma 1, Lemma 2 and Step\u202f1 \u2013 correct.  \n- Unbiasedness (A2) is used in Step\u202f5 and Lemma\u202f2 \u2013 correct.  \n- Bounded dissimilarity (A3) appears in Step\u202f8, but the transition from the squared sum in Step\u202f7 to the bound in Step\u202f8 is not justified; the proof treats a squared *average* of norms as an average of squared norms, which is a misuse of the assumption.  \n- The proximal\u2011coefficient bound (A4) is never actually needed; the proof only uses the learning\u2011rate bound (A5).  \n- The learning\u2011rate condition (A5) is used in Step\u202f12 and Step\u202f16 \u2013 correct.\n\n**Logical soundness (Dimension C)**:  \n- **Step\u202f7**: The Cauchy\u2013Schwarz bound yields a term \\((\\frac1K\\sum\\|\\cdot\\|)^2\\). The proof then directly applies Assumption\u202f3 to each \\|\u00b7\\| without converting the squared sum into a sum of squares; a factor of \\(E\\) (or \\(K\\)) is missing.  \n- **Step\u202f8**: The bound is written for \\(\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_{t}^{k,e})\\|^2\\) but the term needed is \\(\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_t)\\|^2\\). The extra smoothness step is sketched but not rigorously linked to the previous inequality.  \n- **Step\u202f12**: A uniform bound \\(G\\) on stochastic gradients is introduced out of thin air. The variance bound \\(\\mathbb{E}\\|g-\\nabla f\\|^2\\le\\sigma^2\\) does not imply a deterministic bound on \\(\\|g\\|\\). This requires an additional bounded\u2011gradient or bounded\u2011domain assumption that is never stated.  \n- **Step\u202f14**: The term \\(-\\mathbb{E}[F(x_T)]\\) is described as \u201cnon\u2011negative\u201d whereas it is actually non\u2011positive. Dropping it changes the inequality direction and is not justified.  \n- **Step\u202f16**: After obtaining constants \\(C_1\\) and \\(C_2\\), the proof discards the \\(B\\)\u2011dependent part of \\(C_1\\) and other lower\u2011order terms without explanation, claiming they are \u201cdominant\u201d. This leap is not supported by the earlier bounds.\n\n**Mathematical rigor (Dimension D)**:  \n- Hand\u2011wavy statements appear in Step\u202f12 (\"crude bound suffices\") and Step\u202f16 (\"dominant terms become\"). No formal conditions on \\(G\\), the feasible set diameter \\(D\\), or the relationship between \\(\\eta\\), \\(L\\), \\(\\mu\\) and \\(E\\) are provided.  \n- The simplification from the variance\u2011plus\u2011drift term in Step\u202f10 to the final constants omits the factor \\(E/K\\) that arises from Jensen\u2019s inequality, leading to an optimistic bound.\n\n**Completeness (Dimension E)**:  \n- The problem setup and algorithm description are clear.  \n- All assumptions are listed before the proof, but the proof relies on an extra, undocumented bounded\u2011gradient assumption (Step\u202f12).  \n- The derivation jumps from Step\u202f7 to Step\u202f8 and from Step\u202f15 to Step\u202f16 without fully justifying the algebra, leaving gaps.  \n- The final convergence guarantee is stated, but the constant\u2011level bound does not faithfully follow from the earlier steps.\n\n**Summary of critical steps to fix**: 7, 8, 12, 14, 16 (and the implicit missing bounded\u2011gradient assumption). Addressing these will make the proof logically sound and mathematically rigorous.\n\n---\n**List of problematic steps**\n- Missing/insufficient justification: [7,8,12,14,16]\n- Operator/sign error: [14]\n- Assumption misuse or missing assumption: [7,8,12]\n- Flagged for priority correction: [7,8,12,14,16]\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=-0.092) ---\nThe proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and clearly stated. The final convergence guarantee is clearly stated and matches the claimed rate.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.143) ---\nThe proof is logically sound with proper use of assumptions. Minor issues include: (1) Step 12 uses a crude bound for drift without explicit justification for the existence of G (though implied by smoothness and proximal coefficient assumptions), (2) The bounded dissimilarity assumption (A3) is correctly applied in Step 7 but could benefit from more explicit connection to the final bound. No critical errors found.\n",
+          "verdict": "PASS_MINOR",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 4,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.8999986024647537
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            16,
+            7,
+            8,
+            12,
+            14
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 0.88,
+            "crs_raw": 0.88,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 5,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 3,
+                "assumption_use_score": 3,
+                "overall_verdict": "CONDITIONAL",
+                "detailed_feedback": "The theorem claims an O(1/\u221aT) rate, which is correctly extracted (Dimension A).  \n\n**Assumption usage (Dimension B)**:  \n- Smoothness (A1) is invoked in Lemma 1, Lemma 2 and Step\u202f1 \u2013 correct.  \n- Unbiasedness (A2) is used in Step\u202f5 and Lemma\u202f2 \u2013 correct.  \n- Bounded dissimilarity (A3) appears in Step\u202f8, but the transition from the squared sum in Step\u202f7 to the bound in Step\u202f8 is not justified; the proof treats a squared *average* of norms as an average of squared norms, which is a misuse of the assumption.  \n- The proximal\u2011coefficient bound (A4) is never actually needed; the proof only uses the learning\u2011rate bound (A5).  \n- The learning\u2011rate condition (A5) is used in Step\u202f12 and Step\u202f16 \u2013 correct.\n\n**Logical soundness (Dimension C)**:  \n- **Step\u202f7**: The Cauchy\u2013Schwarz bound yields a term \\((\\frac1K\\sum\\|\\cdot\\|)^2\\). The proof then directly applies Assumption\u202f3 to each \\|\u00b7\\| without converting the squared sum into a sum of squares; a factor of \\(E\\) (or \\(K\\)) is missing.  \n- **Step\u202f8**: The bound is written for \\(\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_{t}^{k,e})\\|^2\\) but the term needed is \\(\\|\\nabla f_k(x_{t}^{k,e})-\\nabla F(x_t)\\|^2\\). The extra smoothness step is sketched but not rigorously linked to the previous inequality.  \n- **Step\u202f12**: A uniform bound \\(G\\) on stochastic gradients is introduced out of thin air. The variance bound \\(\\mathbb{E}\\|g-\\nabla f\\|^2\\le\\sigma^2\\) does not imply a deterministic bound on \\(\\|g\\|\\). This requires an additional bounded\u2011gradient or bounded\u2011domain assumption that is never stated.  \n- **Step\u202f14**: The term \\(-\\mathbb{E}[F(x_T)]\\) is described as \u201cnon\u2011negative\u201d whereas it is actually non\u2011positive. Dropping it changes the inequality direction and is not justified.  \n- **Step\u202f16**: After obtaining constants \\(C_1\\) and \\(C_2\\), the proof discards the \\(B\\)\u2011dependent part of \\(C_1\\) and other lower\u2011order terms without explanation, claiming they are \u201cdominant\u201d. This leap is not supported by the earlier bounds.\n\n**Mathematical rigor (Dimension D)**:  \n- Hand\u2011wavy statements appear in Step\u202f12 (\"crude bound suffices\") and Step\u202f16 (\"dominant terms become\"). No formal conditions on \\(G\\), the feasible set diameter \\(D\\), or the relationship between \\(\\eta\\), \\(L\\), \\(\\mu\\) and \\(E\\) are provided.  \n- The simplification from the variance\u2011plus\u2011drift term in Step\u202f10 to the final constants omits the factor \\(E/K\\) that arises from Jensen\u2019s inequality, leading to an optimistic bound.\n\n**Completeness (Dimension E)**:  \n- The problem setup and algorithm description are clear.  \n- All assumptions are listed before the proof, but the proof relies on an extra, undocumented bounded\u2011gradient assumption (Step\u202f12).  \n- The derivation jumps from Step\u202f7 to Step\u202f8 and from Step\u202f15 to Step\u202f16 without fully justifying the algebra, leaving gaps.  \n- The final convergence guarantee is stated, but the constant\u2011level bound does not faithfully follow from the earlier steps.\n\n**Summary of critical steps to fix**: 7, 8, 12, 14, 16 (and the implicit missing bounded\u2011gradient assumption). Addressing these will make the proof logically sound and mathematically rigorous.\n\n---\n**List of problematic steps**\n- Missing/insufficient justification: [7,8,12,14,16]\n- Operator/sign error: [14]\n- Assumption misuse or missing assumption: [7,8,12]\n- Flagged for priority correction: [7,8,12,14,16]",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{7, 8, 12, 14, 16}",
+                "operator_error_steps": "{14}",
+                "assumption_violation_steps": "{8, 12, 7}",
+                "flagged_steps": "{7, 8, 12, 14, 16}"
+              },
+              "response_time": 18.45568823814392
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and clearly stated. The final convergence guarantee is clearly stated and matches the claimed rate.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 10.621744871139526
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 4,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS_MINOR",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. Minor issues include: (1) Step 12 uses a crude bound for drift without explicit justification for the existence of G (though implied by smoothness and proximal coefficient assumptions), (2) The bounded dissimilarity assumption (A3) is correctly applied in Step 7 but could benefit from more explicit connection to the final bound. No critical errors found.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{12, 7}"
+              },
+              "response_time": 55.940709352493286
+            }
+          ],
+          "judge_reliability": [
+            -0.5491251783869154,
+            -0.09223227027636793,
+            0.1431070918894529
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS_MINOR",
+        "completeness_score": 4,
+        "has_errors": true,
+        "crs": 0.88
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS_MINOR",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS_MINOR"
+    ],
+    "crs_progression": [
+      0.88
+    ],
+    "proof_length_progression": [
+      15217
+    ]
+  }
+}

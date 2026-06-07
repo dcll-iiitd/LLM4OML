@@ -1,0 +1,351 @@
+% CORRECTED VERSION
+% Changes:
+% - Fixed algebra in Step 10 and provided a proper choice of the stepsize.
+% - Added Lemma 3 linking the bounded‑domain assumption to a bound on the
+%   initial optimality gap, and used it to eliminate the ad‑hoc definition of D.
+% - Removed the unjustified variance term and the spurious Step 11.
+% - Clarified the conditioning in Step 3 and added a short remark on the
+%   role of Assumption 2 (unbiasedness) which is not needed for the main bound.
+% - Updated Theorem 1 and its bound accordingly; all step annotations are
+%   preserved for future reference.
+
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\sign}{\operatorname{sign}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{SignSGD (Sign of Stochastic Gradient Descent)}
+
+\section*{Mathematical Formulation}
+Let $f:\R^{d}\rightarrow\R$ be a (possibly non‑convex) differentiable loss.  
+At iteration $k$ we have a stochastic gradient estimator $g_k\in\R^{d}$ such that  
+
+\[
+\E\bigl[g_k\mid x_k\bigr]=\nabla f(x_k),\qquad 
+\E\bigl[\|g_k-\nabla f(x_k)\|_2^{2}\mid x_k\bigr]\le\sigma^{2}.
+\]
+
+The \textbf{sign update} is performed component‑wise:
+\[
+\boxed{ \; x_{k+1}=x_{k}-\alpha\,\sign\!\bigl(g_k\bigr)\;},
+\]
+where $\alpha>0$ is a (scalar) stepsize and $\sign(g_k)_i\in\{-1,+1\}$ denotes the sign of the $i$‑th coordinate of $g_k$.
+
+When the algorithm is run in a distributed setting with $M$ workers we first collect the $M$ stochastic signs $\sign(g_k^{(m)})$, $m=1,\dots,M$, and replace $\sign(g_k)$ by the coordinate‑wise \emph{median} of these $M$ signs.  The convergence analysis below only requires the following probabilistic guarantee on each coordinate (the “median‑based variance bound’’).
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{SignSGD with optional majority‑vote (median) aggregation}
+\begin{algorithmic}[1]
+\Require Initial point $x_0\in\R^{d}$, stepsize $\alpha>0$, number of iterations $T$,
+        number of workers $M$ (set $M=1$ for the single‑machine case)
+\For{$k=0$ \textbf{to} $T-1$}
+    \State \textbf{Parallel on each worker $m$}:
+    \State \hspace{1em} Sample a mini‑batch $\mathcal B_k^{(m)}$ and compute stochastic gradient $g_k^{(m)}$.
+    \State \hspace{1em} Compute coordinate‑wise sign $s_k^{(m)}:=\sign\!\bigl(g_k^{(m)}\bigr)$.
+    \State \textbf{Aggregation:}
+    \State \hspace{1em} For each coordinate $i$, set
+    \[
+      \tilde s_{k,i}= \operatorname{median}\bigl\{s_{k,i}^{(1)},\dots,s_{k,i}^{(M)}\bigr\}.
+    \]
+    \State Update the model:
+    \[
+      x_{k+1}=x_{k}-\alpha\,\tilde s_{k}.
+    \]
+\EndFor
+\State \textbf{Return} $x_T$ (or the average $\frac1T\sum_{k=0}^{T-1}x_k$).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the univariate quadratic $f(w)=(w-3)^{2}$, whose gradient is $\nabla f(w)=2(w-3)$.  
+Take $w_{0}=0$, stepsize $\alpha=0.1$, and a deterministic “stochastic’’ gradient $g_{k}= \nabla f(w_{k})$ (so the sign is exact).
+
+\begin{tabular}{c|c|c|c}
+Iteration $k$ & $w_{k}$ & $g_{k}=2(w_{k}-3)$ & Update $w_{k+1}=w_{k}-0.1\sign(g_{k})$ \\ \hline
+0 & $0$ & $-6$ & $0-0.1(-1)=0.1$ \\
+1 & $0.1$ & $-5.8$ & $0.1-0.1(-1)=0.2$ \\
+2 & $0.2$ & $-5.6$ & $0.2-0.1(-1)=0.3$ \\
+\end{tabular}
+
+The objective values are $f(0)=9$, $f(0.1)=8.41$, $f(0.2)=7.84$, $f(0.3)=7.29$, showing monotone decrease.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$‑smooth: for all $x,y\in\R^{d}$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|_{2}^{2}.
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic gradient]\label{ass:unbiased}
+For every $k$,
+\[
+\E\!\left[g_k\mid x_k\right]=\nabla f(x_k),\qquad
+\E\!\left[\|g_k-\nabla f(x_k)\|_{2}^{2}\mid x_k\right]\le\sigma^{2}.
+\]
+\end{assumption}
+% NOTE: This assumption is not needed for the main bound; it is kept for completeness.
+
+\begin{assumption}[Coordinate‑wise sign correctness (median bound)]\label{ass:sign}
+There exists a constant $\rho\in(0,\tfrac12]$ such that for each coordinate $i\in\{1,\dots,d\}$,
+\[
+\Pr\!\bigl(\sign(g_{k,i})=\sign(\nabla f(x_k)_i)\mid x_k\bigr)\;\ge\;\tfrac12+\rho .
+\tag{1}
+\]
+If a median of $M$ independent workers is used, the same bound holds with $\rho$ replaced by
+\[
+\rho_M=1-2\exp\!\bigl(-2M\rho^{2}\bigr),
+\]
+by Hoeffding’s inequality.
+\end{assumption}
+
+\begin{assumption}[Bounded domain]\label{ass:bounded}
+All iterates remain in a set $\mathcal X$ of diameter $D$, i.e.
+\[
+\|x_k-x^{*}\|_{2}\le D\qquad\text{for some (unknown) minimizer }x^{*}.
+\]
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of SignSGD]\label{thm:main}
+Assume \ref{ass:smooth}–\ref{ass:bounded}. Let the constant stepsize be
+\[
+\alpha \;=\; \sqrt{\frac{2\,(f(x_0)-f^{*})}{L\,d\,T}}\;,
+\qquad\text{where }f^{*}:=\inf_{x}f(x).
+\]
+Then the iterates produced by SignSGD satisfy
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{2}\bigr]
+\;\le\;
+\frac{\sqrt{2\,L\,(f(x_0)-f^{*})}}{\rho\,\sqrt{T}} .
+\tag{2}
+\]
+In particular, for deterministic gradients ($\sigma^{2}=0$) we obtain the
+rate $O\!\bigl(1/\sqrt{T}\bigr)$.
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.}  From the descent inequality (Step 4) we see that
+$f(x_{k+1})\le f(x_k)$ whenever $\alpha\le\frac{2\rho}{L d}$.
+\item \textbf{Hyper‑parameter sensitivity.}  The bound (2) depends on $\alpha$
+only through the classic bias–variance trade‑off; the chosen $\alpha$
+balances the two terms and yields the optimal $O(1/\sqrt{T})$ rate.
+\item \textbf{Comparison to SGD.}  For smooth non‑convex problems SGD attains
+$O(1/\sqrt{T})$ in terms of $\E\|\nabla f\|_{2}^{2}$.  SignSGD replaces the
+Euclidean inner product by an $\ell_{1}$‑type inner product, incurring a
+$\sqrt{d}$ factor in the intermediate bound, which disappears after the
+stepsize optimisation.
+\end{itemize}
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $x$ and any vector $u$,
+\[
+f(x-u)\le f(x)-\langle\nabla f(x),u\rangle+\frac{L}{2}\|u\|_{2}^{2}.
+\]
+\end{lemma}
+\begin{proof}
+Apply Definition \ref{ass:smooth} with $y=x-u$ and rearrange.
+\end{proof}
+
+\begin{lemma}[Sign‑correctness expectation]\label{lem:signexp}
+Under Assumption \ref{ass:sign},
+\[
+\E\!\bigl[\nabla f(x)_i\,\sign(g_i)\mid x\bigr]\;\ge\;2\rho\,\bigl|\nabla f(x)_i\bigr|
+\quad\forall i.
+\tag{3}
+\]
+\end{lemma}
+\begin{proof}
+Let $a_i:=\nabla f(x)_i$ and $s_i:=\sign(g_i)$.  By (1),
+\[
+\Pr(s_i=\sign(a_i))\ge\tfrac12+\rho,\qquad
+\Pr(s_i=-\sign(a_i))\le\tfrac12-\rho .
+\]
+Hence
+\[
+\E[a_i s_i]
+=|a_i|\bigl[\Pr(s_i=\sign(a_i))-\Pr(s_i=-\sign(a_i))\bigr]
+\ge|a_i|(2\rho)=2\rho|a_i|.
+\]
+\end{proof}
+
+\begin{lemma}[Bound on the initial optimality gap from the bounded domain]\label{lem:gap}
+If $\|x_0-x^{*}\|_{2}\le D$ and $f$ is $L$‑smooth, then
+\[
+f(x_0)-f^{*}\;\le\;\frac{L}{2}\,D^{2}.
+\tag{4}
+\]
+\end{lemma}
+\begin{proof}
+Apply Lemma \ref{lem:smooth} with $x=x^{*}$, $u=x_0-x^{*}$ and use $f(x^{*})=f^{*}$.
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem \ref{thm:main}.  Throughout let $x^{*}$ be any point attaining $f^{*}=\inf_{x}f(x)$.
+
+\bigskip
+\noindent\textbf{[Step 1]} Apply Lemma \ref{lem:smooth} with $u=\alpha\sign(g_k)$:
+\[
+f(x_{k+1})\le f(x_k)-\alpha\langle\nabla f(x_k),\sign(g_k)\rangle
+               +\frac{L\alpha^{2}}{2}\|\sign(g_k)\|_{2}^{2}.
+\tag{5}
+\]
+
+\noindent\textbf{[Step 2]} Since each component of $\sign(g_k)$ lies in $\{-1,+1\}$,
+\[
+\|\sign(g_k)\|_{2}^{2}=d.
+\tag{6}
+\]
+
+\noindent\textbf{[Step 3]} Take conditional expectation w.r.t.\ the stochastic gradient $g_k$ given $x_k$.
+Using Lemma \ref{lem:signexp} (the expectation is taken over $g_k$) and linearity,
+\[
+\E\!\bigl[\langle\nabla f(x_k),\sign(g_k)\rangle\mid x_k\bigr]
+   =\sum_{i=1}^{d}\E\!\bigl[\nabla f_i(x_k)\sign(g_{k,i})\mid x_k\bigr]
+   \ge 2\rho\sum_{i=1}^{d}|\nabla f_i(x_k)|
+   =2\rho\|\nabla f(x_k)\|_{1}.
+\tag{7}
+\]
+
+\noindent\textbf{[Step 4]} Insert (6)–(7) into (5) and then take the full expectation:
+\[
+\E\bigl[f(x_{k+1})\bigr]
+\le \E\bigl[f(x_k)\bigr]
+   -2\alpha\rho\,\E\!\bigl[\|\nabla f(x_k)\|_{1}\bigr]
+   +\frac{L\alpha^{2}d}{2}.
+\tag{8}
+\]
+
+\noindent\textbf{[Step 5]} Rearrange (8) to isolate the gradient term:
+\[
+2\alpha\rho\,\E\!\bigl[\|\nabla f(x_k)\|_{1}\bigr]
+\le \E\bigl[f(x_k)-f(x_{k+1})\bigr]
+   +\frac{L\alpha^{2}d}{2}.
+\tag{9}
+\]
+
+\noindent\textbf{[Step 6]} Sum (9) over $k=0,\dots,T-1$ and telescope the function values:
+\[
+2\alpha\rho\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{1}\bigr]
+\le f(x_0)-\E\bigl[f(x_T)\bigr]
+   +\frac{L\alpha^{2}dT}{2}
+\le f(x_0)-f^{*}+\frac{L\alpha^{2}dT}{2}.
+\tag{10}
+\]
+
+\noindent\textbf{[Step 7]} Divide (10) by $2\alpha\rho T$:
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{1}\bigr]
+\le \frac{f(x_0)-f^{*}}{2\alpha\rho T}
+   +\frac{L\alpha d}{4\rho } .
+\tag{11}
+\]
+
+\noindent\textbf{[Step 8]} Relate the $\ell_{1}$‑norm to the $\ell_{2}$‑norm:
+\[
+\|\nabla f(x_k)\|_{2}\le\|\nabla f(x_k)\|_{1}
+\le\sqrt{d}\,\|\nabla f(x_k)\|_{2}.
+\]
+Thus
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{2}\bigr]
+\le \frac{1}{\sqrt{d}}\,
+      \frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{1}\bigr].
+\tag{12}
+\]
+
+\noindent\textbf{[Step 9]} Combine (11) and (12):
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{2}\bigr]
+\le
+\frac{f(x_0)-f^{*}}{2\alpha\rho\sqrt{d}\,T}
+   +\frac{L\alpha\sqrt{d}}{4\rho } .
+\tag{13}
+\]
+
+\noindent\textbf{[Step 10]} \textbf{(Corrected)} Choose $\alpha$ to balance the two
+terms on the right‑hand side of (13).  Setting the derivative of the RHS with
+respect to $\alpha$ to zero yields
+\[
+\alpha^{*}
+\;=\;
+\sqrt{\frac{2\,(f(x_0)-f^{*})}{L\,d\,T}} .
+\tag{14}
+\]
+Substituting (14) into (13) gives
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{2}\bigr]
+\;\le\;
+\frac{\sqrt{2\,L\,(f(x_0)-f^{*})}}{\rho\,\sqrt{T}} .
+\tag{15}
+\]
+This is exactly the bound stated in \eqref{thm:main}.
+
+\noindent\textbf{[Step 11]} \textbf{(Removed)} The previous version introduced an
+additional variance term $\frac{\alpha\sigma^{2}}{2\rho D}$ without any
+derivation.  Since the sign‑correctness assumption \ref{ass:sign} already
+captures the effect of stochastic noise on the direction, no extra term
+appears in the final bound; consequently the proof for the noisy case is
+identical to the deterministic one.
+
+\hfill $\square$
+
+\section*{Rate Derivation (With Constants)}
+Collecting the constants from the steps above, the final bound reads
+\[
+\boxed{
+\frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{2}\bigr]
+\;\le\;
+\frac{\sqrt{2\,L\,(f(x_0)-f^{*})}}{\rho\,\sqrt{T}} .
+}
+\]
+Using Lemma~\ref{lem:gap} and the bounded‑domain assumption,
+$f(x_0)-f^{*}\le \tfrac{L}{2}D^{2}$, we may also write
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\E\!\bigl[\|\nabla f(x_k)\|_{2}\bigr]
+\;\le\;
+\frac{L D}{\rho\,\sqrt{T}} .
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Deterministic gradients ($\sigma=0$).}  The bound above
+reduces to the pure $O(1/\sqrt{T})$ rate (15).
+\item \textbf{Large number of workers $M$.}  Replacing $\rho$ by
+$\rho_M=1-2e^{-2M\rho^{2}}$ (Hoeffding) improves the constant, effectively
+accelerating convergence.
+\item \textbf{Convex $f$.}  When $f$ is convex, the same proof yields a bound
+on the suboptimality $f(\bar x_T)-f^{*}$ of order $O(1/\sqrt{T})$.
+\end{itemize}
+
+\end{document}
+
+% ===== CORRECTION SUMMARY =====
+% 1. [Step 10] Issue: algebraic error and undefined D. Fixed by explicitly solving the
+%    bias–variance balance, yielding the stepsize (14) and the correct bound (15).
+% 2. [Step 11] Issue: unjustified variance term. Removed the spurious step and
+%    clarified that the sign‑correctness assumption already accounts for stochastic
+%    noise, so no extra $\sigma^{2}$ term appears.
+% 3. Missing usage of Assumption 4: added Lemma 3 (bound (4)) linking the diameter
+%    $D$ to the initial optimality gap and used it to express the final bound
+%    in terms of $D$ if desired.
+% 4. Step 3 clarification: explicitly stated that the expectation is taken with
+%    respect to $g_k$ conditioned on $x_k$.
+% 5. Overall: ensured every assumption is either used or explicitly noted as
+%    not required for the main result, and all step annotations are retained.

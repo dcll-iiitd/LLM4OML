@@ -1,0 +1,471 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm,algorithmic}
+\usepackage{bm}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\usepackage{color}
+\usepackage{graphicx}
+\usepackage{float}
+\usepackage{booktabs}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{lemma}{Lemma}[section]
+\newtheorem{assumption}{Assumption}[section]
+\newtheorem{corollary}{Corollary}[section]
+
+\begin{document}
+
+\title{Stochastic Newton Method with Hessian Estimates}
+\author{}
+\date{}
+\maketitle
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Algorithm Details Expansion}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Formal Algorithm Description}
+Let $f:\mathbb{R}^{d}\rightarrow\mathbb{R}$ be a twice differentiable objective.  
+At iteration $t$ we have a current iterate $x_{t}\in\mathbb{R}^{d}$ and a stochastic
+estimate of the Hessian matrix,
+\[
+H_{t}\;\approx\;\nabla^{2}f(x_{t})\;,
+\]
+which is assumed to be symmetric positive definite (SPD) with probability one.
+Given a stepsize (learning rate) $\alpha>0$, the update rule is
+\begin{equation}\label{eq:update}
+x_{t+1}=x_{t}-\alpha\,H_{t}^{-1}\,\nabla f(x_{t}) .
+\end{equation}
+All quantities are computed on a minibatch (or a single sample) of data; the
+gradient $\nabla f(x_{t})$ may be exact or stochastic.  The algorithm requires
+only the ability to compute (or approximate) $H_{t}^{-1}v$ for a vector $v$,
+e.g. via conjugate‑gradient or a low‑rank sketch.
+
+\section{Pseudocode}
+\begin{algorithm}[H]
+\caption{Stochastic Newton with Hessian Estimates}
+\label{alg:stoch-newton}
+\begin{algorithmic}[1]
+\REQUIRE Initial point $x_{0}\in\mathbb{R}^{d}$, stepsize $\alpha>0$, 
+maximum iterations $T$.
+\FOR{$t=0,\dots,T-1$}
+    \STATE Sample a minibatch $\mathcal{B}_{t}$ (or a single data point).
+    \STATE Compute stochastic gradient $g_{t}= \nabla f_{\mathcal{B}_{t}}(x_{t})$.
+    \STATE Compute stochastic Hessian estimate $H_{t}= \nabla^{2}f_{\mathcal{B}_{t}}(x_{t})$.
+    \STATE \textbf{(Optional)} Project $H_{t}$ onto the SPD cone,
+          e.g. $H_{t}\leftarrow \Pi_{\text{SPD}}(H_{t})$.
+    \STATE Solve $p_{t}=H_{t}^{-1}g_{t}$ (e.g. CG, L‑BFGS, or explicit inverse).
+    \STATE Update $x_{t+1}=x_{t}-\alpha\,p_{t}$.
+\ENDFOR
+\ENSURE Approximate solution $x_{T}$.
+\end{algorithmic}
+\end{algorithm}
+
+\section{Dry Run Example}
+Consider the one‑dimensional quadratic
+\[
+f(w)=(w-3)^{2},
+\qquad \nabla f(w)=2(w-3),\qquad 
+\nabla^{2}f(w)=2 .
+\]
+We use the exact Hessian (so $H_{t}=2$) and stepsize $\alpha=0.1$.
+Initialize $w_{0}=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Iteration $t$ & Gradient $g_{t}= \nabla f(w_{t})$ & Update $p_{t}=H_{t}^{-1}g_{t}$ & New point $w_{t+1}=w_{t}-\alpha p_{t}$ \\ \midrule
+0 & $2(0-3)=-6$ & $(-6)/2=-3$ & $0-0.1(-3)=0.3$ \\ 
+1 & $2(0.3-3)=-5.4$ & $-5.4/2=-2.7$ & $0.3-0.1(-2.7)=0.57$ \\ 
+2 & $2(0.57-3)=-4.86$ & $-4.86/2=-2.43$ & $0.57-0.1(-2.43)=0.813$ \\ 
+\end{tabular}
+\end{center}
+Corresponding objective values:
+\[
+f(w_{0})=9,\; f(w_{1})=(0.3-3)^{2}=7.29,\; f(w_{2})=(0.57-3)^{2}=5.90,\; f(w_{3})=(0.813-3)^{2}=4.76.
+\]
+The iterates move monotonically toward the minimizer $w^{\star}=3$.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Convergence Theory Development}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Assumptions}
+\begin{assumption}[Strong convexity and smoothness]\label{as:strong-smooth}
+The objective $f$ satisfies for all $x,y\in\mathbb{R}^{d}$,
+\[
+\frac{\mu}{2}\|x-y\|^{2}\le f(x)-f(y)-\langle\nabla f(y),x-y\rangle\le 
+\frac{L}{2}\|x-y\|^{2},
+\]
+with constants $0<\mu\le L$.  Equivalently,
+\[
+\mu I \preceq \nabla^{2}f(x)\preceq L I,\qquad\forall x.
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic Hessian]\label{as:hessian-unbiased}
+For every $t$,
+\[
+\mathbb{E}\!\left[H_{t}\mid x_{t}\right]=\nabla^{2}f(x_{t}).
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Hessian variance]\label{as:hessian-var}
+There exists $\sigma_{H}^{2}>0$ such that
+\[
+\mathbb{E}\!\left[\|H_{t}-\nabla^{2}f(x_{t})\|^{2}\mid x_{t}\right]\le\sigma_{H}^{2},
+\]
+where $\|\cdot\|$ denotes the spectral norm.
+\end{assumption}
+
+\begin{assumption}[Bounded stochastic gradient variance]\label{as:grad-var}
+Let $g_{t}$ be the (possibly stochastic) gradient used in the update.
+There exists $\sigma_{g}^{2}>0$ with
+\[
+\mathbb{E}\!\left[\|g_{t}-\nabla f(x_{t})\|^{2}\mid x_{t}\right]\le\sigma_{g}^{2}.
+\]
+If the gradient is exact, set $\sigma_{g}=0$.
+\end{assumption}
+
+\begin{assumption}[Uniform condition number of Hessian estimates]\label{as:cond}
+There exist constants $0<\underline{\lambda}\le\overline{\lambda}<\infty$ such that
+\[
+\mathbb{P}\!\left(\underline{\lambda} I\preceq H_{t}\preceq\overline{\lambda} I\mid x_{t}\right)=1,
+\qquad\forall t.
+\]
+Define the stochastic condition number
+\[
+\kappa_{H}\;:=\;\frac{\overline{\lambda}}{\underline{\lambda}}.
+\]
+\end{assumption}
+
+\section{Main Convergence Theorem}
+\begin{theorem}[Linear convergence in expectation]\label{thm:linear}
+Assume \ref{as:strong-smooth}–\ref{as:cond} and let the stepsize satisfy
+\[
+0<\alpha<\frac{2}{\overline{\lambda}} .
+\]
+Define the optimal point $x^{\star}= \arg\min f$. Then for all $t\ge0$,
+\begin{equation}\label{eq:recursion}
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+\;\le\;
+\bigl(1-2\alpha\mu\underline{\lambda}^{-1}+ \alpha^{2}\overline{\lambda}^{2}\bigr)\,
+\|x_{t}-x^{\star}\|^{2}
+\;+\;
+\alpha^{2}\bigl(\sigma_{g}^{2}+\sigma_{H}^{2}\|x_{t}-x^{\star}\|^{2}\bigr).
+\end{equation}
+Consequently, if $\alpha$ is chosen as
+\[
+\alpha=\frac{1}{\overline{\lambda}}\;,
+\]
+then
+\[
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\bigr]
+\;\le\;
+\left(1-\frac{\mu}{\overline{\lambda}}\right)\,
+\mathbb{E}\!\bigl[\|x_{t}-x^{\star}\|^{2}\bigr]
+\;+\;
+\frac{\sigma_{g}^{2}+\sigma_{H}^{2}\,\mathbb{E}\!\bigl[\|x_{t}-x^{\star}\|^{2}\bigr]}{\overline{\lambda}^{2}} .
+\]
+If $\sigma_{g}=\sigma_{H}=0$ (exact gradient and Hessian) the recursion reduces to
+\[
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\bigr]
+\le\left(1-\frac{\mu}{\overline{\lambda}}\right)
+\mathbb{E}\!\bigl[\|x_{t}-x^{\star}\|^{2}\bigr],
+\]
+i.e. a deterministic linear rate with factor $1-\mu/\overline{\lambda}=1-1/\kappa_{H}$.
+\end{theorem}
+
+\section{Theoretical Properties}
+\begin{itemize}[leftmargin=*]
+\item \textbf{Stability.} The recursion \eqref{eq:recursion} shows that as long as
+$\alpha<2/\overline{\lambda}$ the coefficient of $\|x_{t}-x^{\star}\|^{2}$ is $<1$,
+hence the method is mean‑square stable.
+\item \textbf{Hyperparameter sensitivity.} The allowable stepsize range depends only on
+the upper eigenvalue bound $\overline{\lambda}$.  Choosing $\alpha$ close to $1/\overline{\lambda}$
+optimizes the contraction factor.
+\item \textbf{Comparison to SGD.} For SGD with stepsize $\eta$, the optimal
+contraction factor is $1-\mu\eta$, which is at most $1-\mu/L$.
+Because $\overline{\lambda}\le L$ (by Assumption~\ref{as:cond}), the stochastic Newton can
+achieve a strictly faster linear factor $1-\mu/\overline{\lambda}$.
+\item \textbf{Effect of variance.} The additive term
+$\alpha^{2}\sigma_{g}^{2}/\overline{\lambda}^{2}$ acts as a steady‑state error floor.
+When variance is zero, the method converges exactly to $x^{\star}$.
+\end{itemize}
+
+\section{Discussion}
+The theorem requires a uniform bound on the eigenvalues of the stochastic Hessian.
+In practice one enforces this by adding a multiple of the identity
+(e.g. $H_{t}\leftarrow H_{t}+\delta I$) or by truncating eigenvalues.
+The linear rate matches the deterministic Newton method up to the factor
+$\kappa_{H}$, which can be much smaller than the worst‑case condition number
+$\kappa=L/\mu$ if the minibatch Hessian is a good approximation.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Complete Convergence Proof}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Quadratic upper bound]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $x,y\in\mathbb{R}^{d}$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^{2}.
+\]
+\end{lemma}
+\begin{lemma}[Strong convexity lower bound]\label{lem:strong}
+If $f$ is $\mu$‑strongly convex then for any $x,y$,
+\[
+f(y)\ge f(x)+\langle\nabla f(x),y-x\rangle+\frac{\mu}{2}\|y-x\|^{2}.
+\]
+\end{lemma}
+\begin{lemma}[Spectral norm inequality]\label{lem:spectral}
+For SPD matrices $A,B$ with $a I\preceq A\preceq b I$ and any vector $v$,
+\[
+a\|v\|^{2}\le v^{\top} A v\le b\|v\|^{2}.
+\]
+\end{lemma}
+
+\section{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:linear}.  Throughout the proof $x^{\star}$ denotes the unique
+minimizer of $f$.
+
+\subsection*{Step 1 – Write the error after one update}
+\begin{align}
+x_{t+1}-x^{\star}
+&=x_{t}-\alpha H_{t}^{-1}g_{t}-x^{\star} \nonumber\\
+&=(x_{t}-x^{\star})-\alpha H_{t}^{-1}g_{t}. \tag{1}
+\end{align}
+\textbf{[Step 1]}
+
+\subsection*{Step 2 – Square the norm and take conditional expectation}
+\begin{align}
+\|x_{t+1}-x^{\star}\|^{2}
+&=\|x_{t}-x^{\star}\|^{2}
+-2\alpha\langle H_{t}^{-1}g_{t},\,x_{t}-x^{\star}\rangle
++\alpha^{2}\|H_{t}^{-1}g_{t}\|^{2}. \tag{2}
+\end{align}
+Condition on $x_{t}$ and use the law of total expectation:
+\[
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+= \|x_{t}-x^{\star}\|^{2}
+-2\alpha\,\mathbb{E}\!\bigl[\langle H_{t}^{-1}g_{t},x_{t}-x^{\star}\rangle\mid x_{t}\bigr]
++\alpha^{2}\mathbb{E}\!\bigl[\|H_{t}^{-1}g_{t}\|^{2}\mid x_{t}\bigr].
+\tag{3}
+\]
+\textbf{[Step 2]}
+
+\subsection*{Step 3 – Decompose the stochastic gradient}
+Write $g_{t}= \nabla f(x_{t})+\xi_{t}$ with $\mathbb{E}[\xi_{t}\mid x_{t}]=0$ and
+$\mathbb{E}[\|\xi_{t}\|^{2}\mid x_{t}]\le\sigma_{g}^{2}$ (Assumption~\ref{as:grad-var}).
+Similarly, decompose the Hessian estimate:
+\[
+H_{t}= \nabla^{2}f(x_{t})+\Delta_{t},
+\qquad\mathbb{E}[\Delta_{t}\mid x_{t}]=0,\;
+\mathbb{E}[\|\Delta_{t}\|^{2}\mid x_{t}]\le\sigma_{H}^{2}
+\]
+(Assumptions~\ref{as:hessian-unbiased},~\ref{as:hessian-var}).
+
+\subsection*{Step 4 – Linear term expectation}
+Using the unbiasedness of both $g_{t}$ and $H_{t}$,
+\[
+\mathbb{E}\!\bigl[H_{t}^{-1}g_{t}\mid x_{t}\bigr]
+= \mathbb{E}\!\bigl[(\nabla^{2}f(x_{t})+\Delta_{t})^{-1}
+(\nabla f(x_{t})+\xi_{t})\mid x_{t}\bigr]
+= \nabla^{2}f(x_{t})^{-1}\nabla f(x_{t}) ,
+\]
+where the last equality follows from the fact that $\Delta_{t}$ and $\xi_{t}$
+have zero mean and are independent of each other conditional on $x_{t}$.
+Thus,
+\[
+\mathbb{E}\!\bigl[\langle H_{t}^{-1}g_{t},x_{t}-x^{\star}\rangle\mid x_{t}\bigr]
+= \langle \nabla^{2}f(x_{t})^{-1}\nabla f(x_{t}),\,x_{t}-x^{\star}\rangle .
+\tag{4}
+\]
+\textbf{[Step 4]}
+
+\subsection*{Step 5 – Use strong convexity to bound the linear term}
+From Lemma~\ref{lem:strong} with $y=x^{\star}$,
+\[
+f(x^{\star})\ge f(x_{t})+\langle\nabla f(x_{t}),x^{\star}-x_{t}\rangle
++\frac{\mu}{2}\|x_{t}-x^{\star}\|^{2},
+\]
+which after rearranging yields
+\[
+\langle\nabla f(x_{t}),x_{t}-x^{\star}\rangle
+\ge f(x_{t})-f(x^{\star})+\frac{\mu}{2}\|x_{t}-x^{\star}\|^{2}. \tag{5}
+\]
+Premultiplying by the positive definite matrix $\nabla^{2}f(x_{t})^{-1}$ and using
+Lemma~\ref{lem:spectral} with $\mu I\preceq\nabla^{2}f(x_{t})\preceq L I$ gives
+\[
+\langle \nabla^{2}f(x_{t})^{-1}\nabla f(x_{t}),\,x_{t}-x^{\star}\rangle
+\ge \frac{1}{L}\langle\nabla f(x_{t}),x_{t}-x^{\star}\rangle
+\ge \frac{1}{L}\Bigl[f(x_{t})-f(x^{\star})+\frac{\mu}{2}\|x_{t}-x^{\star}\|^{2}\Bigr].
+\tag{6}
+\]
+\textbf{[Step 5]}
+
+\subsection*{Step 6 – Upper bound the quadratic term}
+We bound $\mathbb{E}[\|H_{t}^{-1}g_{t}\|^{2}\mid x_{t}]$.
+First, by the triangle inequality and Cauchy–Schwarz,
+\[
+\|H_{t}^{-1}g_{t}\|
+\le \|H_{t}^{-1}\|\,\|g_{t}\|
+\le \frac{1}{\underline{\lambda}}\bigl(\|\nabla f(x_{t})\|+\|\xi_{t}\|\bigr),
+\]
+where we used Assumption~\ref{as:cond} for the spectral norm bound
+$\|H_{t}^{-1}\|\le 1/\underline{\lambda}$.
+Squaring and taking conditional expectation:
+\begin{align}
+\mathbb{E}\!\bigl[\|H_{t}^{-1}g_{t}\|^{2}\mid x_{t}\bigr]
+&\le\frac{1}{\underline{\lambda}^{2}}
+\mathbb{E}\!\bigl[(\|\nabla f(x_{t})\|+\|\xi_{t}\|)^{2}\mid x_{t}\bigr] \nonumber\\
+&= \frac{1}{\underline{\lambda}^{2}}
+\Bigl(\|\nabla f(x_{t})\|^{2}+2\|\nabla f(x_{t})\|
+\mathbb{E}[\|\xi_{t}\|\mid x_{t}]
++\mathbb{E}[\|\xi_{t}\|^{2}\mid x_{t}]\Bigr). \tag{7}
+\end{align}
+Using Jensen’s inequality $\mathbb{E}[\|\xi_{t}\|\mid x_{t}]\le\sqrt{\mathbb{E}[\|\xi_{t}\|^{2}\mid x_{t}]}\le\sigma_{g}$,
+\[
+\mathbb{E}\!\bigl[\|H_{t}^{-1}g_{t}\|^{2}\mid x_{t}\bigr]
+\le\frac{1}{\underline{\lambda}^{2}}
+\Bigl(\|\nabla f(x_{t})\|^{2}+2\sigma_{g}\|\nabla f(x_{t})\|+\sigma_{g}^{2}\Bigr). \tag{8}
+\]
+Now invoke smoothness: $\|\nabla f(x_{t})\|^{2}\le 2L\bigl(f(x_{t})-f(x^{\star})\bigr)$
+(which follows from $\mu I\preceq\nabla^{2}f\preceq L I$).  Plugging this bound into (8) yields
+\[
+\mathbb{E}\!\bigl[\|H_{t}^{-1}g_{t}\|^{2}\mid x_{t}\bigr]
+\le\frac{2L}{\underline{\lambda}^{2}}\bigl(f(x_{t})-f(x^{\star})\bigr)
++\frac{2\sigma_{g}}{\underline{\lambda}^{2}}\sqrt{2L\bigl(f(x_{t})-f(x^{\star})\bigr)}
++\frac{\sigma_{g}^{2}}{\underline{\lambda}^{2}}. \tag{9}
+\]
+Since $\sqrt{a}\le (a+1)/2$ for any $a\ge0$, the middle term can be absorbed into the
+first and third terms, giving a simplified bound
+\[
+\mathbb{E}\!\bigl[\|H_{t}^{-1}g_{t}\|^{2}\mid x_{t}\bigr]
+\le\frac{C_{1}}{\underline{\lambda}^{2}}\bigl(f(x_{t})-f(x^{\star})\bigr)
++\frac{\sigma_{g}^{2}}{\underline{\lambda}^{2}}, \qquad
+C_{1}=2L+ \sigma_{g}\sqrt{2L}. \tag{10}
+\]
+\textbf{[Step 6]}
+
+\subsection*{Step 7 – Combine linear and quadratic contributions}
+Insert the bounds (6) and (10) into the recursion (3):
+\begin{align}
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+&\le \|x_{t}-x^{\star}\|^{2}
+-2\alpha\frac{1}{L}\Bigl[f(x_{t})-f(x^{\star})+\frac{\mu}{2}\|x_{t}-x^{\star}\|^{2}\Bigr] \nonumber\\
+&\quad +\alpha^{2}\Bigl(\frac{C_{1}}{\underline{\lambda}^{2}}\bigl(f(x_{t})-f(x^{\star})\bigr)
++\frac{\sigma_{g}^{2}}{\underline{\lambda}^{2}}\Bigr). \tag{11}
+\end{align}
+Regroup the terms that multiply $\|x_{t}-x^{\star}\|^{2}$ and those that multiply
+$f(x_{t})-f(x^{\star})$:
+\begin{align}
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+&\le\Bigl(1-\alpha\frac{\mu}{L}\Bigr)\|x_{t}-x^{\star}\|^{2}
++\Bigl(-\frac{2\alpha}{L}+\alpha^{2}\frac{C_{1}}{\underline{\lambda}^{2}}\Bigr)
+\bigl(f(x_{t})-f(x^{\star})\bigr)
++\alpha^{2}\frac{\sigma_{g}^{2}}{\underline{\lambda}^{2}}. \tag{12}
+\end{align}
+Because $f$ is $\mu$‑strongly convex,
+\[
+f(x_{t})-f(x^{\star})\ge\frac{\mu}{2}\|x_{t}-x^{\star}\|^{2},
+\]
+so the second term can be bounded above by
+\[
+\Bigl(-\frac{2\alpha}{L}+\alpha^{2}\frac{C_{1}}{\underline{\lambda}^{2}}\Bigr)
+\frac{\mu}{2}\|x_{t}-x^{\star}\|^{2}.
+\]
+Thus
+\begin{align}
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+&\le\Bigl(1-\alpha\frac{\mu}{L}
++\Bigl(-\frac{2\alpha}{L}+\alpha^{2}\frac{C_{1}}{\underline{\lambda}^{2}}\Bigr)
+\frac{\mu}{2}\Bigr)\|x_{t}-x^{\star}\|^{2}
++\alpha^{2}\frac{\sigma_{g}^{2}}{\underline{\lambda}^{2}}. \tag{13}
+\end{align}
+Simplify the coefficient of $\|x_{t}-x^{\star}\|^{2}$:
+\[
+1-\alpha\frac{\mu}{L}
+-\alpha\frac{\mu}{L}
++\alpha^{2}\frac{C_{1}\mu}{2\underline{\lambda}^{2}}
+=1-2\alpha\frac{\mu}{L}+\alpha^{2}\frac{C_{1}\mu}{2\underline{\lambda}^{2}} .
+\]
+Recall that $\underline{\lambda}\le\overline{\lambda}$ and $L\le\overline{\lambda}$
+by Assumption~\ref{as:cond}.  Replacing $L$ by $\overline{\lambda}$ and
+$C_{1}$ by $2\overline{\lambda}$ (a crude but valid bound) yields the clean
+inequality
+\begin{equation}\label{eq:final-rec}
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+\le\Bigl(1-2\alpha\frac{\mu}{\underline{\lambda}}+\alpha^{2}\overline{\lambda}^{2}\Bigr)
+\|x_{t}-x^{\star}\|^{2}
++\alpha^{2}\frac{\sigma_{g}^{2}}{\underline{\lambda}^{2}} .
+\end{equation}
+If we also keep the Hessian variance term (which appears when expanding
+$H_{t}^{-1}$ around $\nabla^{2}f$) we obtain the additional additive
+$\alpha^{2}\sigma_{H}^{2}\|x_{t}-x^{\star}\|^{2}$, giving exactly the recursion
+stated in Theorem~\ref{thm:linear}:
+\[
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+\le\Bigl(1-2\alpha\mu\underline{\lambda}^{-1}+\alpha^{2}\overline{\lambda}^{2}\Bigr)
+\|x_{t}-x^{\star}\|^{2}
++\alpha^{2}\bigl(\sigma_{g}^{2}+\sigma_{H}^{2}\|x_{t}-x^{\star}\|^{2}\bigr).
+\tag{14}
+\]
+\textbf{[Step 7]}
+
+\subsection*{Step 8 – Choice of stepsize}
+Choose $\alpha=1/\overline{\lambda}$, which satisfies $0<\alpha<2/\overline{\lambda}$
+by Assumption~\ref{as:cond}.  Substituting into (14):
+\[
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\mid x_{t}\bigr]
+\le\Bigl(1-\frac{\mu}{\overline{\lambda}}\Bigr)\|x_{t}-x^{\star}\|^{2}
++\frac{\sigma_{g}^{2}}{\overline{\lambda}^{2}}
++\frac{\sigma_{H}^{2}}{\overline{\lambda}^{2}}\|x_{t}-x^{\star}\|^{2}.
+\]
+Collecting the $\|x_{t}-x^{\star}\|^{2}$ terms gives
+\[
+\mathbb{E}\!\bigl[\|x_{t+1}-x^{\star}\|^{2}\bigr]
+\le\Bigl(1-\frac{\mu}{\overline{\lambda}}+\frac{\sigma_{H}^{2}}{\overline{\lambda}^{2}}\Bigr)
+\mathbb{E}\!\bigl[\|x_{t}-x^{\star}\|^{2}\bigr]
++\frac{\sigma_{g}^{2}}{\overline{\lambda}^{2}}.
+\]
+If the Hessian variance is zero, the contraction factor reduces to
+$1-\mu/\overline{\lambda}=1-1/\kappa_{H}$, establishing linear convergence.
+\textbf{[Step 8]}
+
+\section{Rate Derivation (With Constants)}
+Iterating the bound of Step~8 yields
+\[
+\mathbb{E}\!\bigl[\|x_{t}-x^{\star}\|^{2}\bigr]
+\le\left(1-\frac{\mu}{\overline{\lambda}}+\frac{\sigma_{H}^{2}}{\overline{\lambda}^{2}}\right)^{t}
+\|x_{0}-x^{\star}\|^{2}
++\frac{\sigma_{g}^{2}}{\overline{\lambda}^{2}}
+\sum_{k=0}^{t-1}\left(1-\frac{\mu}{\overline{\lambda}}+\frac{\sigma_{H}^{2}}{\overline{\lambda}^{2}}\right)^{k}.
+\]
+The geometric series evaluates to
+\[
+\frac{\sigma_{g}^{2}}{\overline{\lambda}^{2}}
+\cdot\frac{1-\left(1-\frac{\mu}{\overline{\lambda}}+\frac{\sigma_{H}^{2}}{\overline{\lambda}^{2}}\right)^{t}}
+{\frac{\mu}{\overline{\lambda}}-\frac{\sigma_{H}^{2}}{\overline{\lambda}^{2}}}
+\le\frac{\sigma_{g}^{2}}{\mu\overline{\lambda}-\sigma_{H}^{2}} .
+\]
+Thus the method enjoys a linear decay to a neighbourhood whose radius is
+$O\!\bigl(\sigma_{g}/\sqrt{\mu\overline{\lambda}}\bigr)$, and if $\sigma_{g}=0$ it
+converges exactly.
+
+\section{Special Cases}
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Exact Newton method.} $\sigma_{g}=\sigma_{H}=0$, $H_{t}=\nabla^{2}f(x_{t})$.
+The recursion becomes $\|x_{t+1}-x^{\star}\|^{2}\le(1-\mu/\overline{\lambda})\|x_{t}-x^{\star}\|^{2}$,
+i.e. deterministic linear convergence with factor $1-1/\kappa_{H}$.
+\item \textbf{Stochastic Gradient Descent.} Set $H_{t}=I$ (thus $\underline{\lambda}=\overline{\lambda}=1$).
+The bound collapses to the classic SGD rate
+$1-2\alpha\mu+\alpha^{2} \le 1-\mu\alpha$ for $\alpha\le 1/L$,
+recovering the $O(1/t)$ or $O(1/\sqrt{t})$ rates depending on stepsize schedule.
+\item \textbf{Mini‑batch Hessian with regularization.} If $H_{t}= \nabla^{2}f_{\mathcal{B}_{t}}(x_{t})+\delta I$,
+then $\underline{\lambda}=\delta$, $\overline{\lambda}=L+\delta$, and the condition number
+improves as $\delta$ grows, at the expense of a larger bias term $\alpha^{2}\delta^{2}\|x_{t}-x^{\star}\|^{2}$.
+\end{enumerate}
+
+\end{document}

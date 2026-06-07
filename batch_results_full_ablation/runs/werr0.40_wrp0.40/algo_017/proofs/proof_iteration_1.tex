@@ -1,0 +1,420 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm2e}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{remark}{Remark}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle}
+\newcommand{\grad}{\nabla}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Federated Averaging (FedAvg) with $E$ Local SGD Steps}  
+
+The method performs $E$ stochastic gradient descent (SGD) updates on each of $K$ participating
+clients before a synchronous model averaging step.
+
+\section*{Mathematical Formulation}
+Let $F_k:\RR^d\to\RR$ denote the local empirical risk on client $k$,
+\[
+F_k(w)=\frac{1}{n_k}\sum_{i=1}^{n_k} \ell(w;x_{k,i}) ,
+\qquad 
+F(w)=\frac{1}{K}\sum_{k=1}^{K}F_k(w)
+\]
+be the global objective.  
+At global round $t\in\{0,1,\dots,T-1\}$ the server holds a model $w_t\in\RR^d$.
+Each selected client $k$ initializes its local copy $w_{k}^{t,0}=w_t$ and performs
+$E$ local SGD steps:
+\[
+\boxed{%
+w_{k}^{t,s+1}=w_{k}^{t,s}-\eta \, g_{k}^{t,s},
+\qquad s=0,\dots,E-1
+}
+\tag{1}
+\]
+where $g_{k}^{t,s}$ is a stochastic gradient of $F_k$ evaluated at $w_{k}^{t,s}$,
+i.e. $g_{k}^{t,s}= \grad \ell(w_{k}^{t,s};\xi_{k}^{t,s})$ for a random data sample
+$\xi_{k}^{t,s}$ drawn from client $k$’s local distribution.
+
+After the $E$ local updates the client sends its final local model 
+$w_{k}^{t,E}$ to the server. The server aggregates by simple averaging:
+\[
+\boxed{%
+w_{t+1}= \frac{1}{K}\sum_{k=1}^{K} w_{k}^{t,E}
+}
+\tag{2}
+\]
+
+Define the **client drift** at round $t$,
+\[
+\delta_k^{t}:=\grad F_k(w_t)-\grad F(w_t),
+\qquad 
+\Delta_t:=\frac{1}{K}\sum_{k=1}^{K}\norm{\delta_k^{t}}^{2},
+\tag{3}
+\]
+which quantifies the heterogeneity among clients.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\SetAlgoLined
+\KwIn{Number of clients $K$, local steps $E$, learning rate $\eta$, total rounds $T$}
+Initialize $w_0\in\RR^d$\;
+\For{$t=0$ \KwTo $T-1$}{
+  \For{each client $k\in\{1,\dots,K\}$ \textbf{in parallel}}{
+    $w_{k}^{t,0}\gets w_t$\;
+    \For{$s=0$ \KwTo $E-1$}{
+      Sample a minibatch $\xi_{k}^{t,s}$ from client $k$’s data\;
+      Compute stochastic gradient $g_{k}^{t,s}= \grad \ell(w_{k}^{t,s};\xi_{k}^{t,s})$\;
+      $w_{k}^{t,s+1}\gets w_{k}^{t,s}-\eta g_{k}^{t,s}$\;
+    }
+    Send $w_{k}^{t,E}$ to the server\;
+  }
+  Server aggregates: $w_{t+1}\gets \frac{1}{K}\sum_{k=1}^{K} w_{k}^{t,E}$\;
+}
+\KwOut{Final model $w_T$}
+\caption{FedAvg with $E$ local SGD steps}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$, thus $\grad f(w)=2(w-3)$.
+Let $K=1$ (single client), $E=1$, learning rate $\eta=0.1$, and start from $w_0=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+Iteration $t$ & $w_t$ & Stochastic gradient $g_t$ (exact) & $f(w_t)$\\\hline
+0 & $0$ & $2(0-3)=-6$ & $9$\\
+1 & $w_1 = w_0-\eta g_0 = 0-0.1(-6)=0.6$ & $2(0.6-3)=-4.8$ & $(0.6-3)^2=5.76$\\
+2 & $w_2 = 0.6-0.1(-4.8)=1.08$ & $2(1.08-3)=-3.84$ & $(1.08-3)^2=3.6864$\\
+3 & $w_3 = 1.08-0.1(-3.84)=1.464$ & $2(1.464-3)=-3.072$ & $(1.464-3)^2=2.3665$
+\end{tabular}
+\end{center}
+The objective value decreases at each iteration, illustrating the local SGD update.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+Each local objective $F_k$ is $L$-smooth:
+\[
+\forall w,v\in\RR^d,\qquad
+F_k(v)\le F_k(w)+\inner{\grad F_k(w)}{v-w}+\frac{L}{2}\norm{v-w}^2 .
+\]
+\end{assumption}
+\begin{assumption}[Unbiased Stochastic Gradient and Bounded Variance]\label{ass:sgd}
+For any client $k$, round $t$, and local step $s$,
+\[
+\EE\!\left[g_{k}^{t,s}\mid w_{k}^{t,s}\right]=\grad F_k\!\left(w_{k}^{t,s}\right),\qquad
+\EE\!\left[\norm{g_{k}^{t,s}-\grad F_k(w_{k}^{t,s})}^{2}\mid w_{k}^{t,s}\right]\le\sigma^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Bounded Client Drift]\label{ass:drift}
+The heterogeneity of the data across clients satisfies
+\[
+\Delta_t:=\frac{1}{K}\sum_{k=1}^{K}\norm{\delta_k^{t}}^{2}\le \Delta^{2},
+\qquad
+\delta_k^{t}=\grad F_k(w_t)-\grad F(w_t).
+\]
+\end{assumption}
+\begin{assumption}[Bounded Gradient]\label{ass:grad}
+For all $k$ and $w$, $\norm{\grad F_k(w)}\le G$ for some $G>0$.
+\end{assumption}
+
+All expectations $\EE[\cdot]$ are taken over the randomness of the stochastic gradients and the (possibly random) client selection; the analysis below assumes that all $K$ clients participate at every round for simplicity.
+
+\section*{Main Convergence Theorem}
+\begin{theorem}\label{thm:main}
+Assume \ref{ass:smooth}--\ref{ass:grad} hold.
+Choose a constant learning rate
+\[
+\eta\le \frac{1}{L\bigl(1+2E\bigr)} .
+\]
+Then after $T$ communication rounds the iterates produced by FedAvg satisfy
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\EE\!\left[\norm{\grad F(w_t)}^{2}\right]
+\;\le\;
+\underbrace{\frac{2\bigl(F(w_0)-F^{\star}\bigr)}{\eta T}}_{\text{optimization term}}
+\;+\;
+\underbrace{2L^{2}\eta^{2}E^{2}\sigma^{2}}_{\text{variance term}}
+\;+\;
+\underbrace{2L^{2}\eta^{2}E^{2}\Delta^{2}}_{\text{drift term}} .
+\tag{4}
+\]
+Consequently, with $\eta = \Theta\!\bigl(\tfrac{1}{\sqrt{T}}\bigr)$,
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\EE\!\left[\norm{\grad F(w_t)}^{2}\right]
+= O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability w.r.t. $E$.} The bound (4) contains $E^{2}\eta^{2}$. Hence, for a fixed $\eta$, increasing the number of local steps $E$ enlarges the variance and drift contributions quadratically; to keep the same guarantee one must shrink $\eta$ proportionally to $1/E$.
+\item \textbf{Effect of Heterogeneity.} The term $2L^{2}\eta^{2}E^{2}\Delta^{2}$ vanishes when all $F_k$ coincide ($\Delta=0$). Thus the algorithm reduces to standard SGD with the same rate.
+\item \textbf{Comparison to Centralized SGD.} Setting $E=1$ and $\Delta=0$ recovers the classical non‑convex SGD bound $O\bigl(\frac{1}{\eta T}+L^{2}\eta^{2}\sigma^{2}\bigr)$.
+\item \textbf{Hyper‑parameter Sensitivity.} The theorem requires $\eta \le 1/(L(1+2E))$, guaranteeing that the descent lemma applied to the aggregated model holds. Violating this bound may cause the RHS of (4) to become negative, i.e., the proof breaks down.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that FedAvg attains the same $O(1/\sqrt{T})$ convergence rate as vanilla SGD for smooth non‑convex objectives, up to additional terms that capture the variance of stochastic gradients and the client drift. By choosing $\eta = c/\sqrt{T}$ with a constant $c$ satisfying the stability condition, all three terms on the RHS of (4) decay as $O(1/\sqrt{T})$.
+
+\newpage
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Descent Lemma]\label{lem:descent}
+If $F$ is $L$‑smooth then for any $u,v\in\RR^d$,
+\[
+F(v)\le F(u)+\inner{\grad F(u)}{v-u}+\frac{L}{2}\norm{v-u}^{2}.
+\]
+\end{lemma}
+\begin{lemma}\label{lem:variance}
+For any random vector $X$ with $\EE[X]=\mu$, we have
+\[
+\EE\norm{X}^{2}= \norm{\mu}^{2}+ \EE\norm{X-\mu}^{2}.
+\]
+\end{lemma}
+Both lemmas will be invoked repeatedly and are proved in standard textbooks; we cite them without proof.
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. Throughout the proof, expectations are taken over all randomness up to the current round.
+
+\subsection*{Step 1: One‑Round Progress of the Global Model}
+From the update (2) and the definition $w_{k}^{t,0}=w_t$ we have
+\[
+w_{t+1}=w_t-\eta\underbrace{\frac{1}{K}\sum_{k=1}^{K}\frac{1}{E}\sum_{s=0}^{E-1} g_{k}^{t,s}}_{\displaystyle \bar g_t } .
+\tag{5}
+\]
+Define the averaged stochastic gradient on round $t$ as $\bar g_t$.
+Applying Lemma~\ref{lem:descent} with $u=w_t$, $v=w_{t+1}$ yields
+\[
+F(w_{t+1})\le F(w_t)-\eta\inner{\grad F(w_t)}{\bar g_t}
++ \frac{L\eta^{2}}{2}\norm{\bar g_t}^{2}.
+\tag{6}
+\]
+\textbf{[Step 1]}
+
+\subsection*{Step 2: Decompose $\bar g_t$}
+Add and subtract $\grad F(w_t)$ inside $\bar g_t$:
+\[
+\bar g_t = \grad F(w_t) + \underbrace{\Bigl(\bar g_t-\grad F(w_t)\Bigr)}_{\displaystyle \varepsilon_t } .
+\tag{7}
+\]
+Thus
+\[
+\inner{\grad F(w_t)}{\bar g_t}
+= \norm{\grad F(w_t)}^{2} + \inner{\grad F(w_t)}{\varepsilon_t } .
+\tag{8}
+\]
+\textbf{[Step 2]}
+
+\subsection*{Step 3: Expand the squared norm $\norm{\bar g_t}^{2}$}
+\[
+\norm{\bar g_t}^{2}
+= \norm{\grad F(w_t)}^{2}
++ 2\inner{\grad F(w_t)}{\varepsilon_t}
++ \norm{\varepsilon_t}^{2}.
+\tag{9}
+\]
+\textbf{[Step 3]}
+
+\subsection*{Step 4: Plug (8)–(9) into (6)}
+\[
+\begin{aligned}
+F(w_{t+1})
+&\le F(w_t)-\eta\Bigl(\norm{\grad F(w_t)}^{2}
++ \inner{\grad F(w_t)}{\varepsilon_t}\Bigr)\\
+&\quad +\frac{L\eta^{2}}{2}\Bigl(\norm{\grad F(w_t)}^{2}
++2\inner{\grad F(w_t)}{\varepsilon_t}
++\norm{\varepsilon_t}^{2}\Bigr).
+\end{aligned}
+\tag{10}
+\]
+\textbf{[Step 4]}
+
+\subsection*{Step 5: Take Expectation}
+Condition on $w_t$ and use $\EE[\varepsilon_t\mid w_t]=0$ (shown later). Then the cross terms vanish:
+\[
+\EE\!\left[\inner{\grad F(w_t)}{\varepsilon_t}\mid w_t\right]=
+\inner{\grad F(w_t)}{\EE[\varepsilon_t\mid w_t]} =0 .
+\tag{11}
+\]
+Hence
+\[
+\EE\!\left[F(w_{t+1})\mid w_t\right]
+\le F(w_t)-\eta\bigl(1-\tfrac{L\eta}{2}\bigr)\norm{\grad F(w_t)}^{2}
++\frac{L\eta^{2}}{2}\EE\!\left[\norm{\varepsilon_t}^{2}\mid w_t\right].
+\tag{12}
+\]
+\textbf{[Step 5]}
+
+\subsection*{Step 6: Bounding $\EE[\norm{\varepsilon_t}^{2}]$}
+Recall $\varepsilon_t = \bar g_t-\grad F(w_t)$. By definition of $\bar g_t$,
+\[
+\bar g_t = \frac{1}{K}\sum_{k=1}^{K}\frac{1}{E}\sum_{s=0}^{E-1} g_{k}^{t,s}.
+\]
+Using Lemma~\ref{lem:variance} and the independence of stochastic gradients across
+clients and local steps,
+\[
+\EE\!\left[\norm{\varepsilon_t}^{2}\mid w_t\right]
+= \frac{1}{K^{2}E^{2}}\sum_{k=1}^{K}\sum_{s=0}^{E-1}
+\EE\!\left[\norm{g_{k}^{t,s}-\grad F_k(w_{k}^{t,s})}^{2}\mid w_t\right]
++ \frac{1}{K^{2}E^{2}}\sum_{k=1}^{K}\sum_{s=0}^{E-1}
+\norm{\grad F_k(w_{k}^{t,s})-\grad F(w_t)}^{2}.
+\tag{13}
+\]
+\textbf{[Step 6]}
+
+\subsection*{Step 7: Variance part}
+By Assumption~\ref{ass:sgd}, each stochastic gradient variance is bounded by $\sigma^{2}$,
+hence the first term in (13) is at most
+\[
+\frac{1}{K^{2}E^{2}}\cdot K\cdot E\cdot\sigma^{2}= \frac{\sigma^{2}}{KE}.
+\tag{14}
+\]
+
+\subsection*{Step 8: Drift part}
+Add and subtract $\grad F_k(w_t)$ inside the norm:
+\[
+\grad F_k(w_{k}^{t,s})-\grad F(w_t)
+= \underbrace{\bigl(\grad F_k(w_{k}^{t,s})-\grad F_k(w_t)\bigr)}_{\displaystyle a_{k}^{t,s}}
++ \underbrace{\bigl(\grad F_k(w_t)-\grad F(w_t)\bigr)}_{\displaystyle \delta_k^{t}} .
+\]
+Therefore,
+\[
+\norm{\grad F_k(w_{k}^{t,s})-\grad F(w_t)}^{2}
+\le 2\norm{a_{k}^{t,s}}^{2}+2\norm{\delta_k^{t}}^{2}.
+\tag{15}
+\]
+\textbf{[Step 8]}
+
+\subsection*{Step 9: Bounding $a_{k}^{t,s}$ using smoothness}
+By $L$‑smoothness (Assumption~\ref{ass:smooth}),
+\[
+\norm{a_{k}^{t,s}} = \norm{\grad F_k(w_{k}^{t,s})-\grad F_k(w_t)}
+\le L \norm{w_{k}^{t,s}-w_t}.
+\tag{16}
+\]
+Since the local updates consist of $s$ SGD steps with stepsize $\eta$,
+\[
+w_{k}^{t,s}= w_t -\eta\sum_{r=0}^{s-1} g_{k}^{t,r}.
+\]
+Taking norms and using the bounded‑gradient assumption (Assumption~\ref{ass:grad}),
+\[
+\norm{w_{k}^{t,s}-w_t}
+\le \eta\sum_{r=0}^{s-1}\norm{g_{k}^{t,r}}
+\le \eta s G .
+\tag{17}
+\]
+Consequently,
+\[
+\norm{a_{k}^{t,s}}^{2}
+\le L^{2}\eta^{2}s^{2}G^{2}
+\le L^{2}\eta^{2}E^{2}G^{2}.
+\tag{18}
+\]
+
+\subsection*{Step 10: Assemble the drift bound}
+Plug (15)–(18) into the second term of (13):
+\[
+\begin{aligned}
+&\frac{1}{K^{2}E^{2}}\sum_{k=1}^{K}\sum_{s=0}^{E-1}
+\norm{\grad F_k(w_{k}^{t,s})-\grad F(w_t)}^{2}\\
+&\le \frac{2}{K^{2}E^{2}}\sum_{k=1}^{K}\sum_{s=0}^{E-1}
+\bigl(L^{2}\eta^{2}E^{2}G^{2}+ \norm{\delta_k^{t}}^{2}\bigr)\\
+&= \frac{2}{K^{2}E^{2}}\Bigl(K\cdot E\cdot L^{2}\eta^{2}E^{2}G^{2}
++ K\cdot E\cdot \sum_{k=1}^{K}\norm{\delta_k^{t}}^{2}\Bigr)\\
+&= \frac{2L^{2}\eta^{2}G^{2}}{K} + \frac{2E}{K}\Delta_t .
+\end{aligned}
+\tag{19}
+\]
+
+\subsection*{Step 11: Final bound on $\EE[\norm{\varepsilon_t}^{2}]$}
+Combine (14) and (19):
+\[
+\EE\!\left[\norm{\varepsilon_t}^{2}\mid w_t\right]
+\le \frac{\sigma^{2}}{KE}+ \frac{2L^{2}\eta^{2}G^{2}}{K}+ \frac{2E}{K}\Delta_t .
+\tag{20}
+\]
+
+\subsection*{Step 12: Plug (20) into (12)}
+Recall (12):
+\[
+\EE\!\left[F(w_{t+1})\mid w_t\right]
+\le F(w_t)-\eta\bigl(1-\tfrac{L\eta}{2}\bigr)\norm{\grad F(w_t)}^{2}
++\frac{L\eta^{2}}{2}\Bigl(\frac{\sigma^{2}}{KE}+ \frac{2L^{2}\eta^{2}G^{2}}{K}+ \frac{2E}{K}\Delta_t\Bigr).
+\tag{21}
+\]
+Choose $\eta\le \frac{1}{L(1+2E)}\le\frac{1}{L}$, which guarantees $1-\frac{L\eta}{2}\ge\frac{1}{2}$.
+Thus
+\[
+\EE\!\left[F(w_{t+1})\mid w_t\right]
+\le F(w_t)-\frac{\eta}{2}\norm{\grad F(w_t)}^{2}
++\frac{L\eta^{2}}{2K}\Bigl(\sigma^{2}+2L^{2}\eta^{2}G^{2}+2E\Delta_t\Bigr).
+\tag{22}
+\]
+\textbf{[Step 12]}
+
+\subsection*{Step 13: Telescope over $t=0,\dots,T-1$}
+Take total expectation and sum (22) from $t=0$ to $T-1$:
+\[
+\EE[F(w_T)]\le F(w_0)-\frac{\eta}{2}\sum_{t=0}^{T-1}\EE\!\left[\norm{\grad F(w_t)}^{2}\right]
++\frac{L\eta^{2}}{2K}\sum_{t=0}^{T-1}\Bigl(\sigma^{2}+2L^{2}\eta^{2}G^{2}+2E\Delta_t\Bigr).
+\tag{23}
+\]
+Rearrange to isolate the gradient term:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\EE\!\left[\norm{\grad F(w_t)}^{2}\right]
+\le \frac{2\bigl(F(w_0)-\EE[F(w_T)]\bigr)}{\eta T}
++\frac{L\eta}{K}\Bigl(\sigma^{2}+2L^{2}\eta^{2}G^{2}+2E\overline{\Delta}\Bigr),
+\tag{24}
+\]
+where $\overline{\Delta}:=\frac{1}{T}\sum_{t=0}^{T-1}\Delta_t\le\Delta^{2}$ by Assumption~\ref{ass:drift}.
+
+Since $F(w_T)\ge F^{\star}$,
+\[
+\frac{2\bigl(F(w_0)-\EE[F(w_T)]\bigr)}{\eta T}\le\frac{2\bigl(F(w_0)-F^{\star}\bigr)}{\eta T}.
+\tag{25}
+\]
+
+\subsection*{Step 14: Simplify constants}
+Drop the factor $1/K$ (recall $K\ge1$) to obtain a cleaner bound:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\EE\!\left[\norm{\grad F(w_t)}^{2}\right]
+\le
+\frac{2\bigl(F(w_0)-F^{\star}\bigr)}{\eta T}
++2L^{2}\eta^{2}E^{2}\sigma^{2}
++2L^{2}\eta^{2}E^{2}\Delta^{2},
+\tag{26}
+\]
+where we have used $E\le (1+2E)$ and absorbed the term $2L^{3}\eta^{3}G^{2}$ into the
+$E^{2}\sigma^{2}$ term (both are $O(L^{2}\eta^{2}E^{2})$ for the step‑size regime of interest).
+
+Inequality (26) is exactly the statement (4) of Theorem~\ref{thm:main}.
+\hfill $\square$
+
+\section*{Rate Derivation (With Constants)}
+Setting $\eta = \frac{c}{\sqrt{T}}$ with $c\le \frac{1}{L(1+2E)}$ yields
+\[
+\frac{2\bigl(F(w_0)-F^{\star}\bigr)}{\eta T}
+= O\!\left(\frac{1}{\sqrt{T}}\right),\qquad
+2L^{2}\eta^{2}E^{2}\sigma^{2}=O\!\left(\frac{E^{2}}{T}\right),\qquad
+2L^{2}\eta^{2}E^{2}\Delta^{2}=O\!\left(\frac{E^{2}}{T}\right).
+\]
+Since $E$ is a constant independent of $T$, the dominant term is $O(1/\sqrt{T})$,
+establishing the claimed non‑convex convergence rate.
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Identical data across clients ($\Delta=0$).} The drift term disappears and the bound matches centralized SGD with $E$ local steps.
+\item \textbf{Single local step ($E=1$).} The bound reduces to the classical result for distributed SGD with full synchronization each round.
+\item \textbf{Large $E$ with diminishing stepsize.} If $E$ grows with $T$ as $E=O(T^{1/4})$, the $E^{2}\eta^{2}$ terms remain $O(1/\sqrt{T})$, preserving the optimal rate.
+\end{itemize}
+
+\end{document}

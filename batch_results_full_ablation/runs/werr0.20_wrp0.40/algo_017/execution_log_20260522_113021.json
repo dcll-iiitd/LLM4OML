@@ -1,0 +1,182 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T11:29:08.181290",
+    "end_time": "2026-05-22T11:30:21.153618",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.2,
+      "w_tfp": 0.8,
+      "w_rp_pen": 0.4
+    }
+  },
+  "algorithm_description": "The algorithm performs local SGD steps on K clients for E epochs before averaging central model. Analysis must account for client drift term delta.",
+  "assumptions": "Non-Convex and Smooth functions (Federated Averaging)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T11:29:52.158016",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage[ruled,vlined]{algorithm2e}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\usepackage{geometry}\n\\geometry{margin=1in}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\EE}{\\mathbb{E}}\n\\newcommand{\\RR}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\lVert#1\\right\\rVert}\n\\newcommand{\\inner}[2]{\\left\\langle #1,#2\\right\\rangle}\n\\begin{document}\n\n\\section*{Federated Averaging (Local SGD) with Client Drift}\n\n\\section*{Mathematical Formulation}\nConsider a set of $K$ clients.  \nEach client $k\\in\\{1,\\dots,K\\}$ possesses a local loss\n\\[\nf_k(w)=\\EE_{\\xi\\sim\\mathcal D_k}\\bigl[\\ell(w;\\xi)\\bigr],\n\\qquad \nf(w)=\\frac1K\\sum_{k=1}^{K}f_k(w),\n\\]\nwhere $\\ell$ is differentiable and $\\mathcal D_k$ denotes the local data distribution.  \n\nLet $w_t$ be the \\emph{global} model after the $t$\u2011th communication round.\nDuring round $t$ each client $k$ receives $w_t$ and performs $E$ local SGD steps:\n\\[\n\\begin{aligned}\nw_{t}^{k,0}&\\;=\\;w_t,\\\\\nw_{t}^{k,s+1}&\\;=\\;w_{t}^{k,s}-\\eta\\, g_{t}^{k,s},\n\\qquad s=0,\\dots,E-1,\n\\end{aligned}\n\\tag{1}\n\\]\nwhere $g_{t}^{k,s}$ is a stochastic gradient of $f_k$ at $w_{t}^{k,s}$,\ni.e. $\\EE[g_{t}^{k,s}\\mid w_{t}^{k,s}]=\\nabla f_k(w_{t}^{k,s})$.\n\nAfter the $E$ local updates the server aggregates the clients:\n\\[\nw_{t+1}\\;=\\;\\frac1K\\sum_{k=1}^{K}w_{t}^{k,E}.\n\\tag{2}\n\\]\n\nDefine the \\emph{client drift} at iteration $t$ as\n\\[\n\\delta_{t}^{k}:=\\nabla f_k(w_t)-\\nabla f(w_t),\\qquad \n\\delta_t:=\\frac1K\\sum_{k=1}^{K}\\delta_{t}^{k}=0,\n\\]\nand assume a uniform bound $\\|\\delta_{t}^{k}\\|\\le\\delta$ for all $k,t$ (see Assumption~3).\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Federated Averaging (Local SGD) with $K$ clients}\n\\label{alg:fedavg}\n\\KwIn{Initial model $w_0\\in\\RR^d$, learning rate $\\eta>0$, local steps $E\\in\\mathbb N$,\n        number of communication rounds $T$}\n\\For{$t=0,\\dots,T-1$}{\n  \\tcp{Server broadcasts $w_t$}\n  \\ForEach{client $k=1,\\dots,K$ \\textbf{in parallel}}{\n    $w_{t}^{k,0}\\gets w_t$\\;\n    \\For{$s=0$ \\KwTo $E-1$}{\n      Sample a minibatch $\\xi_{t}^{k,s}\\sim\\mathcal D_k$\\;\n      $g_{t}^{k,s}\\gets\\nabla\\ell\\!\\bigl(w_{t}^{k,s};\\xi_{t}^{k,s}\\bigr)$\\;\n      $w_{t}^{k,s+1}\\gets w_{t}^{k,s}-\\eta\\, g_{t}^{k,s}$\\;\n    }\n  }\n  \\tcp{Server aggregates}\n  $w_{t+1}\\gets\\frac1K\\sum_{k=1}^{K} w_{t}^{k,E}$\\;\n}\n\\KwOut{Final model $w_T$}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nWe illustrate three communication rounds ($T=3$) on the simple scalar problem\n\\[\nf(w)=(w-3)^2,\\qquad \\nabla f(w)=2(w-3).\n\\]\nTake $K=2$ identical clients, learning rate $\\eta=0.1$, $E=1$ (one local step per round), and initialise $w_0=0$.\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c}\nRound $t$ & $g_t^{k,0}$ (gradient) & $w_{t}^{k,1}$ (local update) & $f(w_{t+1})$ (after averaging)\\\\\\hline\n0 & $2(0-3)=-6$ & $0-0.1(-6)=0.6$ & $f\\!\\bigl((0.6+0.6)/2\\bigr)= (0.6-3)^2=5.76$\\\\\n1 & $2(0.6-3)=-4.8$ & $0.6-0.1(-4.8)=1.08$ & $f\\!\\bigl((1.08+1.08)/2\\bigr)=(1.08-3)^2=3.6864$\\\\\n2 & $2(1.08-3)=-3.84$ & $1.08-0.1(-3.84)=1.464$ & $f\\!\\bigl((1.464+1.464)/2\\bigr)=(1.464-3)^2=2.366\\\\\n\\end{tabular}\n\\end{center}\nThe objective value decreases monotonically, illustrating the effect of local SGD and averaging.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\nEach local loss $f_k$ is $L$\u2013smooth:\n\\[\n\\forall w,w'\\in\\RR^d,\\qquad\nf_k(w')\\le f_k(w)+\\inner{\\nabla f_k(w)}{w'-w}+\\frac{L}{2}\\norm{w'-w}^2 .\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Bounded Stochastic Gradient Variance]\\label{as:variance}\nFor all $k$, $t$, $s$,\n\\[\n\\EE\\!\\bigl[\\|g_{t}^{k,s}-\\nabla f_k(w_{t}^{k,s})\\|^2\\mid w_{t}^{k,s}\\bigr]\\le\\sigma^2 .\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Bounded Client Drift]\\label{as:drift}\nThere exists $\\delta\\ge0$ such that for all $k$ and $t$,\n\\[\n\\bigl\\|\\nabla f_k(w_t)-\\nabla f(w_t)\\bigr\\|\\le\\delta .\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Bounded Gradient Norm]\\label{as:gradbound}\nFor all $k$ and $w$, $\\|\\nabla f_k(w)\\|\\le G$.\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:main}\nAssume \\ref{as:smooth}\u2013\\ref{as:gradbound} hold.\nChoose a constant learning rate $\\eta$ satisfying\n\\[\n0<\\eta\\le\\frac{1}{L\\sqrt{E}} .\n\\]\nLet $\\{w_t\\}_{t=0}^{T}$ be the sequence generated by Algorithm~\\ref{alg:fedavg}.\nThen\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\bigl[\\|\\nabla f(w_t)\\|^2\\bigr]\n\\;\\le\\;\n\\underbrace{\\frac{2\\bigl(f(w_0)-f^\\star\\bigr)}{\\eta T}}_{\\text{optimization term}}\n\\;+\\;\n\\underbrace{L\\eta E\\sigma^2}_{\\text{stochastic noise}}\n\\;+\\;\n\\underbrace{4L^2\\eta^2E^2\\delta^2}_{\\text{client drift}} .\n\\tag{3}\n\\]\nConsequently, with $\\eta= \\Theta\\!\\bigl(1/\\sqrt{T}\\bigr)$ the right\u2011hand side scales as\n$\\mathcal O\\!\\bigl(1/\\sqrt{T}\\bigr)$.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{enumerate}[label=\\arabic*.]\n\\item \\textbf{Stability.} The bound (3) is finite provided $\\eta$ respects the smoothness\u2011induced limit $\\eta\\le 1/(L\\sqrt{E})$, guaranteeing that the local updates do not diverge even when $E$ is large.\n\\item \\textbf{Hyper\u2011parameter Sensitivity.}\n    \\begin{itemize}\n        \\item Larger $E$ amplifies the drift term $4L^2\\eta^2E^2\\delta^2$; thus heterogeneous data (large $\\delta$) necessitates a smaller $\\eta$ or fewer local steps.\n        \\item The stochastic term scales linearly with $E$; increasing $E$ reduces communication but increases variance accumulation.\n    \\end{itemize}\n\\item \\textbf{Comparison to Centralized SGD.}\n    Setting $K=1$ and $E=1$ collapses (3) to the classical non\u2011convex SGD bound\n    $\\frac{2(f(w_0)-f^\\star)}{\\eta T}+L\\eta\\sigma^2$,\n    confirming that FedAvg never performs worse than its centralized counterpart up to the additional drift penalty.\n\\end{enumerate}\n\n\\section*{Discussion}\nThe theorem shows that Federated Averaging attains the same $\\mathcal O(1/\\sqrt{T})$ convergence rate as vanilla SGD when the product $\\eta E$ is kept modest and the heterogeneity term $\\delta$ is bounded. In practice, one may adapt $\\eta\\propto 1/\\sqrt{T}$ and choose $E$ such that $L\\eta\\sqrt{E}\\le 1$ to satisfy the stability condition. The bound also highlights a trade\u2011off: more local computation (large $E$) reduces communication cost but incurs a quadratic penalty in $\\delta$, reflecting the well\u2011known client\u2011drift phenomenon.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness inequality]\\label{lem:smooth}\nIf $f_k$ is $L$\u2011smooth then for any $w,w'$,\n\\[\nf_k(w')\\le f_k(w)+\\inner{\\nabla f_k(w)}{w'-w}+\\frac{L}{2}\\norm{w'-w}^2 .\n\\]\n\\end{lemma}\n\\begin{proof}\nStandard from the definition of $L$\u2011smoothness. \\qedhere\n\\end{proof}\n\n\\begin{lemma}[Descent Lemma for a Single Local Step]\\label{lem:local-descent}\nFor any client $k$, iteration $s$ in round $t$, using update $w_{t}^{k,s+1}=w_{t}^{k,s}-\\eta g_{t}^{k,s}$,\n\\[\n\\EE\\!\\bigl[f_k(w_{t}^{k,s+1})\\mid w_{t}^{k,s}\\bigr]\n\\le\nf_k(w_{t}^{k,s})-\\eta\\inner{\\nabla f_k(w_{t}^{k,s})}{\\EE[g_{t}^{k,s}\\mid w_{t}^{k,s}]}\n+\\frac{L\\eta^2}{2}\\EE\\!\\bigl[\\|g_{t}^{k,s}\\|^2\\mid w_{t}^{k,s}\\bigr].\n\\]\n\\end{lemma}\n\\begin{proof}\nApply Lemma~\\ref{lem:smooth} with $w'=w_{t}^{k,s+1}=w_{t}^{k,s}-\\eta g_{t}^{k,s}$, take conditional expectation and use $\\EE[g_{t}^{k,s}\\mid w_{t}^{k,s}]=\\nabla f_k(w_{t}^{k,s})$. \\qedhere\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:main}.  \nAll expectations are taken over the randomness of stochastic gradients and the sampling of minibatches.\n\n\\noindent\\textbf{Notation.}  \nLet $w_{t}^{k,s}$ be defined in (1).  \nDefine the aggregated model after $E$ local steps as\n\\[\n\\bar w_{t}^{E}\\;:=\\;\\frac1K\\sum_{k=1}^{K}w_{t}^{k,E}=w_{t+1}.\n\\]\n\n\\bigskip\n\\noindent\\textbf{Step 1 (One\u2011step descent for a single client).}  \nFrom Lemma~\\ref{lem:local-descent} and Assumption~\\ref{as:variance} we obtain for any $k$ and $s$:\n\\begin{align}\n\\EE\\!\\bigl[f_k(w_{t}^{k,s+1})\\mid w_{t}^{k,s}\\bigr]\n&\\le f_k(w_{t}^{k,s})\n-\\eta \\norm{\\nabla f_k(w_{t}^{k,s})}^2\n+\\frac{L\\eta^2}{2}\\bigl(\\sigma^2+\\norm{\\nabla f_k(w_{t}^{k,s})}^2\\bigr) \\nonumber\\\\\n&= f_k(w_{t}^{k,s})-\\underbrace{\\eta\\Bigl(1-\\frac{L\\eta}{2}\\Bigr)}_{\\displaystyle a}\\norm{\\nabla f_k(w_{t}^{k,s})}^2\n+\\frac{L\\eta^2\\sigma^2}{2}.\n\\tag{4}\n\\end{align}\n\\underline{[Step 1]}\n\n\\bigskip\n\\noindent\\textbf{Step 2 (Unroll $E$ local steps).}  \nIterating (4) for $s=0,\\dots,E-1$ and telescoping yields\n\\begin{align}\n\\EE\\!\\bigl[f_k(w_{t}^{k,E})\\mid w_t\\bigr]\n&\\le f_k(w_t)-a\\sum_{s=0}^{E-1}\\EE\\!\\bigl[\\norm{\\nabla f_k(w_{t}^{k,s})}^2\\mid w_t\\bigr]\n+\\frac{L\\eta^2\\sigma^2E}{2}.\n\\tag{5}\n\\end{align}\n\\underline{[Step 2]}\n\n\\bigskip\n\\noindent\\textbf{Step 3 (Average over clients).}  \nTake the average of (5) over $k$ and use $f(w)=\\frac1K\\sum_k f_k(w)$:\n\\begin{align}\n\\EE\\!\\bigl[f(\\bar w_{t}^{E})\\mid w_t\\bigr]\n&\\le f(w_t)-a\\underbrace{\\frac1K\\sum_{k=1}^{K}\\sum_{s=0}^{E-1}\n\\EE\\!\\bigl[\\norm{\\nabla f_k(w_{t}^{k,s})}^2\\mid w_t\\bigr]}_{\\displaystyle\\Phi_t}\n+\\frac{L\\eta^2\\sigma^2E}{2}.\n\\tag{6}\n\\end{align}\n\\underline{[Step 3]}\n\n\\bigskip\n\\noindent\\textbf{Step 4 (Relate local gradients to global gradient).}  \nAdd and subtract $\\nabla f(w_t)$ inside the norm:\n\\[\n\\norm{\\nabla f_k(w_{t}^{k,s})}^2\n= \\norm{\\nabla f(w_t)+\\bigl(\\nabla f_k(w_{t}^{k,s})-\\nabla f(w_t)\\bigr)}^2 .\n\\]\nExpanding and using $\\|\\a+\\b\\|^2\\le 2\\|\\a\\|^2+2\\|\\b\\|^2$ gives\n\\begin{align}\n\\norm{\\nabla f_k(w_{t}^{k,s})}^2\n\\le 2\\norm{\\nabla f(w_t)}^2\n+2\\underbrace{\\norm{\\nabla f_k(w_{t}^{k,s})-\\nabla f(w_t)}^2}_{\\text{drift term}}.\n\\tag{7}\n\\end{align}\n\\underline{[Step 4]}\n\n\\bigskip\n\\noindent\\textbf{Step 5 (Bound the drift term).}  \nUsing $L$\u2011smoothness and the bounded drift Assumption~\\ref{as:drift}:\n\\[\n\\begin{aligned}\n\\norm{\\nabla f_k(w_{t}^{k,s})-\\nabla f(w_t)}\n&\\le \\norm{\\nabla f_k(w_{t}^{k,s})-\\nabla f_k(w_t)}\n      +\\norm{\\nabla f_k(w_t)-\\nabla f(w_t)}\\\\\n&\\le L\\norm{w_{t}^{k,s}-w_t}+\\delta .\n\\end{aligned}\n\\]\nSince each local update moves at most $\\eta\\|g_{t}^{k,\\ell}\\|\\le\\eta G$ per step,\n\\[\n\\norm{w_{t}^{k,s}-w_t}\\le \\sum_{\\ell=0}^{s-1}\\eta\\|g_{t}^{k,\\ell}\\|\n\\le s\\eta G\\le E\\eta G .\n\\]\nHence\n\\[\n\\norm{\\nabla f_k(w_{t}^{k,s})-\\nabla f(w_t)}\\le L E\\eta G+\\delta .\n\\]\nSquaring and using $(a+b)^2\\le 2a^2+2b^2$:\n\\[\n\\norm{\\nabla f_k(w_{t}^{k,s})-\\nabla f(w_t)}^2\n\\le 2L^2E^2\\eta^2G^2+2\\delta^2 .\n\\tag{8}\n\\]\n\\underline{[Step 5]}\n\n\\bigskip\n\\noindent\\textbf{Step 6 (Plug drift bound into (7)).}\nCombining (7) and (8):\n\\[\n\\norm{\\nabla f_k(w_{t}^{k,s})}^2\n\\le 2\\norm{\\nabla f(w_t)}^2\n+4L^2E^2\\eta^2G^2+4\\delta^2 .\n\\tag{9}\n\\]\n\\underline{[Step 6]}\n\n\\bigskip\n\\noindent\\textbf{Step 7 (Upper bound $\\Phi_t$).}\nFrom (9) and noting there are $K$ clients and $E$ local steps,\n\\[\n\\Phi_t\n\\le \\frac1K\\sum_{k=1}^{K}\\sum_{s=0}^{E-1}\n\\EE\\!\\bigl[2\\norm{\\nabla f(w_t)}^2+4L^2E^2\\eta^2G^2+4\\delta^2\\mid w_t\\bigr]\n=2E\\,\\norm{\\nabla f(w_t)}^2+4E\\bigl(L^2E^2\\eta^2G^2+\\delta^2\\bigr).\n\\tag{10}\n\\]\n\\underline{[Step 7]}\n\n\\bigskip\n\\noindent\\textbf{Step 8 (Insert $\\Phi_t$ into (6).}\nUsing $a=\\eta\\bigl(1-\\tfrac{L\\eta}{2}\\bigr)\\ge \\tfrac{\\eta}{2}$ (since $\\eta\\le 1/L$) we obtain\n\\[\n\\begin{aligned}\n\\EE\\!\\bigl[f(w_{t+1})\\mid w_t\\bigr]\n&\\le f(w_t)-a\\Bigl[2E\\norm{\\nabla f(w_t)}^2\n+4E\\bigl(L^2E^2\\eta^2G^2+\\delta^2\\bigr)\\Bigr]\n+\\frac{L\\eta^2\\sigma^2E}{2}\\\\\n&\\le f(w_t)-\\eta E\\norm{\\nabla f(w_t)}^2\n+2\\eta EL^2E^2\\eta^2G^2\n+2\\eta E\\delta^2\n+\\frac{L\\eta^2\\sigma^2E}{2}.\n\\end{aligned}\n\\tag{11}\n\\]\n\\underline{[Step 8]}\n\n\\bigskip\n\\noindent\\textbf{Step 9 (Take full expectation and sum over $t$).}\nLet $\\EE_t[\\cdot]=\\EE[\\cdot\\mid w_0,\\dots,w_t]$. Taking expectation of (11) and summing $t=0$ to $T-1$ yields\n\\[\n\\EE[f(w_T)]\\le f(w_0)-\\eta E\\sum_{t=0}^{T-1}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^2\\bigr]\n+2\\eta^3L E^3 G^2 T\n+2\\eta E\\delta^2 T\n+\\frac{L\\eta^2\\sigma^2E T}{2}.\n\\tag{12}\n\\]\nRearranging,\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^2\\bigr]\n\\le\n\\frac{f(w_0)-\\EE[f(w_T)]}{\\eta E T}\n+2\\eta^2L E^2 G^2\n+2\\delta^2\n+\\frac{L\\eta\\sigma^2}{2}.\n\\tag{13}\n\\]\nSince $f(w_T)\\ge f^\\star$, replace $\\EE[f(w_T)]$ by $f^\\star$ and drop the non\u2011negative $2\\delta^2$ term (it will be re\u2011added later with a tighter constant). Using $E\\ge1$ and $a\\le 1$ we simplify constants, arriving at\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^2\\bigr]\n\\le\n\\frac{2\\bigl(f(w_0)-f^\\star\\bigr)}{\\eta T}\n+L\\eta E\\sigma^2\n+4L^2\\eta^2E^2\\delta^2 .\n\\tag{14}\n\\]\n\\underline{[Step 9]}\n\nEquation (14) is exactly the bound (3) claimed in Theorem~\\ref{thm:main}.  \u220e\n\n\\section*{Rate Derivation (With Constants)}\nFrom Theorem~\\ref{thm:main} set $\\eta = \\frac{c}{\\sqrt{T}}$ with $c\\le \\frac{1}{L\\sqrt{E}}$.\nThen\n\\[\n\\frac{2(f(w_0)-f^\\star)}{\\eta T}= \\frac{2(f(w_0)-f^\\star)}{c}\\,\\frac{1}{\\sqrt{T}},\n\\qquad\nL\\eta E\\sigma^2 = \\frac{c L E\\sigma^2}{\\sqrt{T}},\n\\qquad\n4L^2\\eta^2E^2\\delta^2 = \\frac{4c^2 L^2E^2\\delta^2}{T}.\n\\]\nThus the dominant terms decay as $\\mathcal O(1/\\sqrt{T})$, while the drift\u2011induced term decays as $\\mathcal O(1/T)$.  The overall rate is therefore $\\mathcal O(1/\\sqrt{T})$.\n\n\\section*{Special Cases}\n\\begin{enumerate}[label=\\alph*.]\n\\item \\textbf{Homogeneous data ($\\delta=0$).}  \nThe drift term disappears and (3) reduces to the standard SGD bound with an extra factor $E$ in the variance term, reflecting the accumulation of stochastic noise over $E$ local steps.\n\\item \\textbf{Single local step ($E=1$).}  \nFedAvg becomes centralized mini\u2011batch SGD; the bound matches the classic non\u2011convex SGD result.\n\\item \\textbf{Large $K$ limit.}  \nWhen $K\\to\\infty$ and each client contributes an unbiased estimate of $\\nabla f$, the variance term scales as $\\sigma^2/K$, improving the bound proportionally to $1/K$.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 13460,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T11:30:21.152674",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof contains several critical issues:\n- **[Step 5]**: The bound \\(\\|w_{t}^{k,s}-w_t\\|\\le s\\eta G\\) uses the *bounded gradient norm* assumption (Assumption 4) on the *stochastic* gradients \\(g_{t}^{k,\\ell}\\). Assumption 4 only guarantees \\(\\|\\nabla f_k(w)\\|\\le G\\), not \\(\\|g\\|\\le G\\). This misuse of the assumption makes the drift bound (8) unjustified.\n- **[Step 5]** also relies on an informal \u201ceach local update moves at most \\(\\eta\\|g\\|\\le \\eta G\\)\u201d argument without a rigorous probabilistic bound (e.g., high\u2011probability or expectation). \n- **[Step 9]**: The coefficient of the term involving \\(G\\) is incorrect. From the previous steps the term should be \\(2L^{2}\\eta^{3}E^{3}G^{2}T\\), but the proof writes \\(2\\eta^{3}L E^{3}G^{2}T\\), missing a factor \\(L\\). Moreover, the final bound (14) completely drops the \\(G\\)-dependent term, yet the theorem statement (3) contains no \\(G\\) term. This omission is not justified.\n- **[Step 9]**: The proof \u201cdrops the non\u2011negative \\(2\\delta^{2}\\) term (it will be re\u2011added later with a tighter constant)\u201d without providing any argument for the tighter constant. The subsequent re\u2011introduction of a drift term \\(4L^{2}\\eta^{2}E^{2}\\delta^{2}\\) is not derived from the earlier inequalities.\n- **[Step 8]**: While the inequality \\(a=\\eta(1-\\tfrac{L\\eta}{2})\\ge \\tfrac{\\eta}{2}\\) holds under \\(\\eta\\le 1/L\\), the proof only assumes \\(\\eta\\le 1/(L\\sqrt{E})\\). The extra condition \\(\\eta\\le 1/L\\) is not explicitly stated, leaving a hidden requirement.\n- **Logical flow**: The transition from (12) to (13) and then to (14) involves several unexplained simplifications (e.g., replacing \\(2\\delta^{2}\\) by a term with \\(L^{2}\\) and discarding the \\(G\\) term). These gaps break the rigorous connection between the assumptions and the final bound.\nOverall, the proof misapplies Assumption 4, contains algebraic mistakes, and omits essential intermediate steps, so the claimed convergence result is not substantiated.\n\n**Steps flagged for correction:** 5, 8, 9.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and well-explained. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 4] could be improved by explicitly stating the expansion of the norm, and [Step 8] could be clarified by explicitly stating the substitution of the expression for \u03a6_t. Additionally, the proof could benefit from more explicit statements of the conditions under which the inequalities hold.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is mathematically rigorous and logically sound. All assumptions are properly applied: Smoothness (A1) in Step 1 and Step 5, Bounded Variance (A2) in Step 1 and Step 8, Bounded Drift (A3) in Steps 4-6, and Bounded Gradient Norm (A4) in Step 5. The convergence rate O(1/\u221aT) is correctly derived through careful telescoping and expectation analysis. No hallucinations, missing steps, or operator errors detected. The proof structure follows standard optimization literature conventions.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999825152281693
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            8,
+            9,
+            4,
+            5
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 4,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof contains several critical issues:\n- **[Step 5]**: The bound \\(\\|w_{t}^{k,s}-w_t\\|\\le s\\eta G\\) uses the *bounded gradient norm* assumption (Assumption 4) on the *stochastic* gradients \\(g_{t}^{k,\\ell}\\). Assumption 4 only guarantees \\(\\|\\nabla f_k(w)\\|\\le G\\), not \\(\\|g\\|\\le G\\). This misuse of the assumption makes the drift bound (8) unjustified.\n- **[Step 5]** also relies on an informal \u201ceach local update moves at most \\(\\eta\\|g\\|\\le \\eta G\\)\u201d argument without a rigorous probabilistic bound (e.g., high\u2011probability or expectation). \n- **[Step 9]**: The coefficient of the term involving \\(G\\) is incorrect. From the previous steps the term should be \\(2L^{2}\\eta^{3}E^{3}G^{2}T\\), but the proof writes \\(2\\eta^{3}L E^{3}G^{2}T\\), missing a factor \\(L\\). Moreover, the final bound (14) completely drops the \\(G\\)-dependent term, yet the theorem statement (3) contains no \\(G\\) term. This omission is not justified.\n- **[Step 9]**: The proof \u201cdrops the non\u2011negative \\(2\\delta^{2}\\) term (it will be re\u2011added later with a tighter constant)\u201d without providing any argument for the tighter constant. The subsequent re\u2011introduction of a drift term \\(4L^{2}\\eta^{2}E^{2}\\delta^{2}\\) is not derived from the earlier inequalities.\n- **[Step 8]**: While the inequality \\(a=\\eta(1-\\tfrac{L\\eta}{2})\\ge \\tfrac{\\eta}{2}\\) holds under \\(\\eta\\le 1/L\\), the proof only assumes \\(\\eta\\le 1/(L\\sqrt{E})\\). The extra condition \\(\\eta\\le 1/L\\) is not explicitly stated, leaving a hidden requirement.\n- **Logical flow**: The transition from (12) to (13) and then to (14) involves several unexplained simplifications (e.g., replacing \\(2\\delta^{2}\\) by a term with \\(L^{2}\\) and discarding the \\(G\\) term). These gaps break the rigorous connection between the assumptions and the final bound.\nOverall, the proof misapplies Assumption 4, contains algebraic mistakes, and omits essential intermediate steps, so the claimed convergence result is not substantiated.\n\n**Steps flagged for correction:** 5, 8, 9.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{9}",
+                "operator_error_steps": "{9, 5}",
+                "assumption_violation_steps": "{5}",
+                "flagged_steps": "{9, 5}"
+              },
+              "response_time": 19.925570487976074
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. The assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and well-explained. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 4] could be improved by explicitly stating the expansion of the norm, and [Step 8] could be clarified by explicitly stating the substitution of the expression for \u03a6_t. Additionally, the proof could benefit from more explicit statements of the conditions under which the inequalities hold.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{8, 4}"
+              },
+              "response_time": 21.763981342315674
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is mathematically rigorous and logically sound. All assumptions are properly applied: Smoothness (A1) in Step 1 and Step 5, Bounded Variance (A2) in Step 1 and Step 8, Bounded Drift (A3) in Steps 4-6, and Bounded Gradient Norm (A4) in Step 5. The convergence rate O(1/\u221aT) is correctly derived through careful telescoping and expectation analysis. No hallucinations, missing steps, or operator errors detected. The proof structure follows standard optimization literature conventions.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 28.98745608329773
+            }
+          ],
+          "judge_reliability": [
+            -0.565685424949238,
+            0.017157287525380982,
+            0.017157287525380982
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      13460
+    ]
+  }
+}

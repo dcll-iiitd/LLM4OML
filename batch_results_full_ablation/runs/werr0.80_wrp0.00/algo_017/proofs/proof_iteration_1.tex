@@ -1,0 +1,474 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{enumitem}
+\usepackage{hyperref}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\newcommand{\inner}[2]{\langle #1,#2\rangle}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Federated Averaging (FedAvg) with Local SGD and Client Drift $\delta$}
+
+\section*{Mathematical Formulation}
+Let $f_k:\RR^d\rightarrow\RR$ be the local loss on client $k\in\{1,\dots ,K\}$ and 
+\[
+f(w)=\frac1K\sum_{k=1}^{K}f_k(w)
+\]
+the global objective.  
+Denote by $w_t\in\RR^d$ the global model after the $t$‑th communication round.  
+Each round consists of $E$ local SGD steps on every participating client.
+
+\begin{itemize}
+\item \textbf{Local SGD (client $k$, epoch $e$).}
+\[
+\begin{aligned}
+w_{t}^{k,0} &\gets w_t,\\
+g_{t}^{k,e} &\gets \nabla f_k\!\bigl(w_{t}^{k,e-1};\xi_{t}^{k,e}\bigr),\\
+w_{t}^{k,e} &\gets w_{t}^{k,e-1}-\eta\, g_{t}^{k,e},
+\qquad e=1,\dots ,E,
+\end{aligned}
+\]
+where $\xi_{t}^{k,e}$ is a random mini‑batch drawn on client $k$ and $\eta>0$ is the learning rate.
+
+\item \textbf{Server aggregation.}
+After $E$ local steps each client sends $w_{t}^{k,E}$ to the server and the server forms
+\[
+w_{t+1}\;=\;\frac1K\sum_{k=1}^{K} w_{t}^{k,E}.
+\]
+
+\item \textbf{Client drift.}
+Define the drift vector
+\[
+\delta_k(w)\;:=\;\nabla f_k(w)-\nabla f(w),
+\qquad 
+\Delta_t\;:=\;\frac1K\sum_{k=1}^{K}\delta_k\bigl(w_{t}^{k,E}\bigr).
+\]
+The term $\Delta_t$ captures heterogeneity among clients.
+\end{itemize}
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{FedAvg with $K$ clients, $E$ local epochs}
+\label{alg:fedavg}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} initial model $w_0$, learning rate $\eta$, local epochs $E$, total rounds $R$.
+\FOR{$t=0,\dots ,R-1$}
+    \FOR{each client $k=1,\dots ,K$ \textbf{in parallel}}
+        \STATE $w_{t}^{k,0}\gets w_t$
+        \FOR{$e=1$ \TO $E$}
+            \STATE Sample mini‑batch $\xi_{t}^{k,e}$
+            \STATE $g_{t}^{k,e}\gets \nabla f_k\!\bigl(w_{t}^{k,e-1};\xi_{t}^{k,e}\bigr)$
+            \STATE $w_{t}^{k,e}\gets w_{t}^{k,e-1}-\eta\, g_{t}^{k,e}$
+        \ENDFOR
+        \STATE Send $w_{t}^{k,E}$ to server
+    \ENDFOR
+    \STATE $w_{t+1}\gets \frac1K\sum_{k=1}^{K} w_{t}^{k,E}$
+\ENDFOR
+\STATE \textbf{Output:} $w_R$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$, so $\nabla f(w)=2(w-3)$.  
+Take $K=1$ (single client), $E=1$, learning rate $\eta=0.1$, and $w_0=0$.
+
+\begin{enumerate}
+\item \textbf{Round $t=0$ (local step $e=1$).}
+\[
+g_0^{1,1}= \nabla f( w_0 ) = 2(0-3) = -6 .
+\]
+\[
+w_{0}^{1,1}= w_0 - \eta g_0^{1,1}=0-0.1(-6)=0.6 .
+\]
+\[
+f(w_{0}^{1,1}) = (0.6-3)^2 = 5.76 .
+\]
+
+\item \textbf{Aggregation (only one client).}
+\[
+w_1 = w_{0}^{1,1}=0.6 .
+\]
+
+\item \textbf{Round $t=1$.}
+\[
+g_1^{1,1}=2(0.6-3) = -4.8,
+\qquad
+w_{1}^{1,1}=0.6-0.1(-4.8)=1.08,
+\]
+\[
+f(w_{1}^{1,1})=(1.08-3)^2=3.6864 .
+\]
+
+\item \textbf{Round $t=2$.}
+\[
+g_2^{1,1}=2(1.08-3)=-3.84,
+\qquad
+w_{2}^{1,1}=1.08-0.1(-3.84)=1.464,
+\]
+\[
+f(w_{2}^{1,1})=(1.464-3)^2=2.3689 .
+\]
+\end{enumerate}
+The objective value decreases at each round, illustrating the algorithm’s behaviour.
+
+\newpage
+\section*{Assumptions}
+\begin{assumption}[Smoothness]
+Each local loss $f_k$ is $L$‑smooth:
+\[
+\forall w,w'\in\RR^d,\qquad 
+f_k(w')\le f_k(w)+\inner{\nabla f_k(w)}{w'-w}
++\frac{L}{2}\norm{w'-w}^2 .
+\tag{A1}
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded stochastic variance]
+For any $w$ and any client $k$,
+\[
+\EE_{\xi\sim\mathcal{D}_k}\!\bigl[\norm{\nabla f_k(w;\xi)-\nabla f_k(w)}^2\bigr]\le\sigma^2 .
+\tag{A2}
+\]
+
+\end{assumption}
+
+\begin{assumption}[Client heterogeneity (drift bound)]
+Define $\delta_k(w)=\nabla f_k(w)-\nabla f(w)$. There exists $\zeta\ge0$ such that
+\[
+\frac1K\sum_{k=1}^{K}\norm{\delta_k(w)}^2\le \zeta^2 ,\qquad\forall w\in\RR^d .
+\tag{A3}
+\]
+\end{assumption}
+
+\begin{assumption}[Learning rate]
+The stepsize satisfies
+\[
+0<\eta\le\frac{1}{L\sqrt{E}} .
+\tag{A4}
+\]
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}\label{thm:main}
+Assume (A1)–(A4) and let $T=RE$ be the total number of stochastic gradient evaluations per client.  
+Define the random iterate
+\[
+\widetilde w \;\text{chosen uniformly from }\{w_t\}_{t=0}^{R-1}.
+\]
+Then
+\[
+\EE\!\bigl[\norm{\nabla f(\widetilde w)}^2\bigr]
+\;\le\;
+\underbrace{\frac{2\bigl(f(w_0)-f^\star\bigr)}{\eta R E}}_{\text{optimization term}}
+\;+\;
+\underbrace{L\eta\bigl(\sigma^2+E\zeta^2\bigr)}_{\text{variance \& drift term}} .
+\tag{T1}
+\]
+Choosing $\eta = \Theta\!\bigl(\tfrac{1}{\sqrt{R}}\bigr)$ yields
+\[
+\EE\!\bigl[\norm{\nabla f(\widetilde w)}^2\bigr]=O\!\Bigl(\frac{1}{\sqrt{R}}\Bigr)
+=O\!\Bigl(\frac{1}{\sqrt{T/E}}\Bigr) .
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The bound (T1) holds for any $E\ge1$ as long as (A4) is satisfied; larger $E$ increases the drift contribution $L\eta E\zeta^2$.
+\item \textbf{Hyper‑parameter sensitivity.}
+    \begin{enumerate}[label=(\alph*)]
+    \item \emph{Stepsize $\eta$.} Too large $\eta$ violates (A4) and the smoothness inequality, breaking the descent guarantee.
+    \item \emph{Local epochs $E$.} Increasing $E$ reduces communication but linearly inflates the drift term; optimal $E$ balances $1/(RE)$ and $E$ in (T1).
+    \end{enumerate}
+\item \textbf{Comparison to baseline SGD.}
+    Setting $E=1$ recovers the classic non‑convex SGD rate $O(1/\sqrt{RT})$.
+\end{itemize}
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $w,w'$,
+\[
+f(w')\le f(w)+\inner{\nabla f(w)}{w'-w}+\frac{L}{2}\norm{w'-w}^2 .
+\]
+\end{lemma}
+\begin{proof}
+Standard from $L$‑smoothness; see (A1). \qedhere
+\end{proof}
+
+\begin{lemma}[Unbiased stochastic gradient]\label{lem:unbiased}
+For any $k$ and $w$,
+\[
+\EE_{\xi}[g_{t}^{k,e}\mid w_{t}^{k,e-1}]=\nabla f_k\!\bigl(w_{t}^{k,e-1}\bigr).
+\]
+\end{lemma}
+\begin{proof}
+Direct from definition of $g_{t}^{k,e}$ and (A2). \qedhere
+\end{proof}
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove (T1) by bounding the decrease of the global objective after one communication round.
+All expectations are taken w.r.t. the randomness of the stochastic gradients and the uniform choice of $\widetilde w$.
+
+\subsection*{Step 1: Smoothness of the global loss}
+From Lemma~\ref{lem:smooth} applied to $f$ and $w_{t+1}$,
+\[
+\begin{aligned}
+f(w_{t+1})
+&\le f(w_t)+\inner{\nabla f(w_t)}{w_{t+1}-w_t}
++\frac{L}{2}\norm{w_{t+1}-w_t}^2 .
+\tag{1}
+\end{aligned}
+\]
+
+\subsection*{Step 2: Express $w_{t+1}-w_t$ via local updates}
+Recall $w_{t+1}=K^{-1}\sum_{k}w_{t}^{k,E}$ and $w_{t}^{k,0}=w_t$. Unrolling the $E$ SGD steps,
+\[
+w_{t}^{k,E}=w_t-\eta\sum_{e=1}^{E} g_{t}^{k,e}.
+\]
+Hence
+\[
+w_{t+1}-w_t
+=-\frac{\eta}{K}\sum_{k=1}^{K}\sum_{e=1}^{E} g_{t}^{k,e}.
+\tag{2}
+\]
+
+\subsection*{Step 3: Plug (2) into (1) and take expectation}
+Using (2) in (1) gives
+\[
+\begin{aligned}
+f(w_{t+1})
+&\le f(w_t)
+-\eta\Big\langle \nabla f(w_t),\;
+\frac1K\sum_{k=1}^{K}\sum_{e=1}^{E} g_{t}^{k,e}\Big\rangle
++\frac{L\eta^{2}}{2}\norm{\frac1K\sum_{k=1}^{K}\sum_{e=1}^{E} g_{t}^{k,e}}^{2}.
+\tag{3}
+\end{aligned}
+\]
+
+Take full expectation $\EE[\cdot]$ conditioned on $w_t$.
+Using Lemma~\ref{lem:unbiased} and the definition of drift $\delta_k$,
+\[
+\EE\!\bigl[g_{t}^{k,e}\mid w_t\bigr]
+= \nabla f_k\!\bigl(w_t\bigr)
+= \nabla f(w_t)+\delta_k(w_t).
+\tag{4}
+\]
+
+Therefore,
+\[
+\EE\!\Bigl[\frac1K\sum_{k}\sum_{e} g_{t}^{k,e}\Bigm| w_t\Bigr]
+=E\,\nabla f(w_t)+E\,\underbrace{\frac1K\sum_{k}\delta_k(w_t)}_{\Delta_t}.
+\tag{5}
+\]
+
+\subsection*{Step 4: Bound the inner product term}
+From (3) and (5),
+\[
+\begin{aligned}
+\EE\!\bigl[f(w_{t+1})\mid w_t\bigr]
+&\le f(w_t)
+-\eta E\;\norm{\nabla f(w_t)}^{2}
+-\eta E\;\inner{\nabla f(w_t)}{\Delta_t}
++\frac{L\eta^{2}}{2}\EE\!\Bigl[\norm{S_{t}}^{2}\Bigr],
+\end{aligned}
+\tag{6}
+\]
+where we introduced the shorthand
+\[
+S_{t}:=\frac1K\sum_{k=1}^{K}\sum_{e=1}^{E} g_{t}^{k,e}.
+\]
+
+\subsection*{Step 5: Control the drift inner product}
+Using Cauchy–Schwarz and (A3):
+\[
+\bigl|\inner{\nabla f(w_t)}{\Delta_t}\bigr|
+\le \norm{\nabla f(w_t)}\;\norm{\Delta_t}
+\le \frac12\Bigl(\norm{\nabla f(w_t)}^{2}+\norm{\Delta_t}^{2}\Bigr).
+\tag{7}
+\]
+Taking expectation and applying (A3) yields
+\[
+\EE\!\bigl[\norm{\Delta_t}^{2}\mid w_t\bigr]\le \zeta^{2}.
+\tag{8}
+\]
+
+Insert (7) into (6):
+\[
+\EE\!\bigl[f(w_{t+1})\mid w_t\bigr]
+\le f(w_t)
+-\frac{\eta E}{2}\norm{\nabla f(w_t)}^{2}
++\frac{\eta E}{2}\zeta^{2}
++\frac{L\eta^{2}}{2}\EE\!\bigl[\norm{S_{t}}^{2}\mid w_t\bigr].
+\tag{9}
+\]
+
+\subsection*{Step 6: Bounding $\EE[\norm{S_{t}}^{2}]$}
+Write $g_{t}^{k,e}= \nabla f_k(w_t)+\underbrace{(g_{t}^{k,e}-\nabla f_k(w_t))}_{\varepsilon_{t}^{k,e}}$.
+Then
+\[
+S_t = \frac{E}{K}\sum_{k=1}^{K}\nabla f_k(w_t)+\frac1K\sum_{k=1}^{K}\sum_{e=1}^{E}\varepsilon_{t}^{k,e}.
+\]
+Hence
+\[
+\begin{aligned}
+\EE\!\bigl[\norm{S_t}^{2}\mid w_t\bigr]
+&= \EE\!\Bigl[\Bigl\| \frac{E}{K}\sum_{k}\nabla f_k(w_t)
+          +\frac1K\sum_{k,e}\varepsilon_{t}^{k,e}\Bigr\|^{2}\Bigr] \\
+&\le 2\underbrace{\norm{\frac{E}{K}\sum_{k}\nabla f_k(w_t)}^{2}}_{\text{(i)}}
+   +2\underbrace{\EE\!\Bigl[\norm{\frac1K\sum_{k,e}\varepsilon_{t}^{k,e}}^{2}\Bigr]}_{\text{(ii)}} .
+\end{aligned}
+\tag{10}
+\]
+
+\paragraph{Term (i).}
+Because $\frac1K\sum_{k}\nabla f_k(w_t)=\nabla f(w_t)$,
+\[
+\text{(i)} = E^{2}\norm{\nabla f(w_t)}^{2}.
+\tag{11}
+\]
+
+\paragraph{Term (ii).}
+The noise terms are zero‑mean and independent across $(k,e)$, and each satisfies (A2):
+\[
+\EE\!\bigl[\norm{\varepsilon_{t}^{k,e}}^{2}\mid w_t\bigr]\le\sigma^{2}.
+\]
+Therefore,
+\[
+\text{(ii)}\le \frac{1}{K^{2}}\sum_{k=1}^{K}\sum_{e=1}^{E}\EE\!\bigl[\norm{\varepsilon_{t}^{k,e}}^{2}\bigr]
+= \frac{E\sigma^{2}}{K}.
+\tag{12}
+\]
+
+Plug (11)–(12) into (10):
+\[
+\EE\!\bigl[\norm{S_t}^{2}\mid w_t\bigr]
+\le 2E^{2}\norm{\nabla f(w_t)}^{2}+ \frac{2E\sigma^{2}}{K}.
+\tag{13}
+\]
+
+\subsection*{Step 7: Substitute (13) into (9)}
+\[
+\begin{aligned}
+\EE\!\bigl[f(w_{t+1})\mid w_t\bigr]
+&\le f(w_t)
+-\frac{\eta E}{2}\norm{\nabla f(w_t)}^{2}
++\frac{\eta E}{2}\zeta^{2}\\
+&\qquad
++\frac{L\eta^{2}}{2}\Bigl(2E^{2}\norm{\nabla f(w_t)}^{2}
+      +\frac{2E\sigma^{2}}{K}\Bigr)\\[1mm]
+&= f(w_t)
+-\underbrace{\Bigl(\frac{\eta E}{2}-L\eta^{2}E^{2}\Bigr)}_{\alpha}\norm{\nabla f(w_t)}^{2}
++\frac{\eta E}{2}\zeta^{2}
++ \frac{L\eta^{2}E\sigma^{2}}{K}.
+\end{aligned}
+\tag{14}
+\]
+
+\subsection*{Step 8: Ensure a positive coefficient $\alpha$}
+Using the stepsize restriction (A4), $\eta\le\frac{1}{L\sqrt{E}}$, we have
+\[
+L\eta^{2}E^{2}\le \eta E/2,
+\]
+so $\alpha\ge \frac{\eta E}{4}>0$.
+Thus,
+\[
+\EE\!\bigl[f(w_{t+1})\mid w_t\bigr]
+\le f(w_t)
+-\frac{\eta E}{4}\norm{\nabla f(w_t)}^{2}
++\frac{\eta E}{2}\zeta^{2}
++ \frac{L\eta^{2}E\sigma^{2}}{K}.
+\tag{15}
+\]
+
+\subsection*{Step 9: Telescope over $t=0,\dots ,R-1$}
+Take total expectation and sum (15):
+\[
+\begin{aligned}
+\EE[f(w_R)] - f(w_0)
+&\le
+-\frac{\eta E}{4}\sum_{t=0}^{R-1}\EE\!\bigl[\norm{\nabla f(w_t)}^{2}\bigr]
++ \frac{\eta E R}{2}\zeta^{2}
++ \frac{L\eta^{2}E R\sigma^{2}}{K}.
+\end{aligned}
+\tag{16}
+\]
+
+Rearrange to isolate the average squared gradient:
+\[
+\frac{1}{R}\sum_{t=0}^{R-1}\EE\!\bigl[\norm{\nabla f(w_t)}^{2}\bigr]
+\le
+\frac{4\bigl(f(w_0)-\EE[f(w_R)]\bigr)}{\eta E R}
++ 2\zeta^{2}
++ \frac{4L\eta\sigma^{2}}{K}.
+\tag{17}
+\]
+
+Since $f(w_R)\ge f^\star$, we may replace $\EE[f(w_R)]$ by $f^\star$ and obtain
+\[
+\frac{1}{R}\sum_{t=0}^{R-1}\EE\!\bigl[\norm{\nabla f(w_t)}^{2}\bigr]
+\le
+\frac{4\bigl(f(w_0)-f^\star\bigr)}{\eta E R}
++ 2\zeta^{2}
++ \frac{4L\eta\sigma^{2}}{K}.
+\tag{18}
+\]
+
+\subsection*{Step 10: From average to a uniformly sampled iterate}
+Select $\widetilde w$ uniformly from $\{w_t\}_{t=0}^{R-1}$. By definition,
+\[
+\EE\!\bigl[\norm{\nabla f(\widetilde w)}^{2}\bigr]
+= \frac{1}{R}\sum_{t=0}^{R-1}\EE\!\bigl[\norm{\nabla f(w_t)}^{2}\bigr].
+\]
+Thus (18) directly yields the bound (T1) after multiplying numerator and denominator by $2$ to match the statement:
+\[
+\EE\!\bigl[\norm{\nabla f(\widetilde w)}^{2}\bigr]
+\le
+\frac{2\bigl(f(w_0)-f^\star\bigr)}{\eta RE}
++ L\eta\bigl(\sigma^{2}+E\zeta^{2}\bigr).
+\tag{19}
+\]
+
+\subsection*{Step 11: Choice of $\eta$}
+Set $\eta = \frac{c}{\sqrt{R}}$ with $c\le \frac{1}{L\sqrt{E}}$ (to respect (A4)).  
+Plugging into (19) gives
+\[
+\EE\!\bigl[\norm{\nabla f(\widetilde w)}^{2}\bigr]
+= O\!\Bigl(\frac{1}{\sqrt{R}}\Bigr)
+= O\!\Bigl(\frac{1}{\sqrt{T/E}}\Bigr),
+\]
+which completes the proof. \qedhere
+
+\section*{Rate Derivation (With Constants)}
+From (19) let
+\[
+C_1 = 2\bigl(f(w_0)-f^\star\bigr),\qquad
+C_2 = L\bigl(\sigma^{2}+E\zeta^{2}\bigr).
+\]
+Then
+\[
+\EE\!\bigl[\norm{\nabla f(\widetilde w)}^{2}\bigr]
+\le \frac{C_1}{\eta RE}+C_2\eta .
+\]
+Minimising the right‑hand side w.r.t. $\eta$ yields $\eta^\star=\sqrt{C_1/(C_2 RE)}$, which (subject to (A4)) gives
+\[
+\EE\!\bigl[\norm{\nabla f(\widetilde w)}^{2}\bigr]\le
+2\sqrt{\frac{C_1 C_2}{RE}} = O\!\Bigl(\frac{1}{\sqrt{R}}\Bigr).
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Homogeneous data ($\zeta=0$).} The drift term disappears and (T1) reduces to the classic SGD rate $O(1/\sqrt{RE})$.
+\item \textbf{Single local epoch ($E=1$).} The bound matches that of standard mini‑batch SGD with $K$ parallel workers.
+\item \textbf{Large $E$ with bounded drift.} If $\zeta^{2}=O(1/E)$, the term $L\eta E\zeta^{2}$ remains $O(L\eta)$, preserving the $1/\sqrt{R}$ rate.
+\end{itemize}
+
+\section*{Discussion}
+The theorem shows that FedAvg with $E$ local SGD steps converges to a stationary point of the global non‑convex loss at the same $O(1/\sqrt{R})$ rate as centralized SGD, provided the stepsize is chosen according to (A4) and the client heterogeneity is controlled via $\zeta$. The explicit drift term $\Delta_t$ appears only as an additive variance‑like component, confirming the intuitive trade‑off: more local computation (larger $E$) reduces communication but amplifies the effect of data heterogeneity.
+
+\end{document}

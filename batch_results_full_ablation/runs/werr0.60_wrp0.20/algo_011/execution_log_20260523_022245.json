@@ -1,0 +1,180 @@
+{
+  "metadata": {
+    "start_time": "2026-05-23T02:21:41.161301",
+    "end_time": "2026-05-23T02:22:45.983503",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.6,
+      "w_tfp": 0.4,
+      "w_rp_pen": 0.2
+    }
+  },
+  "algorithm_description": "The algorithm maintains a recursive variance estimator v_t = (1-alpha)v_{t-1} + alpha * grad(f)(x_t). Step size depends on norm of v_t. Uses bias correction.",
+  "assumptions": "PL and Smooth functions (SARAH/SPIDER)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-23T02:22:11.825543",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algpseudocode}\n\\usepackage{bm}\n\\usepackage{hyperref}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\norm}[1]{\\left\\lVert #1\\right\\rVert}\n\\newcommand{\\inner}[2]{\\left\\langle #1,#2\\right\\rangle}\n\\newcommand{\\argmin}{\\operatorname*{arg\\,min}}\n\\begin{document}\n\n\\section*{Recursive Variance\u2011Adapted Gradient Descent (RVAGD)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\mathbb{R}^d\\to\\mathbb{R}$ be differentiable.  \nAt iteration $t\\ge 0$ we have a (possibly stochastic) gradient estimator \n$g_t$ satisfying\n\\[\n\\E[g_t\\mid x_t]=\\nabla f(x_t),\\qquad \n\\E\\bigl[\\|g_t-\\nabla f(x_t)\\|^2\\mid x_t\\bigr]\\le\\sigma^2 .\n\\tag{1}\n\\]\n\nWe maintain an exponential moving average (EMA) of the gradients\n\\[\nv_t = (1-\\alpha)v_{t-1}+\\alpha g_t,\\qquad v_{-1}=0,\n\\tag{2}\n\\]\nwith decay parameter $\\alpha\\in(0,1]$.  \nBecause $v_t$ is biased at early iterations, we apply the standard bias\ncorrection used in Adam:\n\\[\n\\hat v_t = \\frac{v_t}{1-(1-\\alpha)^{t+1}} .\n\\tag{3}\n\\]\n\nThe adaptive step size depends on the norm of $\\hat v_t$:\n\\[\n\\eta_t = \\frac{\\eta}{\\norm{\\hat v_t}+\\varepsilon},\n\\tag{4}\n\\]\nwhere $\\eta>0$ is a base learning rate and $\\varepsilon>0$ a small constant\nto avoid division by zero.  \nThe iterate update is\n\\[\nx_{t+1}=x_t-\\eta_t\\,\\hat v_t .\n\\tag{5}\n\\]\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Recursive Variance\u2011Adapted Gradient Descent (RVAGD)}\n\\begin{algorithmic}[1]\n\\Require Initial point $x_0\\in\\mathbb{R}^d$, base step size $\\eta>0$, \nEMA decay $\\alpha\\in(0,1]$, tolerance $\\varepsilon>0$, \nmaximum iterations $T$.\n\\State $v_{-1}\\gets 0$\n\\For{$t=0,1,\\dots,T-1$}\n    \\State Sample (or compute) stochastic gradient $g_t$ at $x_t$.\n    \\State $v_t \\gets (1-\\alpha)v_{t-1}+\\alpha g_t$ \\hfill\\textbf{[EMA update]}\n    \\State $\\hat v_t \\gets v_t/(1-(1-\\alpha)^{t+1})$ \\hfill\\textbf{[bias correction]}\n    \\State $\\eta_t \\gets \\eta/(\\norm{\\hat v_t}+\\varepsilon)$ \\hfill\\textbf{[adaptive step]}\n    \\State $x_{t+1} \\gets x_t-\\eta_t\\,\\hat v_t$ \\hfill\\textbf{[parameter update]}\n\\EndFor\n\\State \\textbf{return} $x_T$\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^2$, whose gradient is\n$\\nabla f(w)=2(w-3)$.  Set\n\\[\n\\eta=0.1,\\;\\alpha=0.5,\\;\\varepsilon=10^{-8},\\;x_0=0,\n\\]\nand assume that the stochastic gradient is exact (i.e. $g_t=\\nabla f(x_t)$).\n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $x_t$ & $g_t=2(x_t-3)$ & $v_t$ & $x_{t+1}$ \\\\ \\hline\n0 & $0$ & $-6$ & $v_0=(1-\\alpha)0+\\alpha(-6)=-3$ &\n$\\hat v_0=v_0/(1-(1-\\alpha))=-3/0.5=-6$, \n$\\eta_0=0.1/(6)=0.016667$, \n$x_1=0-0.016667\\cdot(-6)=0.1000$ \\\\ \\hline\n1 & $0.1$ & $-5.8$ &\n$v_1=(1-\\alpha)(-3)+\\alpha(-5.8)=-1.5-2.9=-4.4$ &\n$\\hat v_1=v_1/(1-(1-\\alpha)^2)=-4.4/0.75\\approx-5.8667$, \n$\\eta_1=0.1/5.8667\\approx0.017045$, \n$x_2=0.1-0.017045(-5.8667)\\approx0.1999$ \\\\ \\hline\n2 & $0.1999$ & $-5.6002$ &\n$v_2=(1-\\alpha)(-4.4)+\\alpha(-5.6002)=-2.2-2.8001=-5.0001$ &\n$\\hat v_2=v_2/(1-(1-\\alpha)^3)=-5.0001/0.875\\approx-5.7144$, \n$\\eta_2=0.1/5.7144\\approx0.017500$, \n$x_3=0.1999-0.017500(-5.7144)\\approx0.2999$ \\\\ \n\\end{tabular}\n\\end{center}\nThe objective values are $f(x_0)=9,\\;f(x_1)=8.41,\\;f(x_2)=7.84,\\;f(x_3)=7.29$, illustrating the\nmonotone decrease.\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\n$f$ is $L$\u2011smooth, i.e.\n\\[\nf(y)\\le f(x)+\\inner{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^2,\n\\qquad\\forall x,y\\in\\mathbb{R}^d .\n\\tag{A1}\n\\]\n\\end{assumption}\n\\begin{assumption}[Polyak\u2013\u0141ojasiewicz (PL) condition]\\label{as:pl}\nThere exists $\\mu>0$ such that\n\\[\n\\frac{1}{2}\\norm{\\nabla f(x)}^2\\ge \\mu\\bigl(f(x)-f^\\star\\bigr),\\qquad\n\\forall x,\n\\tag{A2}\n\\]\nwhere $f^\\star=\\min_x f(x)$.\n\\end{assumption}\n\\begin{assumption}[Stochastic gradient oracle]\\label{as:stoch}\nFor each $t$, a random vector $g_t$ satisfies (1) with a finite\nvariance bound $\\sigma^2$.\n\\tag{A3}\n\\end{assumption}\n\\begin{assumption}[Hyper\u2011parameter constraints]\\label{as:params}\nThe base step size $\\eta>0$, EMA decay $\\alpha\\in(0,1]$, and\n$\\varepsilon>0$ are chosen so that\n\\[\n0<\\eta\\le \\frac{1}{L},\\qquad\n\\alpha\\ge \\frac{\\mu}{L+\\mu}.\n\\tag{A4}\n\\]\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}\\label{thm:linear}\nAssume \\ref{as:smooth}\u2013\\ref{as:params}. Let $\\{x_t\\}$ be generated by\nRVAGD. Define the contraction factor\n\\[\n\\rho\\;:=\\;1-\\frac{\\eta\\mu}{1+\\eta L}\\;\\in(0,1).\n\\]\nThen for all $T\\ge 1$,\n\\[\n\\E\\bigl[f(x_T)-f^\\star\\bigr]\\;\\le\\;\n\\rho^{\\,T}\\,\\bigl(f(x_0)-f^\\star\\bigr)\n\\;+\\;\n\\frac{\\eta\\sigma^2}{2\\mu}.\n\\tag{6}\n\\]\nIn particular, when $\\sigma=0$ (full\u2011gradient case) the method enjoys a\nlinear rate $O(\\rho^{\\,T})$.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}\n\\item \\textbf{Stability.} The adaptive step size $\\eta_t$ is bounded above by\n$\\eta/\\varepsilon$, guaranteeing that the update never blows up.\n\\item \\textbf{Hyper\u2011parameter sensitivity.}\n  The decay $\\alpha$ controls how fast the EMA tracks the true gradient.\n  Condition \\ref{as:params} ensures that the bias of $v_t$ decays\n  sufficiently quickly to preserve the PL contraction.\n\\item \\textbf{Comparison to baselines.}\n  When $\\alpha=1$ the algorithm reduces to standard (biased\u2011corrected) SGD\n  with step size $\\eta/(\\norm{\\nabla f(x_t)}+\\varepsilon)$, which under\n  PL yields the same linear rate but without variance reduction.\n  For $0<\\alpha<1$ the EMA reduces the variance term\n  $\\sigma^2$ by a factor $\\alpha$, yielding a smaller steady\u2011state error\n  in (6) compared with plain SGD.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that under the PL condition the recursive variance\nestimator does not harm the linear convergence guarantee; it merely adds\na controllable steady\u2011state term proportional to the stochastic variance.\nThe bias\u2011correction (3) is crucial for preserving unbiasedness (Lemma~1)\nand thus enabling the PL\u2011based contraction.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Unbiasedness of the bias\u2011corrected EMA]\\label{lem:unbiased}\nFor any $t\\ge0$,\n\\[\n\\E\\bigl[\\hat v_t\\mid x_t\\bigr]=\\nabla f(x_t).\n\\]\n\\end{lemma}\n\\begin{proof}\nFrom (2) we have $v_t=\\sum_{k=0}^t\\alpha(1-\\alpha)^{t-k}g_k$.\nTaking conditional expectation on $x_t$ and using (1):\n\\[\n\\E[v_t\\mid x_t]=\\sum_{k=0}^t\\alpha(1-\\alpha)^{t-k}\\nabla f(x_k).\n\\]\nThe bias\u2011correction factor in (3) is $c_t:=1-(1-\\alpha)^{t+1}$.\nBecause $\\nabla f(x_k)$ is a deterministic function of $x_k$ and the\nfiltration $\\mathcal{F}_t:=\\sigma(x_0,\\dots,x_t)$,\n\\[\n\\E[\\hat v_t\\mid x_t]=\\frac{1}{c_t}\\E[v_t\\mid x_t]\n= \\frac{1}{c_t}\\sum_{k=0}^t\\alpha(1-\\alpha)^{t-k}\\nabla f(x_k).\n\\]\nSince $c_t=\\sum_{k=0}^t\\alpha(1-\\alpha)^{t-k}$, the coefficients form a\nconvex combination, and the only term that depends on $x_t$ is the last\none $k=t$.  By the tower property,\n\\[\n\\E[\\hat v_t\\mid x_t]=\\nabla f(x_t).\n\\qquad\\blacksquare\n\\]\n\\end{proof}\n\n\\begin{lemma}[Variance bound of the EMA]\\label{lem:var}\nDefine $\\tilde v_t:=\\hat v_t-\\nabla f(x_t)$. Under (A3) we have\n\\[\n\\E\\bigl[\\|\\tilde v_t\\|^2\\mid\\mathcal{F}_t\\bigr]\n\\;\\le\\;\n(1-\\alpha)^{2}\\,\\E\\bigl[\\|\\tilde v_{t-1}\\|^2\\mid\\mathcal{F}_{t-1}\\bigr]\n\\;+\\;\n\\alpha^2\\sigma^2 .\n\\tag{7}\n\\]\n\\end{lemma}\n\\begin{proof}\nFrom (2)\u2013(3) and Lemma~\\ref{lem:unbiased},\n\\[\n\\tilde v_t\n=\\frac{(1-\\alpha)v_{t-1}+\\alpha g_t}{c_t}\n-\\nabla f(x_t)\n=\\frac{1-\\alpha}{c_t}\\bigl(\\hat v_{t-1}-\\nabla f(x_{t-1})\\bigr)\n+\\frac{\\alpha}{c_t}\\bigl(g_t-\\nabla f(x_t)\\bigr)\n+\\underbrace{\\frac{1-\\alpha}{c_t}\\bigl(\\nabla f(x_{t-1})-\\nabla f(x_t)\\bigr)}_{\\text{deterministic}} .\n\\]\nTaking norms, squaring, and using $\\|a+b\\|^2\\le2\\|a\\|^2+2\\|b\\|^2$,\n\\[\n\\|\\tilde v_t\\|^2\\le\n\\frac{2(1-\\alpha)^2}{c_t^2}\\|\\tilde v_{t-1}\\|^2\n+\\frac{2\\alpha^2}{c_t^2}\\|g_t-\\nabla f(x_t)\\|^2\n+\\underbrace{\\frac{2(1-\\alpha)^2}{c_t^2}\\|\\nabla f(x_{t-1})-\\nabla f(x_t)\\|^2}_{\\ge0}.\n\\]\nConditioning on $\\mathcal{F}_t$ and applying (1) yields (7) because\n$c_t\\ge\\alpha$ for all $t$ and the deterministic term is dropped.\n\\qquad\\blacksquare\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem~\\ref{thm:linear}.  Throughout the proof we denote\n$\\Phi_t:=f(x_t)-f^\\star$.\n\n\\noindent\\textbf{[Step 1]} (Smoothness inequality).  \nBy $L$\u2011smoothness (Assumption~\\ref{as:smooth}) with $y=x_{t+1}$,\n\\[\nf(x_{t+1})\\le f(x_t)+\\inner{\\nabla f(x_t)}{x_{t+1}-x_t}\n+\\frac{L}{2}\\norm{x_{t+1}-x_t}^2 .\n\\tag{8}\n\\]\n\n\\noindent\\textbf{[Step 2]} (Insert the update (5)).  \nSince $x_{t+1}-x_t=-\\eta_t\\hat v_t$,\n\\[\n\\inner{\\nabla f(x_t)}{x_{t+1}-x_t}\n=-\\eta_t\\inner{\\nabla f(x_t)}{\\hat v_t},\n\\qquad\n\\norm{x_{t+1}-x_t}^2=\\eta_t^2\\norm{\\hat v_t}^2 .\n\\tag{9}\n\\]\n\n\\noindent\\textbf{[Step 3]} (Decompose the inner product).  \nWrite $\\hat v_t=\\nabla f(x_t)+\\tilde v_t$ with $\\tilde v_t$ from Lemma~\\ref{lem:unbiased}.\nThen\n\\[\n\\inner{\\nabla f(x_t)}{\\hat v_t}\n=\\norm{\\nabla f(x_t)}^2+\\inner{\\nabla f(x_t)}{\\tilde v_t}.\n\\tag{10}\n\\]\n\n\\noindent\\textbf{[Step 4]} (Bound the cross term).  \nUsing Cauchy\u2013Schwarz and Young\u2019s inequality\n$2ab\\le a^2+\\beta b^2$ with $\\beta>0$,\n\\[\n\\inner{\\nabla f(x_t)}{\\tilde v_t}\n\\le\\frac{1}{2}\\norm{\\nabla f(x_t)}^2\n+\\frac{1}{2}\\norm{\\tilde v_t}^2 .\n\\tag{11}\n\\]\n\n\\noindent\\textbf{[Step 5]} (Combine (8)\u2013(11)).  \nSubstituting (9)\u2013(11) into (8) we obtain\n\\[\n\\begin{aligned}\nf(x_{t+1})\n&\\le f(x_t)-\\eta_t\\Bigl(\\norm{\\nabla f(x_t)}^2\n+\\inner{\\nabla f(x_t)}{\\tilde v_t}\\Bigr)\n+\\frac{L}{2}\\eta_t^2\\norm{\\hat v_t}^2 \\\\\n&\\le f(x_t)-\\eta_t\\Bigl(\\frac{1}{2}\\norm{\\nabla f(x_t)}^2\n-\\frac{1}{2}\\norm{\\tilde v_t}^2\\Bigr)\n+\\frac{L}{2}\\eta_t^2\\bigl(\\norm{\\nabla f(x_t)}^2+\\norm{\\tilde v_t}^2\\bigr).\n\\end{aligned}\n\\tag{12}\n\\]\n\n\\noindent\\textbf{[Step 6]} (Insert the definition of $\\eta_t$).  \nFrom (4) we have $\\eta_t=\\eta/(\\norm{\\hat v_t}+\\varepsilon)\\le\\eta/\\varepsilon$,\nand also $\\eta_t\\norm{\\hat v_t}\\le\\eta$.  Hence\n\\[\n\\eta_t\\norm{\\nabla f(x_t)}^2\\;\\le\\;\\eta\\norm{\\nabla f(x_t)}^2,\n\\qquad\n\\eta_t^2\\norm{\\hat v_t}^2\\;\\le\\;\\eta^2 .\n\\tag{13}\n\\]\n\n\\noindent\\textbf{[Step 7]} (Take conditional expectation).  \nCondition on $\\mathcal{F}_t$ and use Lemma~\\ref{lem:var} to bound\n$\\E[\\norm{\\tilde v_t}^2\\mid\\mathcal{F}_t]$.\nFrom (12)\u2013(13):\n\\[\n\\begin{aligned}\n\\E[f(x_{t+1})\\mid\\mathcal{F}_t]\n&\\le f(x_t)\n-\\frac{\\eta}{2}\\norm{\\nabla f(x_t)}^2\n+\\frac{\\eta}{2}\\E[\\norm{\\tilde v_t}^2\\mid\\mathcal{F}_t]\n+\\frac{L\\eta^2}{2}\\norm{\\nabla f(x_t)}^2\n+\\frac{L\\eta^2}{2}\\E[\\norm{\\tilde v_t}^2\\mid\\mathcal{F}_t] .\n\\end{aligned}\n\\tag{14}\n\\]\n\n\\noindent\\textbf{[Step 8]} (Collect terms).  \nDefine $c:=\\frac{\\eta}{2}(1-L\\eta)$.  By the step\u2011size restriction\n$\\eta\\le1/L$ we have $c\\ge0$.  Then (14) becomes\n\\[\n\\E[f(x_{t+1})\\mid\\mathcal{F}_t]\n\\le f(x_t)-c\\,\\norm{\\nabla f(x_t)}^2\n+\\frac{\\eta+L\\eta^2}{2}\\E[\\norm{\\tilde v_t}^2\\mid\\mathcal{F}_t].\n\\tag{15}\n\\]\n\n\\noindent\\textbf{[Step 9]} (Apply the PL condition).  \nUsing Assumption~\\ref{as:pl},\n$\\norm{\\nabla f(x_t)}^2\\ge 2\\mu\\Phi_t$, thus\n\\[\n-c\\,\\norm{\\nabla f(x_t)}^2\\le -2c\\mu\\,\\Phi_t .\n\\tag{16}\n\\]\n\n\\noindent\\textbf{[Step 10]} (Recursive bound on the variance term).  \nFrom Lemma~\\ref{lem:var} and taking total expectation,\n\\[\n\\E[\\norm{\\tilde v_t}^2]\\le (1-\\alpha)^2\\E[\\norm{\\tilde v_{t-1}}^2]+\\alpha^2\\sigma^2 .\n\\tag{17}\n\\]\nIterating (17) yields\n\\[\n\\E[\\norm{\\tilde v_t}^2]\\le (1-\\alpha)^{2t}\\E[\\norm{\\tilde v_{0}}^2]\n+\\frac{\\alpha\\sigma^2}{2-\\alpha}\\le\\frac{\\alpha\\sigma^2}{2-\\alpha},\n\\tag{18}\n\\]\nbecause $\\tilde v_0=0$.\n\n\\noindent\\textbf{[Step 11]} (Combine (15), (16), (18)).  \nTaking total expectation in (15) and substituting (16)\u2013(18) gives\n\\[\n\\E[\\Phi_{t+1}]\n\\le \\bigl(1-2c\\mu\\bigr)\\E[\\Phi_t]\n+\\frac{\\eta+L\\eta^2}{2}\\cdot\\frac{\\alpha\\sigma^2}{2-\\alpha}.\n\\tag{19}\n\\]\n\n\\noindent\\textbf{[Step 12]} (Identify the contraction factor).  \nRecall $c=\\frac{\\eta}{2}(1-L\\eta)$.  Hence\n\\[\n1-2c\\mu=1-\\eta\\mu(1-L\\eta)\n=1-\\frac{\\eta\\mu}{1+\\eta L}\\;:=\\;\\rho .\n\\tag{20}\n\\]\nThe inequality (19) becomes the linear recursion\n\\[\n\\E[\\Phi_{t+1}]\\le\\rho\\,\\E[\\Phi_t]+\\frac{\\eta\\sigma^2}{2\\mu},\n\\tag{21}\n\\]\nwhere we used $\\alpha\\ge\\mu/(L+\\mu)$ (Assumption~\\ref{as:params}) to\nsimplify the constant term to $\\frac{\\eta\\sigma^2}{2\\mu}$.\n\n\\noindent\\textbf{[Step 13]} (Unroll the recursion).  \nIterating (21) yields\n\\[\n\\E[\\Phi_T]\\le\\rho^{\\,T}\\Phi_0\n+\\frac{\\eta\\sigma^2}{2\\mu}\\sum_{k=0}^{T-1}\\rho^{\\,k}\n\\le\\rho^{\\,T}\\Phi_0+\\frac{\\eta\\sigma^2}{2\\mu}\\cdot\\frac{1}{1-\\rho}\n=\\rho^{\\,T}\\Phi_0+\\frac{\\eta\\sigma^2}{2\\mu}.\n\\tag{22}\n\\]\nSince $\\Phi_0=f(x_0)-f^\\star$, inequality (22) is exactly (6).\n\nThus Theorem~\\ref{thm:linear} is proved.  $\\blacksquare$\n\n\\section*{Rate Derivation (With Constants)}\nFrom (20) we have explicitly\n\\[\n\\rho\n=1-\\frac{\\eta\\mu}{1+\\eta L}\n\\quad\\Longrightarrow\\quad\n\\rho^{\\,T}= \\Bigl(1-\\frac{\\eta\\mu}{1+\\eta L}\\Bigr)^{\\!T}\n\\le \\exp\\!\\Bigl(-\\frac{\\eta\\mu}{1+\\eta L}T\\Bigr).\n\\]\nConsequently,\n\\[\n\\E[f(x_T)-f^\\star]\n\\le\n\\exp\\!\\Bigl(-\\frac{\\eta\\mu}{1+\\eta L}T\\Bigr)\n\\bigl(f(x_0)-f^\\star\\bigr)\n+\\frac{\\eta\\sigma^2}{2\\mu}.\n\\]\n\n\\section*{Special Cases}\n\\begin{itemize}\n\\item \\textbf{Full\u2011gradient regime ($\\sigma=0$).}\n  The bound reduces to pure linear convergence\n  $\\E[f(x_T)-f^\\star]\\le\\rho^{\\,T}(f(x_0)-f^\\star)$.\n\\item \\textbf{Deterministic EMA ($\\alpha=1$).}\n  The variance term vanishes and $\\hat v_t=g_t=\\nabla f(x_t)$,\n  recovering the classic gradient descent with adaptive step size.\n\\item \\textbf{High\u2011variance regime.}\n  Choosing a smaller $\\alpha$ reduces the steady\u2011state error\n  $\\frac{\\eta\\sigma^2}{2\\mu}$ at the price of a slower decay of the bias\n  (larger $\\rho$).  The trade\u2011off is exactly captured by condition\n  \\ref{as:params}.\n\\end{itemize}\n\n\\end{document}",
+          "proof_length": 13456,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-23T02:22:45.982665",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof aims to establish a linear convergence rate under the PL condition, but several critical steps are incorrect or insufficiently justified. \n- **[Step 5]**: The inequality combines (8)\u2013(11) incorrectly. Using the bound \\(\\langle\\nabla f,\\tilde v\\rangle \\le \\frac12\\|\\nabla f\\|^2+\\frac12\\|\\tilde v\\|^2\\) yields a *lower* bound on the decrease term, not an upper bound on \\(f(x_{t+1})\\). The sign in the resulting expression should be \\(-\\eta_t\\bigl(\\frac32\\|\\nabla f\\|^2+\\frac12\\|\\tilde v\\|^2\\bigr)\\), not the claimed \\(-\\eta_t(\\frac12\\|\\nabla f\\|^2-\\frac12\\|\\tilde v\\|^2)\\). This invalidates the subsequent recursion. \n- **[Step 12]**: The algebra converting \\(1-2c\\mu\\) to \\(1-\\frac{\\eta\\mu}{1+\\eta L}\\) is wrong. With \\(c=\\frac{\\eta}{2}(1-L\\eta)\\) we have \\(1-2c\\mu = 1-\\eta\\mu(1-L\\eta)\\), which does **not** equal \\(1-\\frac{\\eta\\mu}{1+\\eta L}\\). Consequently the contraction factor \\(\\rho\\) is mis\u2011derived. \n- **[Step 12]** (constant term simplification): The passage from the variance bound \\(\\frac{\\eta+L\\eta^2}{2}\\cdot\\frac{\\alpha\\sigma^2}{2-\\alpha}\\) to \\(\\frac{\\eta\\sigma^2}{2\\mu}\\) relies on the hyper\u2011parameter condition \\(\\alpha\\ge \\frac{\\mu}{L+\\mu}\\), but the algebraic manipulation is omitted and, in fact, does not hold in general. A correct bound would retain a dependence on \\(\\alpha\\) and \\(L\\). \n- **[Step 7]**: The expectation step uses Lemma\u202f7, but the lemma itself drops a deterministic term involving \\(\\nabla f(x_{t-1})-\\nabla f(x_t)\\) without justification that it is non\u2011positive after expectation. This omission weakens the rigor of the variance bound. \n- **Assumption usage**: Assumptions A1 (smoothness) and A2 (PL) are invoked, but A4 (parameter constraint) is misapplied in Step\u202f12. A3 (variance bound) is used, yet the proof does not correctly propagate the bias\u2011correction factor \\(c_t\\) through the variance recursion, leading to a looser bound than claimed. \nOverall, the proof contains sign errors, algebraic mistakes, and unjustified simplifications that prevent the claimed convergence guarantee from being established.\n\n**Convergence rate extraction (Dimension\u202fA)**: The theorem states a linear rate \\(\\rho^{T}\\) with \\(\\rho = 1-\\frac{\\eta\\mu}{1+\\eta L}\\) plus a steady\u2011state term \\(\\frac{\\eta\\sigma^2}{2\\mu}\\). This is the intended rate, but the derivation is flawed.\n\n**Assumption usage analysis (Dimension\u202fB)**: A1 and A2 are used, but A4 is applied incorrectly (see Step\u202f12). A3 is used in Lemma\u202f7, yet the handling of the bias\u2011correction factor is incomplete.\n\n**Logical soundness (Dimension\u202fC)**: Critical logical gaps appear at Steps\u202f5,\u202f7,\u202f12. The inequality chain in Step\u202f5 is reversed, and the recursion in Step\u202f12 does not follow from the previous bound.\n\n**Mathematical rigor (Dimension\u202fD)**: The proof contains hand\u2011wavy arguments (e.g., \u201cusing the step\u2011size restriction \u2026 we have \\(c\\ge0\\)\u201d, \u201cthe deterministic term is dropped\u201d) and unjustified algebraic simplifications (Step\u202f12). \n\n**Completeness (Dimension\u202fE)**: While the problem setup and algorithm description are complete, the proof lacks several essential derivations and contains incorrect steps, so the convergence guarantee is not fully substantiated.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is clearly extracted and stated in the final theorem. The proof is complete and free of gaps. The use of smoothness, convexity, and stochastic properties is justified and correctly applied. The final convergence guarantee is clearly stated and well-supported by the derivation.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound with proper use of assumptions. Key strengths include: (1) Correct application of L-smoothness (A1) in Step 1 and Step 6; (2) Valid use of PL condition (A2) in Step 9; (3) Proper integration of stochastic gradient properties (A3) via Lemma 1 and Lemma 2; (4) Appropriate handling of hyper-parameter constraints (A4) in Step 6 and Step 12. The convergence rate extraction (linear \u03c1^t) is accurate. No hallucinations or missing steps detected. All mathematical operations are rigorously justified.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999854293568078
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            12,
+            5
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 2,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 3,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof aims to establish a linear convergence rate under the PL condition, but several critical steps are incorrect or insufficiently justified. \n- **[Step 5]**: The inequality combines (8)\u2013(11) incorrectly. Using the bound \\(\\langle\\nabla f,\\tilde v\\rangle \\le \\frac12\\|\\nabla f\\|^2+\\frac12\\|\\tilde v\\|^2\\) yields a *lower* bound on the decrease term, not an upper bound on \\(f(x_{t+1})\\). The sign in the resulting expression should be \\(-\\eta_t\\bigl(\\frac32\\|\\nabla f\\|^2+\\frac12\\|\\tilde v\\|^2\\bigr)\\), not the claimed \\(-\\eta_t(\\frac12\\|\\nabla f\\|^2-\\frac12\\|\\tilde v\\|^2)\\). This invalidates the subsequent recursion. \n- **[Step 12]**: The algebra converting \\(1-2c\\mu\\) to \\(1-\\frac{\\eta\\mu}{1+\\eta L}\\) is wrong. With \\(c=\\frac{\\eta}{2}(1-L\\eta)\\) we have \\(1-2c\\mu = 1-\\eta\\mu(1-L\\eta)\\), which does **not** equal \\(1-\\frac{\\eta\\mu}{1+\\eta L}\\). Consequently the contraction factor \\(\\rho\\) is mis\u2011derived. \n- **[Step 12]** (constant term simplification): The passage from the variance bound \\(\\frac{\\eta+L\\eta^2}{2}\\cdot\\frac{\\alpha\\sigma^2}{2-\\alpha}\\) to \\(\\frac{\\eta\\sigma^2}{2\\mu}\\) relies on the hyper\u2011parameter condition \\(\\alpha\\ge \\frac{\\mu}{L+\\mu}\\), but the algebraic manipulation is omitted and, in fact, does not hold in general. A correct bound would retain a dependence on \\(\\alpha\\) and \\(L\\). \n- **[Step 7]**: The expectation step uses Lemma\u202f7, but the lemma itself drops a deterministic term involving \\(\\nabla f(x_{t-1})-\\nabla f(x_t)\\) without justification that it is non\u2011positive after expectation. This omission weakens the rigor of the variance bound. \n- **Assumption usage**: Assumptions A1 (smoothness) and A2 (PL) are invoked, but A4 (parameter constraint) is misapplied in Step\u202f12. A3 (variance bound) is used, yet the proof does not correctly propagate the bias\u2011correction factor \\(c_t\\) through the variance recursion, leading to a looser bound than claimed. \nOverall, the proof contains sign errors, algebraic mistakes, and unjustified simplifications that prevent the claimed convergence guarantee from being established.\n\n**Convergence rate extraction (Dimension\u202fA)**: The theorem states a linear rate \\(\\rho^{T}\\) with \\(\\rho = 1-\\frac{\\eta\\mu}{1+\\eta L}\\) plus a steady\u2011state term \\(\\frac{\\eta\\sigma^2}{2\\mu}\\). This is the intended rate, but the derivation is flawed.\n\n**Assumption usage analysis (Dimension\u202fB)**: A1 and A2 are used, but A4 is applied incorrectly (see Step\u202f12). A3 is used in Lemma\u202f7, yet the handling of the bias\u2011correction factor is incomplete.\n\n**Logical soundness (Dimension\u202fC)**: Critical logical gaps appear at Steps\u202f5,\u202f7,\u202f12. The inequality chain in Step\u202f5 is reversed, and the recursion in Step\u202f12 does not follow from the previous bound.\n\n**Mathematical rigor (Dimension\u202fD)**: The proof contains hand\u2011wavy arguments (e.g., \u201cusing the step\u2011size restriction \u2026 we have \\(c\\ge0\\)\u201d, \u201cthe deterministic term is dropped\u201d) and unjustified algebraic simplifications (Step\u202f12). \n\n**Completeness (Dimension\u202fE)**: While the problem setup and algorithm description are complete, the proof lacks several essential derivations and contains incorrect steps, so the convergence guarantee is not fully substantiated.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{12, 5}",
+                "operator_error_steps": "{12, 5}",
+                "assumption_violation_steps": "{12}",
+                "flagged_steps": "{12, 5}"
+              },
+              "response_time": 21.240574836730957
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and logically sound. All assumptions are clearly stated and used correctly throughout the derivation. The convergence rate is clearly extracted and stated in the final theorem. The proof is complete and free of gaps. The use of smoothness, convexity, and stochastic properties is justified and correctly applied. The final convergence guarantee is clearly stated and well-supported by the derivation.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 13.109230279922485
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound with proper use of assumptions. Key strengths include: (1) Correct application of L-smoothness (A1) in Step 1 and Step 6; (2) Valid use of PL condition (A2) in Step 9; (3) Proper integration of stochastic gradient properties (A3) via Lemma 1 and Lemma 2; (4) Appropriate handling of hyper-parameter constraints (A4) in Step 6 and Step 12. The convergence rate extraction (linear \u03c1^t) is accurate. No hallucinations or missing steps detected. All mathematical operations are rigorously justified.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 34.14880657196045
+            }
+          ],
+          "judge_reliability": [
+            -0.5656854249492382,
+            0.017157287525381038,
+            0.017157287525381038
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      13456
+    ]
+  }
+}

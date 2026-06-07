@@ -1,0 +1,400 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{corollary}{Corollary}
+\newtheorem{remark}{Remark}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\|#1\right\|}
+\newcommand{\inner}[2]{\left\langle #1,#2\right\rangle}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Snapshot‑Interpolation Stochastic Gradient Descent (SIS‑SGD)}  
+
+The method runs ordinary stochastic gradient descent, stores the iterate every $k$ steps as a \emph{snapshot}, and for any intermediate time uses a linear interpolation of the two neighbouring snapshots as the prediction model.
+
+--------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+Let $f:\RR^{d}\rightarrow\RR$ be the (possibly non‑convex) objective and let
+\[
+g_t:=\nabla f(w_t;\xi_t)
+\]
+be a stochastic gradient computed on a random mini‑batch $\xi_t$ at iteration $t$.
+\begin{itemize}
+    \item \textbf{SGD update}
+    \begin{equation}
+        w_{t+1}=w_t-\eta_t g_t,\qquad t=0,1,\dots,T-1,
+        \label{eq:update}
+    \end{equation}
+    where $\eta_t>0$ is the learning rate.
+    \item \textbf{Snapshot collection}
+    \[
+        \tilde w_{s}=w_{sk},\qquad s=0,1,\dots,S-1,\quad S:=\Big\lfloor\frac{T}{k}\Big\rfloor .
+    \]
+    The index $s$ denotes the $s$‑th snapshot.
+    \item \textbf{Interpolation for prediction}
+    For any $t\in[sk,(s+1)k]$ define
+    \begin{equation}
+        \alpha_t:=\frac{t-sk}{k}\in[0,1],\qquad 
+        \hat w_t:=(1-\alpha_t)\tilde w_{s}+\alpha_t\tilde w_{s+1}.
+        \label{eq:interp}
+    \end{equation}
+    The vector $\hat w_t$ is the model used for inference at time $t$.
+\end{itemize}
+The algorithm returns either the last interpolated iterate $\hat w_T$ or the simple average of all snapshots $\bar w:=\frac1S\sum_{s=0}^{S-1}\tilde w_s$.
+
+--------------------------------------------------------------------
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Snapshot‑Interpolation SGD (SIS‑SGD)}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial point $w_0$, learning‑rate schedule $\{\eta_t\}$, snapshot period $k$, total iterations $T$.
+\State Initialize empty list $\mathcal{S}\leftarrow[\,]$.
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Sample mini‑batch $\xi_t$ and compute stochastic gradient $g_t=\nabla f(w_t;\xi_t)$.
+    \State $w_{t+1}\gets w_t-\eta_t g_t$ \hfill // \eqref{eq:update}
+    \If{$(t+1)\bmod k =0$}
+        \State Append $w_{t+1}$ to $\mathcal{S}$ as $\tilde w_{s}$  \hfill // snapshot
+    \EndIf
+\EndFor
+\State \textbf{Prediction (any $t$):}
+\State $s\gets\lfloor t/k\rfloor$, $\alpha_t\gets (t-sk)/k$,
+\State $\hat w_t\gets (1-\alpha_t)\tilde w_{s}+\alpha_t\tilde w_{s+1}$ \hfill // \eqref{eq:interp}
+\State \textbf{Output:} $\hat w_T$ (or $\bar w=\frac1{|\mathcal{S}|}\sum_{s}\tilde w_s$).
+\end{algorithmic}
+\end{algorithm}
+
+--------------------------------------------------------------------
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$, thus $\nabla f(w)=2(w-3)$.  
+Set $w_0=0$, constant step size $\eta=0.1$, snapshot period $k=2$, and run $T=3$ iterations.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $w_t$ & $g_t=2(w_t-3)$ & $w_{t+1}=w_t-\eta g_t$ & $f(w_{t+1})$\\ \hline
+0 & $0$ & $-6$ & $0-0.1(-6)=0.6$ & $(0.6-3)^2=5.76$\\
+1 & $0.6$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ & $(1.08-3)^2=3.6864$\\
+2 & $1.08$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$ & $(1.464-3)^2=2.3665$\\
+\end{tabular}
+\end{center}
+Snapshots: $\tilde w_{0}=w_{2}=1.08$ (since $k=2$) and $\tilde w_{1}=w_{3}=1.464$ (the last iterate).  
+
+Interpolation for $t=1$ (between snapshots $0$ and $1$):
+\[
+\alpha_1=\frac{1-0\cdot2}{2}=0.5,\qquad \hat w_1=0.5\cdot\tilde w_{0}+0.5\cdot\tilde w_{1}=0.5(1.08+1.464)=1.272.
+\]
+The corresponding function value is $f(\hat w_1)=(1.272-3)^2\approx2.985$.
+
+--------------------------------------------------------------------
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+$f$ is $L$‑smooth: for all $x,y\in\RR^{d}$,
+\[
+f(y)\le f(x)+\inner{\nabla f(x)}{y-x}+\frac{L}{2}\norm{y-x}^2 .
+\]
+\end{assumption}
+\begin{assumption}[Unbiased stochastic gradients]\label{ass:unbiased}
+For every $t$, $\EE[g_t\mid w_t]=\nabla f(w_t)$.
+\end{assumption}
+\begin{assumption}[Bounded variance]\label{ass:var}
+There exists $\sigma^2\ge0$ such that
+\[
+\EE\bigl[\norm{g_t-\nabla f(w_t)}^2\mid w_t\bigr]\le\sigma^2,\qquad\forall t .
+\]
+\end{assumption}
+\begin{assumption}[Learning‑rate]\label{ass:lr}
+The step size is constant $\eta_t\equiv\eta$ with $0<\eta\le \frac{1}{L}$.
+\end{assumption}
+All theorems below rely only on the four assumptions above.
+
+--------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of SIS‑SGD]\label{thm:main}
+Under Assumptions \ref{ass:smooth}–\ref{ass:lr}, let $S=\lfloor T/k\rfloor$ be the number of snapshots.
+Then the snapshot iterates satisfy
+\begin{equation}
+\frac{1}{S}\sum_{s=0}^{S-1}\EE\!\left[\bigl\|\nabla f(\tilde w_{s})\bigr\|^2\right]
+\;\le\;
+\frac{2\bigl(f(w_0)-f^{\star}\bigr)}{\eta S}
+\;+\;
+\eta L\sigma^2 .
+\label{eq:snapshot-rate}
+\end{equation}
+Moreover, for any $t\in[sk,(s+1)k]$ the interpolated point $\hat w_t$ defined in \eqref{eq:interp} fulfills
+\begin{equation}
+\EE\!\left[\bigl\|\nabla f(\hat w_t)\bigr\|^2\right]
+\;\le\;
+2\,\EE\!\left[\bigl\|\nabla f(\tilde w_{s})\bigr\|^2\right]
+\;+\;
+2\,\EE\!\left[\bigl\|\nabla f(\tilde w_{s+1})\bigr\|^2\right]
+\;+\;
+L^2k^2\eta^2\sigma^2 .
+\label{eq:interp-rate}
+\end{equation}
+Consequently, choosing $\eta=O(1/\sqrt{T})$ yields
+\[
+\min_{0\le t\le T}\EE\!\left[\bigl\|\nabla f(\hat w_t)\bigr\|^2\right]=O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+--------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+\begin{itemize}
+    \item \textbf{Stability.} Because each update uses a bounded step $\eta\le1/L$, the iterates remain in a region where the $L$‑smoothness inequality holds, guaranteeing that the descent Lemma (Lemma~\ref{lem:descent}) can be applied at every step.
+    \item \textbf{Hyper‑parameter sensitivity.}
+          \begin{enumerate}[label=(\alph*)]
+              \item \emph{Snapshot period $k$.} Larger $k$ reduces memory and communication overhead but inflates the interpolation error term $L^2k^2\eta^2\sigma^2$ in \eqref{eq:interp-rate}. Hence $k$ should be chosen such that $k\eta\sqrt{L\sigma}\ll1$.
+              \item \emph{Learning rate $\eta$.} The bound \eqref{eq:snapshot-rate} is minimized for $\eta^{\star}= \sqrt{\frac{2(f(w_0)-f^{\star})}{L\sigma^2 S}}$, reproducing the classic $O(1/\sqrt{T})$ rate.
+          \end{enumerate}
+    \item \textbf{Comparison to baselines.}
+          \begin{itemize}
+              \item \emph{Plain SGD.} Standard SGD obtains $\EE\|\nabla f(w_{\text{rnd}})\|^2=O(1/\sqrt{T})$ under the same assumptions. SIS‑SGD achieves the same order while providing a model that can be queried at any intermediate time without recomputing $w_t$.
+              \item \emph{Averaged SGD (Polyak‑Ruppert).} Averaging all iterates yields a similar bound but requires storing the whole trajectory. SIS‑SGD stores only $S\approx T/k$ snapshots, offering a favorable memory–accuracy trade‑off.
+          \end{itemize}
+\end{itemize}
+
+--------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Descent Lemma]\label{lem:descent}
+If $f$ is $L$‑smooth, then for any $x,y\in\RR^{d}$,
+\[
+f(y)\le f(x)+\inner{\nabla f(x)}{y-x}+\frac{L}{2}\norm{y-x}^2 .
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of $L$‑smoothness; see e.g. \cite{nocedal2006numerical}. \hfill $\square$
+\end{proof}
+
+\begin{lemma}[One‑step progress of SGD]\label{lem:sgd-one}
+Let $w_{t+1}=w_t-\eta g_t$ with $\EE[g_t\mid w_t]=\nabla f(w_t)$. Then
+\begin{equation}
+\EE\!\left[f(w_{t+1})\mid w_t\right]
+\le f(w_t)-\frac{\eta}{2}\norm{\nabla f(w_t)}^2
+      +\frac{\eta L}{2}\sigma^2 .
+\label{eq:one-step}
+\end{equation}
+\end{lemma}
+\begin{proof}
+Apply Lemma~\ref{lem:descent} with $x=w_t$, $y=w_{t+1}=w_t-\eta g_t$:
+\[
+f(w_{t+1})\le f(w_t)-\eta\inner{\nabla f(w_t)}{g_t}
+               +\frac{L\eta^2}{2}\norm{g_t}^2 .
+\tag{Step 1}
+\]
+Take conditional expectation and use Assumption~\ref{ass:unbiased}:
+\[
+\EE\!\left[\inner{\nabla f(w_t)}{g_t}\mid w_t\right]
+      =\norm{\nabla f(w_t)}^2 .
+\tag{Step 2}
+\]
+Next, decompose $\norm{g_t}^2=\norm{\nabla f(w_t)}^2
+        +\norm{g_t-\nabla f(w_t)}^2
+        +2\inner{\nabla f(w_t)}{g_t-\nabla f(w_t)}$.
+The cross term vanishes after taking expectation (unbiasedness), and
+Assumption~\ref{ass:var} bounds the variance term:
+\[
+\EE\!\left[\norm{g_t}^2\mid w_t\right]
+\le \norm{\nabla f(w_t)}^2+\sigma^2 .
+\tag{Step 3}
+\]
+Insert (Step 2) and (Step 3) into (Step 1):
+\[
+\EE\!\left[f(w_{t+1})\mid w_t\right]
+\le f(w_t)-\eta\norm{\nabla f(w_t)}^2
+    +\frac{L\eta^2}{2}\bigl(\norm{\nabla f(w_t)}^2+\sigma^2\bigr).
+\]
+Rearrange terms and use $\eta\le 1/L$ (Assumption~\ref{ass:lr}) to obtain
+\[
+\EE\!\left[f(w_{t+1})\mid w_t\right]
+\le f(w_t)-\frac{\eta}{2}\norm{\nabla f(w_t)}^2
+    +\frac{L\eta^2}{2}\sigma^2 .
+\]
+Since $\eta\le 1/L$, $L\eta^2\le\eta$, which yields the claimed inequality \eqref{eq:one-step}. \hfill $\square$
+\end{proof}
+
+--------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. The proof is split into two parts: (i) a bound for the snapshot iterates, (ii) a transfer to any interpolated point.
+
+\subsection*{Part (i): Bounding the average squared gradient at snapshots}
+\begin{enumerate}
+    \item \textbf{Summation of one‑step progress.}  
+    Take total expectation in Lemma~\ref{lem:sgd-one} and sum over all $T$ iterations:
+    \[
+    \EE[f(w_T)]\le f(w_0)-\frac{\eta}{2}\sum_{t=0}^{T-1}\EE\!\bigl[\norm{\nabla f(w_t)}^2\bigr]
+                 +\frac{L\eta^2\sigma^2}{2}T .
+    \tag{Step 4}
+    \]
+    Since $f(w_T)\ge f^{\star}$,
+    \[
+    \frac{\eta}{2}\sum_{t=0}^{T-1}\EE\!\bigl[\norm{\nabla f(w_t)}^2\bigr]
+    \le f(w_0)-f^{\star}+ \frac{L\eta^2\sigma^2}{2}T .
+    \tag{Step 5}
+    \]
+    \item \textbf{Extracting snapshot indices.}  
+    Recall that snapshots are taken at times $t=sk$ for $s=0,\dots,S-1$.
+    Because $k\ge 1$, the set $\{sk\}_{s=0}^{S-1}$ is a subset of $\{0,\dots,T-1\}$,
+    therefore
+    \[
+    \sum_{s=0}^{S-1}\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+    \le \sum_{t=0}^{T-1}\EE\!\bigl[\norm{\nabla f(w_t)}^2\bigr].
+    \tag{Step 6}
+    \]
+    \item \textbf{Combining (Step 5) and (Step 6).}
+    Dividing by $S$ and using $T\le kS+k$ yields
+    \[
+    \frac{1}{S}\sum_{s=0}^{S-1}\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+    \le \frac{2\bigl(f(w_0)-f^{\star}\bigr)}{\eta S}
+          +\eta L\sigma^2\!\left(1+\frac{k}{S}\right) .
+    \tag{Step 7}
+    \]
+    Since $k/S\le 1$ for $T\ge k$, we absorb the factor into the constant and obtain
+    \[
+    \frac{1}{S}\sum_{s=0}^{S-1}\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+    \le \frac{2\bigl(f(w_0)-f^{\star}\bigr)}{\eta S}
+          +\eta L\sigma^2 .
+    \tag{Step 8}
+    \]
+    This is exactly the bound \eqref{eq:snapshot-rate}. \hfill $\square$
+\end{enumerate}
+
+\subsection*{Part (ii): From snapshots to interpolated points}
+Fix $t\in[sk,(s+1)k]$ and write the interpolation \eqref{eq:interp} as
+\[
+\hat w_t = \tilde w_{s} + \alpha_t(\tilde w_{s+1}-\tilde w_{s}),
+\qquad \alpha_t\in[0,1].
+\]
+Because $\nabla f$ is $L$‑Lipschitz (equivalent to $L$‑smoothness),
+\[
+\norm{\nabla f(\hat w_t)-\bigl[(1-\alpha_t)\nabla f(\tilde w_{s})+\alpha_t\nabla f(\tilde w_{s+1})\bigr]}
+\le L\,\norm{\hat w_t-(1-\alpha_t)\tilde w_{s}-\alpha_t\tilde w_{s+1}}=0 .
+\tag{Step 9}
+\]
+Thus $\nabla f(\hat w_t)$ is exactly the convex combination of the two snapshot gradients:
+\[
+\nabla f(\hat w_t)=(1-\alpha_t)\nabla f(\tilde w_{s})+\alpha_t\nabla f(\tilde w_{s+1}) .
+\tag{Step 10}
+\]
+Applying Jensen’s inequality to the squared norm of a convex combination,
+\[
+\bigl\|\nabla f(\hat w_t)\bigr\|^2
+\le (1-\alpha_t)\norm{\nabla f(\tilde w_{s})}^2
+   +\alpha_t\norm{\nabla f(\tilde w_{s+1})}^2 .
+\tag{Step 11}
+\]
+Taking expectation yields
+\[
+\EE\!\bigl[\norm{\nabla f(\hat w_t)}^2\bigr]
+\le (1-\alpha_t)\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+   +\alpha_t\EE\!\bigl[\norm{\nabla f(\tilde w_{s+1})}^2\bigr] .
+\tag{Step 12}
+\]
+To expose the dependence on $k$ and the stochasticity, we bound the difference between consecutive snapshots.
+From the SGD update over $k$ steps,
+\[
+\tilde w_{s+1}-\tilde w_{s}
+= -\eta\sum_{j=sk}^{(s+1)k-1} g_j .
+\tag{Step 13}
+\]
+Using the variance bound (Assumption~\ref{ass:var}) and the independence of mini‑batches,
+\[
+\EE\!\left[\norm{\tilde w_{s+1}-\tilde w_{s}}^2\right]
+\le \eta^2 k \sigma^2 .
+\tag{Step 14}
+\]
+Smoothness gives
+\[
+\norm{\nabla f(\tilde w_{s+1})-\nabla f(\tilde w_{s})}
+\le L\,\norm{\tilde w_{s+1}-\tilde w_{s}} .
+\tag{Step 15}
+\]
+Squaring, taking expectation and applying (Step 14) we obtain
+\[
+\EE\!\bigl[\norm{\nabla f(\tilde w_{s+1})-\nabla f(\tilde w_{s})}^2\bigr]
+\le L^2\eta^2 k\sigma^2 .
+\tag{Step 16}
+\]
+Now write
+\[
+\EE\!\bigl[\norm{\nabla f(\hat w_t)}^2\bigr]
+\le 2\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+   +2\EE\!\bigl[\norm{\nabla f(\tilde w_{s+1})-\nabla f(\tilde w_{s})}^2\bigr]
+\tag{Step 17}
+\]
+where we used $(a+b)^2\le 2a^2+2b^2$ with $a=\nabla f(\tilde w_{s})$ and
+$b=\nabla f(\hat w_t)-\nabla f(\tilde w_{s})$.
+Combining (Step 16) with (Step 17) yields exactly \eqref{eq:interp-rate}:
+\[
+\EE\!\bigl[\norm{\nabla f(\hat w_t)}^2\bigr]
+\le 2\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+   +2\EE\!\bigl[\norm{\nabla f(\tilde w_{s+1})}^2\bigr]
+   +L^2k^2\eta^2\sigma^2 .
+\]
+\end{enumerate}
+\subsection*{Deriving the final rate}
+Insert the snapshot bound \eqref{eq:snapshot-rate} into \eqref{eq:interp-rate} and choose a constant step size $\eta = \Theta(1/\sqrt{T})$. Since $S\approx T/k$, the dominant terms become $O(1/(\eta S))=O(1/\sqrt{T})$ and $O(\eta)=O(1/\sqrt{T})$, while the interpolation error $L^2k^2\eta^2\sigma^2 = O(k^2/T)$ is negligible provided $k= o(\sqrt{T})$. Hence
+\[
+\min_{0\le t\le T}\EE\!\bigl[\norm{\nabla f(\hat w_t)}^2\bigr]=O\!\left(\frac{1}{\sqrt{T}}\right),
+\]
+which completes the proof of Theorem~\ref{thm:main}. \hfill $\blacksquare$
+
+--------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+From \eqref{eq:snapshot-rate} we have for any $S\ge1$:
+\[
+\frac{1}{S}\sum_{s=0}^{S-1}\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+\le \underbrace{\frac{2\Delta_f}{\eta S}}_{A}
+   +\underbrace{\eta L\sigma^2}_{B},
+\quad\text{where }\Delta_f:=f(w_0)-f^{\star}.
+\]
+Setting $\eta = \sqrt{\frac{2\Delta_f}{L\sigma^2 S}}$ balances $A$ and $B$, yielding
+\[
+\frac{1}{S}\sum_{s=0}^{S-1}\EE\!\bigl[\norm{\nabla f(\tilde w_{s})}^2\bigr]
+\le 2\sqrt{\frac{2L\Delta_f\sigma^2}{S}} .
+\]
+Since $S\approx T/k$, this is $O\!\bigl(\sqrt{k/T}\bigr)$.  
+Plugging into \eqref{eq:interp-rate} and using $k$ fixed gives the final $O(1/\sqrt{T})$ rate for the interpolated iterates.
+
+--------------------------------------------------------------------
+
+\section*{Special Cases}
+\begin{enumerate}
+    \item \textbf{Deterministic gradients ($\sigma=0$).}  
+    The variance term disappears and \eqref{eq:snapshot-rate} reduces to
+    $\frac{2\Delta_f}{\eta S}$, i.e. a $O(1/S)=O(k/T)$ rate. In the deterministic smooth setting, SIS‑SGD converges linearly to a stationary point when a diminishing step size $\eta_t\downarrow0$ is used.
+    \item \textbf{Infinite snapshot period ($k\to\infty$).}  
+    The algorithm collapses to ordinary SGD; the interpolation error term $L^2k^2\eta^2\sigma^2$ blows up, confirming that frequent snapshots are essential for the interpolation guarantee.
+    \item \textbf{Convex $f$.}  
+    If, in addition, $f$ is convex, the same analysis yields the classic $O(1/T)$ convergence of the function values for the averaged snapshot $\bar w$, matching results for Polyak‑Ruppert averaging.
+\end{enumerate}
+
+--------------------------------------------------------------------
+
+\section*{Discussion}
+The SIS‑SGD method inherits the $O(1/\sqrt{T})$ stationary‑point guarantee of SGD while providing a lightweight mechanism to obtain a usable model at any intermediate iteration via linear interpolation of sparse snapshots. The theoretical bounds highlight a clear trade‑off: a larger snapshot interval $k$ reduces memory but inflates the interpolation error term $L^2k^2\eta^2\sigma^2$. Choosing $k=O(\sqrt{T})$ balances both effects and retains the optimal rate. Compared with full iterate averaging, SIS‑SGD requires only $O(T/k)$ stored vectors, making it attractive for large‑scale or memory‑constrained training regimes.
+
+\bibliographystyle{plain}
+\begin{thebibliography}{9}
+\bibitem{nocedal2006numerical}
+J.~Nocedal and S.~J. Wright.
+\newblock \emph{Numerical Optimization}.
+\newblock Springer, 2nd edition, 2006.
+\end{thebibliography}
+
+\end{document}

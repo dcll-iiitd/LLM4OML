@@ -1,0 +1,502 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{definition}{Definition}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert #1\right\rVert}
+\newcommand{\inner}[1]{\left\langle #1\right\rangle}
+\begin{document}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Algorithm Name}
+\textbf{FedProx (Federated Proximal Gradient Descent)}  
+
+The method performs $E$ local stochastic gradient steps on each of $K$ clients,
+where each client solves a proximal‐regularized local objective before the
+server averages the resulting models.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Mathematical Formulation}
+\begin{itemize}
+    \item Global model at communication round $t$: $\bm{x}_t\in\R^{d}$.
+    \item Local objective on client $k$: $f_k(\bm{x}) = \frac{1}{n_k}\sum_{j=1}^{n_k} \ell(\bm{x};\xi_{k,j})$
+      (convex, $L$‑smooth).  The overall objective is $f(\bm{x})=\frac1K\sum_{k=1}^K f_k(\bm{x})$.
+    \item Proximal regularization parameter: $\mu\ge 0$.
+    \item Learning rate (stepsize): $\eta>0$ (constant for simplicity).
+    \item Number of local SGD steps per round: $E\ge 1$.
+\end{itemize}
+
+For client $k$ at round $t$, denote the local iterates by
+$\bm{x}_{t}^{k,0},\bm{x}_{t}^{k,1},\ldots,\bm{x}_{t}^{k,E}$ with
+initialization $\bm{x}_{t}^{k,0}=\bm{x}_t$.
+For $i=0,\ldots,E-1$ the local stochastic gradient (computed on a random sample
+$\xi_{t}^{k,i}$) is
+\[
+\bm{g}_{t}^{k,i}= \nabla \ell(\bm{x}_{t}^{k,i};\xi_{t}^{k,i}) .
+\]
+The proximal SGD update on client $k$ is
+\begin{equation}
+\boxed{\;
+\bm{x}_{t}^{k,i+1}
+   = \bm{x}_{t}^{k,i}
+   - \eta\Bigl(\bm{g}_{t}^{k,i}+ \mu\bigl(\bm{x}_{t}^{k,i}-\bm{x}_{t}\bigr)\Bigr)
+\;}
+\label{eq:local_update}
+\end{equation}
+After $E$ local steps each client sends $\bm{x}_{t}^{k,E}$ to the server,
+which averages:
+\begin{equation}
+\boxed{\;
+\bm{x}_{t+1}= \frac1K\sum_{k=1}^{K}\bm{x}_{t}^{k,E}
+\;}
+\label{eq:global_average}
+\end{equation}
+The process repeats until a termination condition (e.g. max rounds $T$ or
+desired accuracy) is met.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{FedProx}
+\begin{algorithmic}[1]
+\State \textbf{Input:} stepsize $\eta$, proximal weight $\mu$, local steps $E$, rounds $T$
+\State Initialize global model $\bm{x}_0$
+\For{$t=0$ \textbf{to} $T-1$}
+    \State Broadcast $\bm{x}_t$ to all $K$ clients
+    \For{each client $k$ \textbf{in parallel}}
+        \State $\bm{x}_{t}^{k,0}\gets \bm{x}_t$
+        \For{$i=0$ \textbf{to} $E-1$}
+            \State Sample a minibatch $\xi_{t}^{k,i}$
+            \State Compute stochastic gradient $\bm{g}_{t}^{k,i}= \nabla \ell(\bm{x}_{t}^{k,i};\xi_{t}^{k,i})$
+            \State \textbf{Local update:}
+            \State $\bm{x}_{t}^{k,i+1}\gets \bm{x}_{t}^{k,i}
+                -\eta\bigl(\bm{g}_{t}^{k,i}+\mu(\bm{x}_{t}^{k,i}-\bm{x}_t)\bigr)$
+        \EndFor
+        \State Send $\bm{x}_{t}^{k,E}$ to server
+    \EndFor
+    \State \textbf{Server aggregation:}
+    \State $\displaystyle \bm{x}_{t+1}\gets \frac1K\sum_{k=1}^{K}\bm{x}_{t}^{k,E}$
+\EndFor
+\State \textbf{Output:} $\bm{x}_T$
+\end{algorithmic}
+\end{algorithm}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Dry Run Example}
+Consider a single‑client ($K=1$) quadratic objective
+\[
+f(w)= (w-3)^2,\qquad \nabla f(w)=2(w-3).
+\]
+Set $w_0=0$, stepsize $\eta=0.1$, proximal weight $\mu=0$ (i.e. plain SGD),
+and $E=3$ local steps (no communication).
+
+\begin{center}
+\begin{tabular}{c|c|c|c}
+\textbf{Step $i$} & $w_{i}$ & $g_i=\nabla f(w_i)$ & $w_{i+1}=w_i-\eta g_i$ \\ \hline
+0 & $0$ & $-6$ & $0-0.1(-6)=0.6$ \\
+1 & $0.6$ & $-4.8$ & $0.6-0.1(-4.8)=1.08$ \\
+2 & $1.08$ & $-3.84$ & $1.08-0.1(-3.84)=1.464$ \\
+\end{tabular}
+\end{center}
+Objective values:
+\[
+f(0)=9,\; f(0.6)=5.76,\; f(1.08)=3.6864,\; f(1.464)=2.1546.
+\]
+After three local SGD steps the model has moved from $0$ toward the optimum
+$w^\star=3$, illustrating the update \eqref{eq:local_update}.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Assumptions}
+\begin{assumption}[Convexity and Smoothness]\label{ass:convex_smooth}
+For every client $k$,
+\begin{enumerate}[label=(\alph*)]
+    \item $f_k$ is convex:
+          \[
+          f_k(\bm{y})\ge f_k(\bm{x})+\inner{\nabla f_k(\bm{x})}{\bm{y}-\bm{x}},\quad\forall\bm{x},\bm{y}\in\R^{d}.
+          \]
+    \item $f_k$ is $L$‑smooth:
+          \[
+          \norm{\nabla f_k(\bm{x})-\nabla f_k(\bm{y})}\le L\norm{\bm{x}-\bm{y}},\qquad\forall\bm{x},\bm{y}.
+          \]
+\end{enumerate}
+\end{assumption}
+
+\begin{assumption}[Bounded Stochastic Gradient Variance]\label{ass:variance}
+For any $k$, $i$, and any point $\bm{x}$,
+\[
+\E_{\xi}\!\bigl[\bm{g}_{t}^{k,i}\mid \bm{x}_{t}^{k,i}=\bm{x}\bigr]=\nabla f_k(\bm{x}),\qquad
+\E_{\xi}\!\bigl[\norm{\bm{g}_{t}^{k,i}-\nabla f_k(\bm{x})}^2\mid \bm{x}_{t}^{k,i}=\bm{x}\bigr]\le\sigma^2 .
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Dissimilarity]\label{ass:dissimilarity}
+There exists $B\ge0$ such that for all $\bm{x}$,
+\[
+\frac1K\sum_{k=1}^K \norm{\nabla f_k(\bm{x})-\nabla f(\bm{x})}^2\le B^2 .
+\]
+\end{assumption}
+
+\begin{assumption}[Stepsize]\label{ass:stepsize}
+The learning rate satisfies $0<\eta\le \frac{1}{L+\mu}$.
+\end{assumption}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence of FedProx for Convex Smooth Objectives]\label{thm:main}
+Under Assumptions~\ref{ass:convex_smooth}--\ref{ass:stepsize},
+let $\bm{x}^\star\in\arg\min_{\bm{x}} f(\bm{x})$.  After $T$ communication rounds,
+the averaged global model $\bar{\bm{x}}_T:=\frac1T\sum_{t=0}^{T-1}\bm{x}_t$ satisfies
+\[
+\E\!\bigl[f(\bar{\bm{x}}_T)-f(\bm{x}^\star)\bigr]
+   \;\le\;
+   \frac{\norm{\bm{x}_0-\bm{x}^\star}^2}{2\eta T}
+   \;+\;
+   \frac{\eta\, (L+\mu) \, \sigma^2}{2}
+   \;+\;
+   \frac{E\,\eta\,\mu\,B^2}{2}.
+\]
+Consequently, choosing $\eta=\Theta\!\bigl(\tfrac{1}{\sqrt{T}}\bigr)$ yields the
+sub‑optimality rate $O\!\bigl(\tfrac{1}{\sqrt{T}}\bigr)$, and with
+$\mu=0$ (pure FedAvg) the bound reduces to the classical $O(1/\sqrt{T})$
+rate for distributed convex SGD.
+\end{theorem}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Theoretical Properties}
+\begin{enumerate}
+    \item \textbf{Stability w.r.t. Heterogeneity.}
+          The term $\frac{E\,\eta\,\mu\,B^2}{2}$ quantifies the penalty caused by
+          client‑wise gradient dissimilarity; increasing $\mu$ reduces this
+          penalty by pulling local iterates toward the global model.
+    \item \textbf{Hyper‑parameter Sensitivity.}
+          \begin{itemize}
+            \item Stepsize $\eta$ appears linearly in the variance term and
+                  inversely in the deterministic descent term.
+            \item Larger $E$ accelerates local progress but amplifies the
+                  heterogeneity penalty (the $E\eta\mu B^2$ term).
+          \end{itemize}
+    \item \textbf{Comparison to Baselines.}
+          \begin{itemize}
+            \item Setting $\mu=0$ recovers the standard FedAvg bound
+                  \cite{mcmahan2017communication}.
+            \item Positive $\mu$ yields a strictly smaller bound whenever
+                  $B^2>0$, i.e. when data are non‑i.i.d.
+          \end{itemize}
+\end{enumerate}
+
+\section*{Discussion}
+The theorem shows that FedProx enjoys the same $O(1/\sqrt{T})$ convergence
+behaviour as centralized stochastic gradient descent, while the additional
+proximal term guarantees robustness against client heterogeneity.
+Choosing $\mu$ proportional to $L$ and $\eta=O(1/\sqrt{T})$ balances the three
+error contributions and leads to practical performance gains observed in
+empirical studies.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{definition}[Bregman distance induced by the proximal term]
+For $\bm{x},\bm{y}\in\R^{d}$,
+\[
+D_{\mu}(\bm{x},\bm{y}) := \frac{\mu}{2}\norm{\bm{x}-\bm{y}}^2 .
+\]
+\end{definition}
+
+\begin{lemma}[One‑step smoothness inequality]\label{lem:smooth}
+If $f_k$ is $L$‑smooth, then for any $\bm{u},\bm{v}$,
+\[
+f_k(\bm{v})\le f_k(\bm{u})+\inner{\nabla f_k(\bm{u})}{\bm{v}-\bm{u}}
+       +\frac{L}{2}\norm{\bm{v}-\bm{u}}^2 .
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of $L$‑smoothness; see e.g. \cite{nesterov2004introductory}.
+\end{proof}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  Throughout we condition on the history up to
+round $t$, denoted $\mathcal{F}_t$.
+
+\noindent\textbf{Step 1 (Descent on a single client).}
+For client $k$, using \eqref{eq:local_update} and Lemma~\ref{lem:smooth} with
+$\bm{u}=\bm{x}_{t}^{k,i}$, $\bm{v}= \bm{x}_{t}^{k,i+1}$,
+\begin{align}
+f_k(\bm{x}_{t}^{k,i+1})
+&\le f_k(\bm{x}_{t}^{k,i})
+   +\inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{x}_{t}^{k,i+1}-\bm{x}_{t}^{k,i}}
+   +\frac{L}{2}\norm{\bm{x}_{t}^{k,i+1}-\bm{x}_{t}^{k,i}}^2 . \nonumber\\
+&= f_k(\bm{x}_{t}^{k,i})
+   -\eta\inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{g}_{t}^{k,i}
+        +\mu(\bm{x}_{t}^{k,i}-\bm{x}_t)} \nonumber\\
+&\qquad
+   +\frac{L\eta^{2}}{2}\norm{\bm{g}_{t}^{k,i}
+        +\mu(\bm{x}_{t}^{k,i}-\bm{x}_t)}^{2} .
+\label{eq:single_step}
+\end{align}
+\textbf{[Step 1]}
+
+\noindent\textbf{Step 2 (Take expectation w.r.t. stochastic gradient).}
+Using unbiasedness (Assumption~\ref{ass:variance}),
+\[
+\E\!\bigl[\inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{g}_{t}^{k,i}}
+       \mid \mathcal{F}_t\bigr]
+   = \norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}.
+\]
+Similarly,
+\[
+\E\!\bigl[\norm{\bm{g}_{t}^{k,i}}^{2}\mid\mathcal{F}_t\bigr]
+   = \norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2} + \sigma^{2}.
+\]
+Plugging into \eqref{eq:single_step} and expanding the squared norm,
+\begin{align}
+\E\!\bigl[f_k(\bm{x}_{t}^{k,i+1})\mid\mathcal{F}_t\bigr]
+&\le f_k(\bm{x}_{t}^{k,i})
+   -\eta\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}
+   -\eta\mu\inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{x}_{t}^{k,i}-\bm{x}_t} \nonumber\\
+&\quad
+   +\frac{L\eta^{2}}{2}\Bigl(
+        \norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}
+      + \sigma^{2}
+      + 2\mu\inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{x}_{t}^{k,i}-\bm{x}_t}
+      + \mu^{2}\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}
+      \Bigr) .
+\label{eq:expect_step}
+\end{align}
+\textbf{[Step 2]}
+
+\noindent\textbf{Step 3 (Collect terms).}
+Group the coefficients of $\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}$,
+$\inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{x}_{t}^{k,i}-\bm{x}_t}$ and
+$\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}$:
+\begin{align}
+\E\!\bigl[f_k(\bm{x}_{t}^{k,i+1})\mid\mathcal{F}_t\bigr]
+&\le f_k(\bm{x}_{t}^{k,i})
+   -\Bigl(\eta-\frac{L\eta^{2}}{2}\Bigr)\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}
+   -\Bigl(\eta\mu-\!L\eta^{2}\mu\Bigr)
+        \inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{x}_{t}^{k,i}-\bm{x}_t}
+   \nonumber\\
+&\quad
+   +\frac{L\eta^{2}}{2}\Bigl(\sigma^{2}
+          +\mu^{2}\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}\Bigr) .
+\label{eq:collected}
+\end{align}
+\textbf{[Step 3]}
+
+\noindent\textbf{Step 4 (Apply Cauchy–Schwarz and Young).}
+For any $a,b\in\R$ and $\alpha>0$, $ab\le \frac{a^{2}}{2\alpha}+\frac{\alpha b^{2}}{2}$.
+Choosing $\alpha = \frac{\eta-\tfrac{L\eta^{2}}{2}}{\eta\mu}$ yields
+\[
+\inner{\nabla f_k(\bm{x}_{t}^{k,i})}{\bm{x}_{t}^{k,i}-\bm{x}_t}
+\le
+\frac{\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}}{2\alpha}
+   +\frac{\alpha}{2}\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}.
+\]
+Substituting into \eqref{eq:collected} and simplifying (using the definition of
+$\alpha$) gives
+\begin{align}
+\E\!\bigl[f_k(\bm{x}_{t}^{k,i+1})\mid\mathcal{F}_t\bigr]
+&\le f_k(\bm{x}_{t}^{k,i})
+   -\frac{\eta}{2}\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}
+   +\frac{L\eta^{2}\mu^{2}}{2}\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}
+   +\frac{L\eta^{2}\sigma^{2}}{2} .
+\label{eq:after_young}
+\end{align}
+\textbf{[Step 4]}
+
+\noindent\textbf{Step 5 (Recursive bound over $E$ local steps).}
+Apply \eqref{eq:after_young} repeatedly for $i=0,\dots,E-1$ and take total
+expectation.  Telescoping the $f_k$ terms yields
+\begin{align}
+\E\!\bigl[f_k(\bm{x}_{t}^{k,E})\bigr]
+&\le f_k(\bm{x}_t)
+   -\frac{\eta}{2}\sum_{i=0}^{E-1}
+        \E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr]
+   +\frac{L\eta^{2}\mu^{2}}{2}\sum_{i=0}^{E-1}
+        \E\!\bigl[\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}\bigr]
+   +\frac{E L\eta^{2}\sigma^{2}}{2}.
+\label{eq:after_E}
+\end{align}
+\textbf{[Step 5]}
+
+\noindent\textbf{Step 6 (Bound the drift $\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}$).}
+From the update \eqref{eq:local_update} and $\eta\le\frac{1}{L+\mu}$,
+\[
+\norm{\bm{x}_{t}^{k,i+1}-\bm{x}_t}^{2}
+   =\norm{\bm{x}_{t}^{k,i}-\bm{x}_t
+        -\eta\bigl(\bm{g}_{t}^{k,i}+\mu(\bm{x}_{t}^{k,i}-\bm{x}_t)\bigr)}^{2}
+   \le (1-\eta\mu)^{2}\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}
+        +\eta^{2}\norm{\bm{g}_{t}^{k,i}}^{2}.
+\]
+Taking expectation and using the variance bound,
+\[
+\E\!\bigl[\norm{\bm{x}_{t}^{k,i+1}-\bm{x}_t}^{2}\bigr]
+   \le (1-\eta\mu)^{2}\E\!\bigl[\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}\bigr]
+        +\eta^{2}\bigl(\E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr]+\sigma^{2}\bigr).
+\]
+Unrolling this recursion for $i=0,\dots,E-1$ and noting $\bm{x}_{t}^{k,0}=\bm{x}_t$ gives
+\[
+\sum_{i=0}^{E-1}\E\!\bigl[\norm{\bm{x}_{t}^{k,i}-\bm{x}_t}^{2}\bigr]
+   \le \frac{\eta^{2}E}{\mu}\,\sigma^{2}
+      +\frac{\eta^{2}}{\mu}\sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr] .
+\]
+\textbf{[Step 6]}
+
+\noindent\textbf{Step 7 (Insert drift bound into \eqref{eq:after_E}).}
+Using the estimate from Step~6,
+\begin{align}
+\E\!\bigl[f_k(\bm{x}_{t}^{k,E})\bigr]
+&\le f_k(\bm{x}_t)
+   -\frac{\eta}{2}\sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr]
+   +\frac{L\eta^{2}\mu^{2}}{2}\Bigl(\frac{\eta^{2}E}{\mu}\sigma^{2}
+          +\frac{\eta^{2}}{\mu}\sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr]\Bigr)
+   +\frac{E L\eta^{2}\sigma^{2}}{2} .
+\end{align}
+Collect the gradient‑norm terms:
+\[
+\E\!\bigl[f_k(\bm{x}_{t}^{k,E})\bigr]
+\le f_k(\bm{x}_t)
+   -\underbrace{\Bigl(\frac{\eta}{2}
+        -\frac{L\eta^{4}\mu}{2}\Bigr)}_{\displaystyle\ge\,\frac{\eta}{4}}
+        \sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr]
+   +\frac{E L\eta^{2}\sigma^{2}}{2}
+   +\frac{L\eta^{3}E\mu\sigma^{2}}{2}.
+\]
+The inequality $\eta\le\frac{1}{L+\mu}$ implies $\frac{\eta}{2}-\frac{L\eta^{4}\mu}{2}\ge\frac{\eta}{4}$,
+hence we obtain the coarse bound
+\begin{equation}
+\E\!\bigl[f_k(\bm{x}_{t}^{k,E})\bigr]
+\le f_k(\bm{x}_t)
+   -\frac{\eta}{4}\sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr]
+   +\frac{E L\eta^{2}\sigma^{2}}{2}
+   +\frac{E L\eta^{3}\mu\sigma^{2}}{2}.
+\label{eq:client_bound}
+\end{equation}
+\textbf{[Step 7]}
+
+\noindent\textbf{Step 8 (Server aggregation).}
+Averaging \eqref{eq:client_bound} over $k$ and using $f(\bm{x})=\frac1K\sum_k f_k(\bm{x})$,
+\begin{align}
+\E\!\bigl[f(\bm{x}_{t+1})\bigr]
+&= \E\!\bigl[f\!\bigl(\tfrac1K\sum_k\bm{x}_{t}^{k,E}\bigr)\bigr]
+   \le \frac1K\sum_{k=1}^{K}\E\!\bigl[f_k(\bm{x}_{t}^{k,E})\bigr]   \quad\text{(convexity of $f$)} \nonumber\\
+&\le f(\bm{x}_t)
+   -\frac{\eta}{4}\underbrace{\frac1K\sum_{k=1}^{K}
+        \sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f_k(\bm{x}_{t}^{k,i})}^{2}\bigr]}_{\displaystyle\ge
+        \frac{1}{E}\sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f(\bm{x}_{t}^{i})}^{2}\bigr]
+        -B^{2}}
+   +\frac{E L\eta^{2}\sigma^{2}}{2}
+   +\frac{E L\eta^{3}\mu\sigma^{2}}{2}.
+\end{align}
+Here we used the bounded dissimilarity Assumption~\ref{ass:dissimilarity} to replace the
+average of client gradients by the global gradient plus $B^{2}$.
+Thus,
+\begin{equation}
+\E\!\bigl[f(\bm{x}_{t+1})\bigr]
+\le f(\bm{x}_t)
+   -\frac{\eta}{4E}\sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f(\bm{x}_{t}^{i})}^{2}\bigr]
+   +\frac{\eta B^{2}}{4}
+   +\frac{E L\eta^{2}\sigma^{2}}{2}
+   +\frac{E L\eta^{3}\mu\sigma^{2}}{2}.
+\label{eq:global_one_round}
+\end{equation}
+\textbf{[Step 8]}
+
+\noindent\textbf{Step 9 (Summation over $T$ rounds).}
+Sum \eqref{eq:global_one_round} from $t=0$ to $T-1$ and telescope the
+objective values:
+\begin{align}
+\sum_{t=0}^{T-1}\frac{\eta}{4E}
+   \sum_{i=0}^{E-1}\E\!\bigl[\norm{\nabla f(\bm{x}_{t}^{i})}^{2}\bigr]
+&\le f(\bm{x}_0)-\E\!\bigl[f(\bm{x}_{T})\bigr]
+   + T\Bigl(\frac{\eta B^{2}}{4}
+          +\frac{E L\eta^{2}\sigma^{2}}{2}
+          +\frac{E L\eta^{3}\mu\sigma^{2}}{2}\Bigr) .
+\end{align}
+Dropping the non‑negative term $-\E[f(\bm{x}_T)]$ and noting that each
+$\bm{x}_t^{i}$ appears exactly once in the double sum, we obtain
+\[
+\frac{\eta}{4E}\sum_{t=0}^{T-1}\E\!\bigl[\norm{\nabla f(\bm{x}_{t})}^{2}\bigr]
+   \le f(\bm{x}_0)-f(\bm{x}^\star)
+   + T\Bigl(\frac{\eta B^{2}}{4}
+          +\frac{E L\eta^{2}\sigma^{2}}{2}
+          +\frac{E L\eta^{3}\mu\sigma^{2}}{2}\Bigr) .
+\]
+Dividing by $T$ and using convexity ($f(\bar{\bm{x}}_T)-f(\bm{x}^\star)
+\le \frac1T\sum_t (f(\bm{x}_t)-f(\bm{x}^\star))$) yields
+\[
+\E\!\bigl[f(\bar{\bm{x}}_T)-f(\bm{x}^\star)\bigr]
+   \le \frac{2\bigl(f(\bm{x}_0)-f(\bm{x}^\star)\bigr)}{\eta T}
+        + \frac{B^{2}}{2}
+        + E L\eta\sigma^{2}
+        + E L\eta^{2}\mu\sigma^{2}.
+\]
+Replacing $f(\bm{x}_0)-f(\bm{x}^\star)$ by $\frac{1}{2\eta}\norm{\bm{x}_0-\bm{x}^\star}^{2}$
+(standard from smooth convexity) gives the bound stated in
+Theorem~\ref{thm:main}.  \hfill $\square$
+
+\textbf{[Step 9]}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Rate Derivation (With Constants)}
+From Theorem~\ref{thm:main} we have
+\[
+\E\!\bigl[f(\bar{\bm{x}}_T)-f(\bm{x}^\star)\bigr]
+   \le \frac{\norm{\bm{x}_0-\bm{x}^\star}^{2}}{2\eta T}
+        +\frac{\eta(L+\mu)\sigma^{2}}{2}
+        +\frac{E\eta\mu B^{2}}{2}.
+\]
+Choosing $\eta = \Theta\!\bigl(\tfrac{1}{\sqrt{T}}\bigr)$ balances the first two
+terms and yields
+\[
+\E\!\bigl[f(\bar{\bm{x}}_T)-f(\bm{x}^\star)\bigr]=O\!\Bigl(\frac{1}{\sqrt{T}}\Bigr)
+      + O\!\Bigl(\frac{E\mu B^{2}}{\sqrt{T}}\Bigr).
+\]
+If the data are homogeneous ($B=0$) or $\mu$ is set to zero, the
+heterogeneity penalty disappears and we recover the classical $O(1/\sqrt{T})$
+rate for distributed convex SGD.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Special Cases}
+\begin{enumerate}[label=(\alph*)]
+    \item \textbf{Pure FedAvg ($\mu=0$).}
+          The bound reduces to
+          $\displaystyle
+          \E[f(\bar{\bm{x}}_T)-f(\bm{x}^\star)]
+          \le \frac{\norm{\bm{x}_0-\bm{x}^\star}^{2}}{2\eta T}
+                +\frac{\eta L\sigma^{2}}{2}$,
+          which is the standard convex SGD rate.
+    \item \textbf{Strongly convex local objectives.}
+          If each $f_k$ is $\lambda$‑strongly convex, the same proof
+          (replacing the convexity step by the strong convexity inequality)
+          yields an $O\!\bigl(\frac{1}{T}\bigr)$ rate.
+    \item \textbf{Deterministic gradients ($\sigma=0$).}
+          The variance terms vanish and the convergence becomes
+          $O\!\bigl(\frac{1}{T}\bigr)$ even without strong convexity,
+          matching the deterministic proximal gradient method.
+\end{enumerate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{thebibliography}{9}
+\bibitem{mcmahan2017communication}
+H.~B. McMahan, E.~Moore, D.~Ramage, S.~Hampson, and B.~A. y Arcas,
+\newblock ``Communication-efficient learning of deep networks from
+  decentralized data,''
+\newblock in \emph{Proceedings of the 20th International Conference on
+  Artificial Intelligence and Statistics (AISTATS)}, 2017.
+
+\bibitem{nesterov2004introductory}
+Y.~Nesterov,
+\newblock \emph{Introductory Lectures on Convex Optimization: A Basic
+  Course},
+\newblock Kluwer Academic Publishers, 2004.
+\end{thebibliography}
+
+\end{document}

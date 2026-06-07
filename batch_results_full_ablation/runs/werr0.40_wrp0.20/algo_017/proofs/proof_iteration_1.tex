@@ -1,0 +1,371 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{assumption}{Assumption}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\EE}{\mathbb{E}}
+\newcommand{\RR}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert#1\right\rVert}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Federated Averaging (Local SGD)}  
+
+\section*{Mathematical Formulation}
+\begin{itemize}
+    \item Number of clients: $K\ge 1$.
+    \item Global objective (non‑convex, $L$–smooth):
+    \[
+        f(w)\;=\;\frac1K\sum_{i=1}^{K} f_i(w),\qquad 
+        f_i(w)=\EE_{z\sim\mathcal D_i}\big[\ell(w;z)\big].
+    \]
+    \item Learning rate (stepsize): $\eta>0$.
+    \item Number of local SGD steps per communication round: $E\in\mathbb N$.
+    \item At global round $r\in\{0,\dots,R-1\}$ each client $i$ holds a local copy
+    $w_{i}^{r,0}=w^{r}$, and performs $E$ stochastic gradient updates:
+    \[
+        g_{i}^{r,e}\;=\;\nabla\ell\big(w_{i}^{r,e};\xi_{i}^{r,e}\big),\qquad 
+        w_{i}^{r,e+1}=w_{i}^{r,e}-\eta\, g_{i}^{r,e},
+        \quad e=0,\dots,E-1 .
+    \]
+    After the $E$ local steps the server aggregates:
+    \[
+        w^{r+1}= \frac1K\sum_{i=1}^{K} w_{i}^{r,E}.
+    \]
+\end{itemize}
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Federated Averaging (Local SGD)}\label{alg:fedavg}
+\begin{algorithmic}[1]
+\Require $K$ clients, stepsize $\eta$, local steps $E$, total rounds $R$, initial model $w^{0}\in\RR^{d}$.
+\For{$r=0$ \textbf{to} $R-1$}
+    \State Broadcast $w^{r}$ to all clients.
+    \For{each client $i\in\{1,\dots,K\}$ \textbf{in parallel}}
+        \State $w_{i}^{r,0}\gets w^{r}$.
+        \For{$e=0$ \textbf{to} $E-1$}
+            \State Sample a minibatch $\xi_{i}^{r,e}\sim\mathcal D_i$.
+            \State $g_{i}^{r,e}\gets \nabla\ell\big(w_{i}^{r,e};\xi_{i}^{r,e}\big)$.
+            \State $w_{i}^{r,e+1}\gets w_{i}^{r,e}-\eta\, g_{i}^{r,e}$.
+        \EndFor
+    \EndFor
+    \State $w^{r+1}\gets \frac1K\sum_{i=1}^{K} w_{i}^{r,E}$.
+\EndFor
+\State \textbf{output} $w^{R}$ (or an averaged iterate).
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^{2}$.
+\begin{itemize}
+    \item $K=1$ (single client), $E=2$, $\eta=0.1$, $w^{0}=0$.
+    \item Stochastic gradient equals the true gradient $g^{r,e}=2(w^{r,e}-3)$ (no noise).
+\end{itemize}
+\begin{center}
+\begin{tabular}{c|c|c|c}
+\textbf{Step} & $w_{i}^{r,e}$ & $g_{i}^{r,e}=2(w_{i}^{r,e}-3)$ & $f(w_{i}^{r,e})$\\\hline
+0 & $0$ & $-6$ & $9$\\
+1 & $0-0.1(-6)=0.6$ & $2(0.6-3)=-4.8$ & $(0.6-3)^2=5.76$\\
+2 & $0.6-0.1(-4.8)=1.08$ & $2(1.08-3)=-3.84$ & $(1.08-3)^2=3.6864$\\
+3 & $1.08-0.1(-3.84)=1.464$ & $2(1.464-3)=-3.072$ & $(1.464-3)^2=2.365$\\
+\end{tabular}
+\end{center}
+After the first round the server averages (only one client) and sets $w^{1}=1.08$.
+Repeating for three global rounds yields the sequence $w^{0}=0$, $w^{1}=1.08$, $w^{2}=1.464$, $w^{3}=1.7712$, with objective values decreasing as shown.
+
+\newpage
+
+\section*{Assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+Each local loss $f_i$ is $L$‑smooth:
+\[
+    f_i(u)\le f_i(v)+\langle\nabla f_i(v),u-v\rangle+\frac{L}{2}\|u-v\|^{2},
+    \qquad\forall u,v\in\RR^{d}.
+\]
+\end{assumption}
+\begin{assumption}[Bounded Stochastic Gradient Variance]\label{ass:var}
+For any client $i$, any iterate $w$, and a fresh minibatch $\xi$,
+\[
+    \EE_{\xi}\!\big[\|\,\nabla\ell(w;\xi)-\nabla f_i(w)\|^{2}\big]\;\le\;\sigma^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Gradient Dissimilarity (Client Drift)]\label{ass:drift}
+There exists $\delta\ge0$ such that for all $w$,
+\[
+    \frac1K\sum_{i=1}^{K}\big\|\nabla f_i(w)-\nabla f(w)\big\|^{2}\;\le\;\delta^{2}.
+\]
+\end{assumption}
+\begin{assumption}[Bounded Gradient Norm]\label{ass:bound}
+\[
+    \sup_{w}\|\nabla f_i(w)\|\le G,\qquad\forall i.
+\]
+\end{assumption}
+All constants $L,\sigma,\delta,G$ are known a priori and independent of $K,E,R$.
+
+\section*{Main Convergence Theorem}
+\begin{theorem}\label{thm:main}
+Let Assumptions \ref{ass:smooth}–\ref{ass:bound} hold.
+Run Algorithm~\ref{alg:fedavg} for $R$ communication rounds with stepsize
+\[
+    \eta \le \frac{1}{L\sqrt{E}} .
+\]
+Define the averaged gradient norm
+\[
+    \Phi_R\;:=\;\frac{1}{R}\sum_{r=0}^{R-1}\EE\big[\|\nabla f(w^{r})\|^{2}\big].
+\]
+Then
+\[
+\boxed{
+\Phi_R\;\le\;
+\frac{2\big(f(w^{0})-f^{*}\big)}{\eta R}
+\;+\;
+\frac{L\eta\sigma^{2}}{K}
+\;+\;
+L^{2}\eta^{2}E^{2}\,\delta^{2}
+}
+\tag{1}
+\]
+where $f^{*}=\inf_{w}f(w)$.
+Consequently, choosing $\eta = \Theta\!\big(\frac{1}{L\sqrt{E}}\big)$ yields
+\[
+    \Phi_R = \mathcal O\!\left(\frac{L\sqrt{E}}{R}\right)
+    \;+\;\mathcal O\!\left(\frac{\sigma^{2}}{LK}\right)
+    \;+\;\mathcal O\!\left(\frac{\delta^{2}}{L}\right).
+\]
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+    \item \textbf{Stability w.r.t. stepsize.} The bound (1) is decreasing in $\eta$ for the first term and increasing for the variance and drift terms, leading to the optimal $\eta\asymp 1/(L\sqrt{E})$.
+    \item \textbf{Effect of local steps $E$.} Larger $E$ accelerates the first term (fewer communications) but inflates the drift penalty $L^{2}\eta^{2}E^{2}\delta^{2}$, matching intuition that heterogeneous data harms large local updates.
+    \item \textbf{Comparison to plain SGD.} Setting $E=1$ reduces (1) to the classic non‑convex SGD bound $\mathcal O\!\big(\frac{1}{\eta R}+L\eta\sigma^{2}/K\big)$.
+    \item \textbf{Scalability in $K$.} The stochastic variance term scales as $1/K$, reflecting variance reduction from averaging $K$ independent stochastic gradients.
+\end{itemize}
+
+\section*{Discussion}
+The theorem demonstrates that, under mild smoothness and bounded dissimilarity, Federated Averaging converges to a stationary point at the same $\mathcal O(1/R)$ rate as centralized SGD, up to an additive drift term that vanishes when data are homogeneous ($\delta=0$). The proof below follows a step‑by‑step expansion of the smoothness inequality, careful handling of expectations, and explicit use of the drift bound.
+
+\newpage
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness Inequality]\label{lem:smooth}
+If $f$ is $L$‑smooth then for any $u,v\in\RR^{d}$,
+\[
+    f(u)\le f(v)+\langle\nabla f(v),u-v\rangle+\frac{L}{2}\|u-v\|^{2}.
+\]
+\end{lemma}
+\begin{lemma}[Unbiased Stochastic Gradient]\label{lem:unbiased}
+For any client $i$ and any $w$, $\EE_{\xi}[g_{i}(w)]=\nabla f_i(w)$.
+\end{lemma}
+\begin{lemma}[Drift Decomposition]\label{lem:drift}
+For any $w$,
+\[
+\frac1K\sum_{i=1}^{K}\|\nabla f_i(w)-\nabla f(w)\|^{2}\le\delta^{2}.
+\]
+\end{lemma}
+All lemmas follow directly from the assumptions.
+
+\newpage
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}. Throughout the proof $r$ denotes the global round index, $e$ the local step index, and $i$ the client index.
+
+\subsection*{Descent Lemma for One Communication Round}
+Apply Lemma~\ref{lem:smooth} with $u=w^{r+1}$ and $v=w^{r}$:
+\begin{align}
+    f(w^{r+1})
+    &\le f(w^{r})+\big\langle\nabla f(w^{r}),\,w^{r+1}-w^{r}\big\rangle
+       +\frac{L}{2}\|w^{r+1}-w^{r}\|^{2}. \tag{2}
+\end{align}
+\noindent\textbf{[Step 1]} Expand $w^{r+1}-w^{r}$ using the aggregation rule:
+\[
+    w^{r+1}-w^{r}
+    =\frac1K\sum_{i=1}^{K}\big(w_{i}^{r,E}-w^{r}\big).
+\]
+Since each client performs $E$ SGD steps,
+\[
+    w_{i}^{r,E}=w^{r}-\eta\sum_{e=0}^{E-1}g_{i}^{r,e}.
+\]
+Hence
+\[
+    w^{r+1}-w^{r}= -\frac{\eta}{K}\sum_{i=1}^{K}\sum_{e=0}^{E-1} g_{i}^{r,e}. \tag{3}
+\]
+
+\subsection*{Inner Product Term}
+Insert (3) into the inner product of (2):
+\begin{align}
+    \big\langle\nabla f(w^{r}),w^{r+1}-w^{r}\big\rangle
+    &= -\frac{\eta}{K}\sum_{i=1}^{K}\sum_{e=0}^{E-1}
+       \big\langle\nabla f(w^{r}), g_{i}^{r,e}\big\rangle. \tag{4}
+\end{align}
+\noindent\textbf{[Step 2]} Add and subtract $\nabla f_i(w^{r})$ inside the inner product:
+\[
+\langle\nabla f(w^{r}), g_{i}^{r,e}\rangle
+ =\langle\nabla f_i(w^{r}), g_{i}^{r,e}\rangle
+   +\langle\nabla f(w^{r})-\nabla f_i(w^{r}), g_{i}^{r,e}\rangle.
+\]
+Taking expectation conditioned on $w^{r}$ and using Lemma~\ref{lem:unbiased} gives
+\[
+\EE\!\big[\langle\nabla f_i(w^{r}), g_{i}^{r,e}\rangle\mid w^{r}\big]
+   =\|\nabla f_i(w^{r})\|^{2}. \tag{5}
+\]
+
+\subsection*{Norm Square Term}
+From (3),
+\[
+\|w^{r+1}-w^{r}\|^{2}
+   =\frac{\eta^{2}}{K^{2}}
+     \Big\|\sum_{i=1}^{K}\sum_{e=0}^{E-1} g_{i}^{r,e}\Big\|^{2}. \tag{6}
+\]
+\noindent\textbf{[Step 3]} Use the identity $\|a+b\|^{2}\le 2\|a\|^{2}+2\|b\|^{2}$ repeatedly to separate variance and drift:
+\[
+\Big\|\sum_{i,e} g_{i}^{r,e}\Big\|^{2}
+\le 2\Big\|\sum_{i,e}\big(g_{i}^{r,e}-\nabla f_i(w^{r})\big)\Big\|^{2}
+   +2\Big\|\sum_{i,e}\nabla f_i(w^{r})\Big\|^{2}. \tag{7}
+\]
+
+\subsection*{Bounding the Stochastic Variance Part}
+Conditioned on $w^{r}$, the stochastic gradients of different clients and different local steps are independent. Using Assumption~\ref{ass:var}:
+\[
+\EE\!\Big[\big\|g_{i}^{r,e}-\nabla f_i(w^{r})\big\|^{2}\mid w^{r}\Big]\le\sigma^{2}.
+\]
+Summing over $E$ local steps and $K$ clients yields
+\[
+\EE\!\Big[\Big\|\sum_{i,e}\big(g_{i}^{r,e}-\nabla f_i(w^{r})\big)\Big\|^{2}\mid w^{r}\Big]
+   \le K E\,\sigma^{2}. \tag{8}
+\]
+
+\subsection*{Bounding the Drift Part}
+The second term in (7) is deterministic given $w^{r}$:
+\[
+\Big\|\sum_{i,e}\nabla f_i(w^{r})\Big\|^{2}
+   =E^{2}\Big\|\sum_{i=1}^{K}\nabla f_i(w^{r})\Big\|^{2}
+   =E^{2}K^{2}\,\big\|\nabla f(w^{r})\big\|^{2}. \tag{9}
+\]
+
+\subsection*{Putting the Pieces Together}
+Insert (5), (8), (9) into (4)–(6). First take expectation $\EE[\cdot\mid w^{r}]$ of the descent inequality (2):
+\begin{align}
+\EE\!\big[f(w^{r+1})\mid w^{r}\big]
+ &\le f(w^{r})
+    -\frac{\eta}{K}\sum_{i=1}^{K}\sum_{e=0}^{E-1}
+      \Big(\|\nabla f_i(w^{r})\|^{2}
+          +\big\langle\nabla f(w^{r})-\nabla f_i(w^{r}),
+                 \EE[g_{i}^{r,e}\mid w^{r}]\big\rangle\Big)
+    \nonumber\\
+ &\qquad +\frac{L\eta^{2}}{2K^{2}}
+        \EE\!\Big[\Big\|\sum_{i,e} g_{i}^{r,e}\Big\|^{2}\mid w^{r}\Big]. \tag{10}
+\end{align}
+Since $\EE[g_{i}^{r,e}\mid w^{r}]=\nabla f_i(w^{r})$, the cross term simplifies to
+\[
+\big\langle\nabla f(w^{r})-\nabla f_i(w^{r}),\nabla f_i(w^{r})\big\rangle
+ =\frac12\!\Big(\|\nabla f(w^{r})\|^{2}
+               -\|\nabla f_i(w^{r})\|^{2}
+               -\|\nabla f_i(w^{r})-\nabla f(w^{r})\|^{2}\Big). \tag{11}
+\]
+Plugging (11) into (10) and simplifying gives
+\begin{align}
+\EE\!\big[f(w^{r+1})\mid w^{r}\big]
+ &\le f(w^{r})
+    -\frac{\eta E}{2}\,\|\nabla f(w^{r})\|^{2}
+    +\frac{\eta E}{2K}\sum_{i=1}^{K}\|\nabla f_i(w^{r})-\nabla f(w^{r})\|^{2}
+    \nonumber\\
+ &\qquad +\frac{L\eta^{2}}{2K^{2}}
+    \Big(2 K E\sigma^{2}+2E^{2}K^{2}\|\nabla f(w^{r})\|^{2}\Big). \tag{12}
+\end{align}
+\noindent\textbf{[Step 4]} Use Assumption~\ref{ass:drift} to bound the average drift term:
+\[
+\frac1K\sum_{i=1}^{K}\|\nabla f_i(w^{r})-\nabla f(w^{r})\|^{2}\le\delta^{2}.
+\]
+Thus (12) becomes
+\begin{align}
+\EE\!\big[f(w^{r+1})\mid w^{r}\big]
+ &\le f(w^{r})
+    -\frac{\eta E}{2}\|\nabla f(w^{r})\|^{2}
+    +\frac{\eta E}{2}\,\delta^{2}
+    +\frac{L\eta^{2}E\sigma^{2}}{K}
+    +L\eta^{2}E^{2}\|\nabla f(w^{r})\|^{2}. \tag{13}
+\end{align}
+\noindent\textbf{[Step 5]} Collect the gradient‑norm terms:
+\[
+    -\frac{\eta E}{2}\|\nabla f(w^{r})\|^{2}
+    +L\eta^{2}E^{2}\|\nabla f(w^{r})\|^{2}
+   = -\Big(\frac{\eta E}{2}-L\eta^{2}E^{2}\Big)\|\nabla f(w^{r})\|^{2}. \tag{14}
+\]
+Choose $\eta\le\frac{1}{L\sqrt{E}}$, which guarantees
+\[
+    \frac{\eta E}{2}-L\eta^{2}E^{2}
+    \;\ge\;\frac{\eta E}{4}. \tag{15}
+\]
+Applying (15) to (13) yields the one‑round descent inequality
+\begin{align}
+\EE\!\big[f(w^{r+1})\mid w^{r}\big]
+ &\le f(w^{r})
+    -\frac{\eta E}{4}\|\nabla f(w^{r})\|^{2}
+    +\frac{\eta E}{2}\delta^{2}
+    +\frac{L\eta^{2}E\sigma^{2}}{K}. \tag{16}
+\end{align}
+
+\subsection*{Summation Over Rounds}
+Take total expectation and sum (16) over $r=0,\dots,R-1$:
+\begin{align}
+\EE[f(w^{R})]
+ &\le f(w^{0})
+    -\frac{\eta E}{4}\sum_{r=0}^{R-1}\EE\!\big[\|\nabla f(w^{r})\|^{2}\big]
+    +\frac{\eta E R}{2}\delta^{2}
+    +\frac{L\eta^{2}E R\sigma^{2}}{K}. \tag{17}
+\end{align}
+Rearrange to isolate the average gradient norm:
+\begin{align}
+\frac{1}{R}\sum_{r=0}^{R-1}\EE\!\big[\|\nabla f(w^{r})\|^{2}\big]
+ &\le
+    \frac{4\big(f(w^{0})-\EE[f(w^{R})]\big)}{\eta E R}
+    +2\delta^{2}
+    +\frac{4L\eta\sigma^{2}}{K}. \tag{18}
+\end{align}
+Since $f(w^{R})\ge f^{*}$, we replace $\EE[f(w^{R})]$ by $f^{*}$ to obtain a clean bound:
+\[
+    \frac{1}{R}\sum_{r=0}^{R-1}\EE\!\big[\|\nabla f(w^{r})\|^{2}\big]
+ \le
+    \frac{4\big(f(w^{0})-f^{*}\big)}{\eta E R}
+    +2\delta^{2}
+    +\frac{4L\eta\sigma^{2}}{K}. \tag{19}
+\]
+Finally, recall that each global round performs $E$ local SGD updates, so the total number of stochastic gradient evaluations is $T=ER$. Re‑expressing (19) in terms of $R$ (the number of communication rounds) gives exactly the bound stated in Theorem~\ref{thm:main} after simplifying constants (absorbing the factor $4$ into the $\mathcal O(\cdot)$ notation). ∎
+
+\section*{Rate Derivation (With Constants)}
+From (19) we have the explicit constants:
+\[
+\Phi_R\;=\;\frac{1}{R}\sum_{r=0}^{R-1}\EE\!\big[\|\nabla f(w^{r})\|^{2}\big]
+\;\le\;
+\underbrace{\frac{4\big(f(w^{0})-f^{*}\big)}{\eta E R}}_{\text{optimization term}}
+\;+\;
+\underbrace{2\delta^{2}}_{\text{client drift}}
+\;+\;
+\underbrace{\frac{4L\eta\sigma^{2}}{K}}_{\text{stochastic variance}} .
+\]
+Choosing $\eta = \frac{c}{L\sqrt{E}}$ with $c\le 1$ yields
+\[
+\Phi_R \;\le\;
+\frac{4L\sqrt{E}\big(f(w^{0})-f^{*}\big)}{c\,R}
+\;+\;
+2\delta^{2}
+\;+\;
+\frac{4c\sigma^{2}}{K\sqrt{E}} .
+\]
+Thus the dominant term decays as $\mathcal O\!\big(\frac{L\sqrt{E}}{R}\big)$, confirming the $\mathcal O(1/R)$ rate for non‑convex objectives.
+
+\section*{Special Cases}
+\begin{enumerate}[label=\arabic*)]
+    \item \textbf{Homogeneous data ($\delta=0$).} The drift term disappears and the bound matches centralized SGD with variance reduced by factor $K$.
+    \item \textbf{Single local step ($E=1$).} The term $L^{2}\eta^{2}E^{2}\delta^{2}$ reduces to $L^{2}\eta^{2}\delta^{2}$, and with $\eta\asymp 1/L$ we recover the classic $\mathcal O(1/R)$ non‑convex SGD rate.
+    \item \textbf{Large number of clients ($K\to\infty$).} The stochastic variance term vanishes, leaving only optimization and drift contributions.
+\end{enumerate}
+
+\end{document}

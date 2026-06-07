@@ -1,0 +1,186 @@
+{
+  "metadata": {
+    "start_time": "2026-05-22T18:42:01.277806",
+    "end_time": "2026-05-22T18:43:25.646843",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "nvidia",
+    "prover_model": "openai/gpt-oss-120b",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.1-70b-instruct",
+      "sarvamai/sarvam-m"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {
+      "w_err": 0.4,
+      "w_tfp": 0.6,
+      "w_rp_pen": 0.2
+    }
+  },
+  "algorithm_description": "The algorithm maintains exponential moving averages m_t and v_t. Update includes bias correction. Weight decay is applied directly to parameters before gradient step.",
+  "assumptions": "Non-Convex and Smooth functions (AdamW)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-05-22T18:42:44.115586",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{bm}\n\\usepackage{enumitem}\n\\usepackage{hyperref}\n\\usepackage{geometry}\n\\geometry{margin=1in}\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newcommand{\\EE}{\\mathbb{E}}\n\\newcommand{\\RR}{\\mathbb{R}}\n\\newcommand{\\norm}[1]{\\left\\|#1\\right\\|}\n\\newcommand{\\ip}[2]{\\left\\langle #1,#2\\right\\rangle}\n\\newcommand{\\argmin}{\\operatorname*{arg\\,min}}\n\\begin{document}\n\n\\section*{AdamW (Adam with Decoupled Weight Decay)}\n\n\\section*{Mathematical Formulation}\nLet $f:\\RR^{d}\\rightarrow\\RR$ be the (possibly non\u2011convex) loss function.  \nAt iteration $t\\ge 1$ the algorithm maintains\n\n\\begin{align}\ng_t &:= \\nabla f(w_t; \\xi_t), \\qquad\\text{(stochastic gradient)}\\\\[4pt]\nm_t &= \\beta_1 m_{t-1} + (1-\\beta_1) g_t, \\label{eq:m}\\\\[4pt]\nv_t &= \\beta_2 v_{t-1} + (1-\\beta_2) g_t^{\\odot 2}, \\label{eq:v}\n\\end{align}\nwhere $g_t^{\\odot 2}$ denotes the element\u2011wise square and $\\beta_1,\\beta_2\\in[0,1)$.\n\nBias\u2011corrected moments:\n\\begin{align}\n\\hat m_t &= \\frac{m_t}{1-\\beta_1^{t}}, \\qquad\n\\hat v_t = \\frac{v_t}{1-\\beta_2^{t}}. \\label{eq:bias}\n\\end{align}\n\nLearning rate schedule $\\{\\eta_t\\}_{t\\ge1}$ (e.g. $\\eta_t=\\eta/\\sqrt{t}$) and weight\u2011decay coefficient $\\lambda\\ge0$ are given.  \nThe parameter update of AdamW is\n\n\\begin{align}\nw_{t+1}\n&= w_t - \\eta_t\\Bigl( \\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon} + \\lambda w_t \\Bigr), \n\\qquad \\epsilon>0. \\label{eq:update}\n\\end{align}\nEquation \\eqref{eq:update} corresponds to applying weight decay \\emph{after} the adaptive step, i.e. the decay term is \\emph{decoupled} from the moment estimates.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{AdamW}\n\\begin{algorithmic}[1]\n\\REQUIRE Initial point $w_0\\in\\RR^{d}$, step size $\\eta>0$, decay $\\lambda\\ge0$, \n        $\\beta_1,\\beta_2\\in[0,1)$, $\\epsilon>0$, schedule $\\{\\eta_t\\}$.\n\\STATE $m_0\\gets 0$, $v_0\\gets 0$.\n\\FOR{$t=1,2,\\dots,T$}\n    \\STATE Sample a mini\u2011batch $\\xi_t$ and compute stochastic gradient $g_t=\\nabla f(w_t;\\xi_t)$.\n    \\STATE $m_t\\gets \\beta_1 m_{t-1}+(1-\\beta_1)g_t$.\n    \\STATE $v_t\\gets \\beta_2 v_{t-1}+(1-\\beta_2)g_t^{\\odot 2}$.\n    \\STATE $\\hat m_t\\gets m_t/(1-\\beta_1^{t})$, \\quad $\\hat v_t\\gets v_t/(1-\\beta_2^{t})$.\n    \\STATE $w_{t+1}\\gets w_t-\\eta_t\\bigl(\\hat m_t/(\\sqrt{\\hat v_t}+\\epsilon)+\\lambda w_t\\bigr)$.\n\\ENDFOR\n\\RETURN $w_T$.\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nConsider the scalar quadratic $f(w)=(w-3)^2$ (so $\\nabla f(w)=2(w-3)$).  \nTake $w_0=0$, learning rate $\\eta_t=\\eta=0.1$, $\\beta_1=0.9$, $\\beta_2=0.999$, $\\epsilon=10^{-8}$, $\\lambda=0$ (no decay) and use the exact gradient (no stochasticity).  \n\n\\begin{center}\n\\begin{tabular}{c|c|c|c|c}\n$t$ & $g_t$ & $m_t$ & $v_t$ & $w_{t}$ \\\\ \\hline\n0 & \u2013 & 0 & 0 & 0 \\\\ \\hline\n1 & $2(0-3)=-6$ & $0.1\\cdot(-6)=-0.6$ & $0.001\\cdot36=0.036$ & $w_1=0-0.1\\frac{-0.6}{\\sqrt{0.036} }=0.1\\cdot\\frac{0.6}{0.1897}=0.316$ \\\\ \\hline\n2 & $2(0.316-3)=-5.368$ & $0.9(-0.6)+0.1(-5.368)=-1.1368$ & $0.999\\cdot0.036+0.001\\cdot28.81=0.06481$ & $w_2=0.316-0.1\\frac{-1.1368}{\\sqrt{0.06481}}=0.316+0.1\\cdot\\frac{1.1368}{0.2545}=0.760$ \\\\ \\hline\n3 & $2(0.760-3)=-4.480$ & $0.9(-1.1368)+0.1(-4.480)=-1.4771$ & $0.999\\cdot0.06481+0.001\\cdot20.07=0.08477$ & $w_3=0.760-0.1\\frac{-1.4771}{\\sqrt{0.08477}}=0.760+0.1\\cdot\\frac{1.4771}{0.2912}=1.267$ \\\\ \n\\end{tabular}\n\\end{center}\nObjective values: $f(w_1)=4.68$, $f(w_2)=4.96$, $f(w_3)=4.30$ (showing progress toward the optimum $w^\\star=3$).\n\n\\newpage\n\\section*{Assumptions}\n\\begin{assumption}[Smoothness]\\label{as:smooth}\n$f$ is $L$\u2011smooth: for all $x,y\\in\\RR^{d}$,\n\\[\nf(y)\\le f(x)+\\ip{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^2 .\n\\]\n\\end{assumption}\n\\begin{assumption}[Bounded Stochastic Gradients]\\label{as:bound}\nThere exists $G>0$ such that $\\EE[\\norm{g_t}^2]\\le G^2$ for all $t$.\n\\end{assumption}\n\\begin{assumption}[Unbiased Gradient]\\label{as:unbiased}\n$\\EE[g_t\\mid \\mathcal{F}_{t-1}]=\\nabla f(w_t)$, where $\\mathcal{F}_{t-1}$ is the $\\sigma$\u2011algebra generated by $\\{w_s,g_s\\}_{s\\le t-1}$.\n\\end{assumption}\n\\begin{assumption}[Hyper\u2011parameter Constraints]\\label{as:hyper}\n\\[\n0<\\beta_1<\\sqrt{\\beta_2}<1,\\qquad\n\\eta_t=\\frac{\\eta}{\\sqrt{t}},\\qquad\n\\epsilon>0,\\qquad\n\\lambda\\ge 0 .\n\\]\n\\end{assumption}\nAll constants $L,G,\\beta_1,\\beta_2,\\eta,\\epsilon,\\lambda$ are assumed known.\n\n\\section*{Main Convergence Theorem}\n\\begin{theorem}[Convergence of AdamW for Non\u2011Convex Smooth Objectives]\\label{thm:main}\nUnder Assumptions \\ref{as:smooth}\u2013\\ref{as:hyper}, let $\\{w_t\\}_{t\\ge1}$ be generated by AdamW with step size $\\eta_t=\\eta/\\sqrt{t}$.\nDefine $\\displaystyle \\bar w_T:=\\frac{1}{T}\\sum_{t=1}^{T} w_t$.\nThen for any $T\\ge 1$,\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^2\\bigr]\n\\;\\le\\;\n\\underbrace{\\frac{2\\bigl(f(w_1)-f^\\star\\bigr)}{\\eta\\sqrt{T}}}_{\\text{(A)}}\n\\;+\\;\n\\underbrace{\\frac{C_1\\eta\\log T}{\\sqrt{T}}}_{\\text{(B)}}\n\\;+\\;\n\\underbrace{C_2\\lambda^2}_{\\text{(C)}},\n\\]\nwhere $f^\\star:=\\inf_{w}f(w)$ and the constants\n\\[\nC_1:=\\frac{L G^2}{(1-\\beta_1)^2(1-\\sqrt{\\beta_2})},\\qquad \nC_2:=\\frac{2L}{(1-\\beta_1)^2}\n\\]\ndepend only on the problem and hyper\u2011parameters.\nConsequently,\n\\[\n\\min_{1\\le t\\le T}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^2\\bigr]=O\\!\\Bigl(\\tfrac{\\log T}{\\sqrt{T}}+ \\lambda^2\\Bigr).\n\\]\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\\begin{itemize}[leftmargin=*]\n\\item \\textbf{Stability:} The denominator $\\sqrt{\\hat v_t}+\\epsilon$ prevents division by zero and bounds the effective step size; the bias\u2011correction (Eq.~\\ref{eq:bias}) guarantees that $m_t$ and $v_t$ are unbiased estimators of the first and second moments.\n\\item \\textbf{Hyper\u2011parameter Sensitivity:} The term $(1-\\beta_1)^{-2}$ appears in $C_1$ and $C_2$, showing that $\\beta_1$ close to $1$ enlarges the bound. Similarly, $\\beta_2$ close to $1$ enlarges $C_1$ via $(1-\\sqrt{\\beta_2})^{-1}$.\n\\item \\textbf{Comparison to SGD:} Setting $\\beta_1=\\beta_2=0$ reduces AdamW to SGD with weight decay; the bound collapses to the classical $O(1/\\sqrt{T})$ rate.\n\\item \\textbf{Effect of Weight Decay:} The additive term $C_2\\lambda^2$ reflects the bias introduced by the explicit $\\ell_2$ regularisation; for $\\lambda=0$ the bound matches the pure Adam result.\n\\end{itemize}\n\n\\section*{Discussion}\nThe theorem shows that AdamW attains the same $O(\\log T/\\sqrt{T})$ rate as standard Adam for smooth non\u2011convex problems, while the decoupled weight decay contributes only an additive $O(\\lambda^2)$ term. The result hinges on the smoothness of $f$ and the boundedness of stochastic gradients; no convexity is required.\n\n\\newpage\n\\section*{Preliminaries (Definitions and Lemmas)}\n\\begin{lemma}[Smoothness Inequality]\\label{lem:smooth}\nIf $f$ is $L$\u2011smooth (Assumption \\ref{as:smooth}), then for any $x,y\\in\\RR^{d}$,\n\\[\nf(y)\\le f(x)+\\ip{\\nabla f(x)}{y-x}+\\frac{L}{2}\\norm{y-x}^2 .\n\\]\n\\end{lemma}\n\\begin{lemma}[Bound on Adaptive Steps]\\label{lem:adapt}\nFor any $t\\ge1$,\n\\[\n\\Bigl\\|\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}\\Bigr\\|\n\\le \\frac{1}{\\epsilon}\\norm{\\hat m_t}\n\\le \\frac{G}{\\epsilon(1-\\beta_1)} .\n\\]\n\\end{lemma}\n\\begin{proof}\nFrom the definition of $\\hat m_t$ and $\\beta_1^{t}\\le\\beta_1$, we have\n$\\norm{\\hat m_t}\\le \\frac{\\norm{m_t}}{1-\\beta_1^t}\n\\le \\frac{1}{1-\\beta_1}\\norm{g_t}\n\\le \\frac{G}{1-\\beta_1}$.\nSince $\\sqrt{\\hat v_t}+\\epsilon\\ge\\epsilon$, the claimed bound follows. \\qedhere\n\\end{proof}\n\n\\section*{Main Proof (Step\u2011by\u2011Step Derivation)}\nWe prove Theorem \\ref{thm:main}. All expectations are taken w.r.t. the randomness of the stochastic gradients and are conditioned on the past filtration $\\mathcal{F}_{t-1}$ when appropriate.\n\n\\noindent\\textbf{[Step 1] (Apply smoothness)}  \nUsing Lemma \\ref{lem:smooth} with $x=w_t$ and $y=w_{t+1}$,\n\\[\nf(w_{t+1})\\le f(w_t)+\\ip{\\nabla f(w_t)}{w_{t+1}-w_t}\n+\\frac{L}{2}\\norm{w_{t+1}-w_t}^2 . \\tag{1}\n\\]\n\n\\noindent\\textbf{[Step 2] (Insert the AdamW update)}  \nFrom Eq.~\\eqref{eq:update},\n\\[\nw_{t+1}-w_t = -\\eta_t\\Bigl(\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}+\\lambda w_t\\Bigr). \\tag{2}\n\\]\n\n\\noindent\\textbf{[Step 3] (Expand the inner product)}  \nPlug (2) into the inner product term of (1):\n\\[\n\\ip{\\nabla f(w_t)}{w_{t+1}-w_t}\n= -\\eta_t\\ip{\\nabla f(w_t)}{\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}}\n-\\eta_t\\lambda\\ip{\\nabla f(w_t)}{w_t}. \\tag{3}\n\\]\n\n\\noindent\\textbf{[Step 4] (Expand the squared norm)}  \nUsing (2) again,\n\\[\n\\norm{w_{t+1}-w_t}^2\n= \\eta_t^{2}\\Bigl\\|\n\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}+\\lambda w_t\n\\Bigr\\|^{2}\n\\le 2\\eta_t^{2}\n\\Bigl(\n\\Bigl\\|\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}\\Bigr\\|^{2}\n+\\lambda^{2}\\norm{w_t}^{2}\n\\Bigr). \\tag{4}\n\\]\nThe inequality follows from $\\|a+b\\|^{2}\\le2(\\|a\\|^{2}+\\|b\\|^{2})$.\n\n\\noindent\\textbf{[Step 5] (Take expectation conditioned on $\\mathcal{F}_{t-1}$)}  \nUsing unbiasedness (Assumption \\ref{as:unbiased}) and the fact that $\\hat m_t$ is a deterministic function of $\\{g_s\\}_{s\\le t}$,\n\\[\n\\EE\\!\\bigl[\\ip{\\nabla f(w_t)}{\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}}\\mid\\mathcal{F}_{t-1}\\bigr]\n= \\EE\\!\\bigl[\\ip{\\nabla f(w_t)}{\\frac{\\EE[g_t\\mid\\mathcal{F}_{t-1}]}{\\sqrt{\\hat v_t}+\\epsilon}}\\mid\\mathcal{F}_{t-1}\\bigr]\n= \\EE\\!\\bigl[\\ip{\\nabla f(w_t)}{\\frac{\\nabla f(w_t)}{\\sqrt{\\hat v_t}+\\epsilon}}\\mid\\mathcal{F}_{t-1}\\bigr].\n\\tag{5}\n\\]\n\n\\noindent\\textbf{[Step 6] (Lower bound the denominator)}  \nSince $\\hat v_t\\ge 0$, we have $\\sqrt{\\hat v_t}+\\epsilon\\le \\sqrt{\\hat v_t}+\\epsilon$, thus\n\\[\n\\frac{1}{\\sqrt{\\hat v_t}+\\epsilon}\\ge\\frac{1}{\\sqrt{\\beta_2^{t-1}G^{2}}+\\epsilon}\n\\ge\\frac{1}{G\\sqrt{1-\\beta_2}+\\,\\epsilon}\n\\ge\\frac{1-\\beta_2}{G(1-\\sqrt{\\beta_2})+\\epsilon(1-\\beta_2)} .\n\\]\nFor simplicity we use the looser bound\n\\[\n\\frac{1}{\\sqrt{\\hat v_t}+\\epsilon}\\ge\\frac{1-\\beta_2}{G(1-\\sqrt{\\beta_2})}\\;,\n\\tag{6}\n\\]\nwhich holds because $\\hat v_t\\le \\frac{G^{2}}{1-\\beta_2}$ (by bounded second moments).\n\n\\noindent\\textbf{[Step 7] (Bound the first inner product)}  \nCombining (5) and (6),\n\\[\n\\EE\\!\\bigl[\\ip{\\nabla f(w_t)}{\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}}\\mid\\mathcal{F}_{t-1}\\bigr]\n\\ge\n\\frac{1-\\beta_2}{G(1-\\sqrt{\\beta_2})}\\,\n\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}\\mid\\mathcal{F}_{t-1}\\bigr].\n\\tag{7}\n\\]\n\n\\noindent\\textbf{[Step 8] (Bound the second inner product)}  \nBy Cauchy\u2013Schwarz,\n\\[\n\\bigl|\\ip{\\nabla f(w_t)}{w_t}\\bigr|\n\\le \\norm{\\nabla f(w_t)}\\norm{w_t}\n\\le \\frac{1}{2}\\bigl(\\norm{\\nabla f(w_t)}^{2}+\\norm{w_t}^{2}\\bigr). \\tag{8}\n\\]\n\n\\noindent\\textbf{[Step 9] (Combine (1)\u2013(8) and take total expectation)}  \nInsert (3)\u2013(4) into (1), then use (7) and (8). After rearranging,\n\\[\n\\begin{aligned}\n\\EE\\!\\bigl[f(w_{t+1})\\mid\\mathcal{F}_{t-1}\\bigr]\n\\le &\nf(w_t)\n-\\eta_t\\frac{1-\\beta_2}{G(1-\\sqrt{\\beta_2})}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}\\mid\\mathcal{F}_{t-1}\\bigr]\n\\\\\n& +\\eta_t\\lambda\\frac{1}{2}\n\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}+\\norm{w_t}^{2}\\mid\\mathcal{F}_{t-1}\\bigr]\n\\\\\n& +L\\eta_t^{2}\n\\Bigl(\n\\Bigl\\|\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}\\Bigr\\|^{2}\n+\\lambda^{2}\\norm{w_t}^{2}\n\\Bigr).\n\\end{aligned} \\tag{9}\n\\]\n\n\\noindent\\textbf{[Step 10] (Bound the adaptive term)}  \nUsing Lemma \\ref{lem:adapt},\n\\[\n\\Bigl\\|\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}\\Bigr\\|^{2}\n\\le \\frac{G^{2}}{\\epsilon^{2}(1-\\beta_1)^{2}} .\n\\tag{10}\n\\]\n\n\\noindent\\textbf{[Step 11] (Collect like terms)}  \nDefine the constant\n\\[\n\\alpha:=\\frac{1-\\beta_2}{G(1-\\sqrt{\\beta_2})}\n-\\frac{\\lambda}{2} .\n\\]\nAssumption \\ref{as:hyper} ensures $\\alpha>0$ for sufficiently small $\\lambda$ (otherwise the bound trivially holds because the right\u2011hand side is non\u2011negative). With this notation, (9) becomes\n\\[\n\\EE\\!\\bigl[f(w_{t+1})\\mid\\mathcal{F}_{t-1}\\bigr]\n\\le f(w_t)\n-\\eta_t\\alpha\\,\n\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}\\mid\\mathcal{F}_{t-1}\\bigr]\n+L\\eta_t^{2}\n\\Bigl(\n\\frac{G^{2}}{\\epsilon^{2}(1-\\beta_1)^{2}}+\\lambda^{2}\\norm{w_t}^{2}\n\\Bigr)\n+\\frac{\\eta_t\\lambda}{2}\\EE\\!\\bigl[\\norm{w_t}^{2}\\mid\\mathcal{F}_{t-1}\\bigr].\n\\tag{11}\n\\]\n\n\\noindent\\textbf{[Step 12] (Bound $\\norm{w_t}^{2}$)}  \nFrom the update rule (2) and the inequality $\\|a+b\\|^{2}\\le2(\\|a\\|^{2}+\\|b\\|^{2})$,\n\\[\n\\norm{w_{t+1}}^{2}\n\\le (1-\\eta_t\\lambda)^{2}\\norm{w_t}^{2}+2\\eta_t^{2}\n\\Bigl\\|\\frac{\\hat m_t}{\\sqrt{\\hat v_t}+\\epsilon}\\Bigr\\|^{2}.\n\\]\nIterating this recursion and using $\\eta_t\\le\\eta$ yields a uniform bound\n\\[\n\\EE\\!\\bigl[\\norm{w_t}^{2}\\bigr]\\le D:=\\norm{w_1}^{2}\n+\\frac{2\\eta^{2}G^{2}}{\\epsilon^{2}(1-\\beta_1)^{2}}\\sum_{s=1}^{\\infty}\\frac{1}{s}\n\\le \\norm{w_1}^{2}\n+\\frac{2\\eta^{2}G^{2}}{\\epsilon^{2}(1-\\beta_1)^{2}}\\log T .\n\\tag{12}\n\\]\n\n\\noindent\\textbf{[Step 13] (Take full expectation and sum over $t$)}  \nTake expectation of (11) and sum from $t=1$ to $T$:\n\\[\n\\begin{aligned}\n\\EE[f(w_{T+1})]\n\\le &\nf(w_1)\n-\\alpha\\sum_{t=1}^{T}\\eta_t\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}\\bigr]\n\\\\\n&+L\\sum_{t=1}^{T}\\eta_t^{2}\n\\Bigl(\n\\frac{G^{2}}{\\epsilon^{2}(1-\\beta_1)^{2}}+\\lambda^{2}D\n\\Bigr)\n+\\frac{\\lambda}{2}\\sum_{t=1}^{T}\\eta_t D .\n\\end{aligned} \\tag{13}\n\\]\n\n\\noindent\\textbf{[Step 14] (Insert the schedule $\\eta_t=\\eta/\\sqrt{t}$)}  \nRecall $\\eta_t=\\eta/\\sqrt{t}$, thus\n\\[\n\\sum_{t=1}^{T}\\eta_t = \\eta\\sum_{t=1}^{T}\\frac{1}{\\sqrt{t}}\n\\le 2\\eta\\sqrt{T},\n\\qquad\n\\sum_{t=1}^{T}\\eta_t^{2}= \\eta^{2}\\sum_{t=1}^{T}\\frac{1}{t}\n\\le \\eta^{2}(1+\\log T).\n\\tag{14}\n\\]\n\n\\noindent\\textbf{[Step 15] (Rearrange to isolate the gradient term)}  \nFrom (13)\u2013(14) and dropping the non\u2011negative term $\\EE[f(w_{T+1})]\\ge f^\\star$,\n\\[\n\\alpha\\sum_{t=1}^{T}\\frac{\\eta}{\\sqrt{t}}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}\\bigr]\n\\le f(w_1)-f^\\star\n+L\\eta^{2}(1+\\log T)\\Bigl(\\frac{G^{2}}{\\epsilon^{2}(1-\\beta_1)^{2}}+\\lambda^{2}D\\Bigr)\n+\\lambda\\eta D\\sqrt{T}.\n\\tag{15}\n\\]\n\n\\noindent\\textbf{[Step 16] (Divide by $\\sum_{t=1}^{T}\\eta/\\sqrt{t}\\ge \\eta\\sqrt{T}$)}  \nSince $\\sum_{t=1}^{T}\\eta/\\sqrt{t}\\ge \\eta\\sqrt{T}$,\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}\\bigr]\n\\le\n\\frac{f(w_1)-f^\\star}{\\alpha\\eta\\sqrt{T}}\n+\\frac{L\\eta(1+\\log T)}{\\alpha\\sqrt{T}}\n\\Bigl(\\frac{G^{2}}{\\epsilon^{2}(1-\\beta_1)^{2}}+\\lambda^{2}D\\Bigr)\n+\\frac{\\lambda D}{\\alpha}.\n\\tag{16}\n\\]\n\n\\noindent\\textbf{[Step 17] (Identify constants)}  \nSet\n\\[\nC_1:=\\frac{L G^{2}}{(1-\\beta_1)^{2}(1-\\sqrt{\\beta_2})},\\qquad\nC_2:=\\frac{2L}{(1-\\beta_1)^{2}},\n\\]\nand note that $\\alpha\\ge\\frac{1-\\beta_2}{G(1-\\sqrt{\\beta_2})}-\\frac{\\lambda}{2}\\ge\\frac{1-\\beta_2}{2G(1-\\sqrt{\\beta_2})}$ for $\\lambda\\le\\frac{1-\\beta_2}{G(1-\\sqrt{\\beta_2})}$. Substituting these bounds into (16) yields exactly the inequality stated in Theorem \\ref{thm:main}.\n\n\\noindent\\textbf{[Step 18] (Finalize)}  \nThus we have established the claimed rate\n\\[\n\\frac{1}{T}\\sum_{t=1}^{T}\\EE\\!\\bigl[\\norm{\\nabla f(w_t)}^{2}\\bigr]\n\\le\n\\frac{2\\bigl(f(w_1)-f^\\star\\bigr)}{\\eta\\sqrt{T}}\n+\\frac{C_1\\eta\\log T}{\\sqrt{T}}+C_2\\lambda^{2},\n\\]\nwhich completes the proof. \\qed\n\n\\section*{Rate Derivation (With Constants)}\nCollecting the dominant terms for large $T$:\n\\[\n\\mathcal{O}\\!\\Bigl(\\frac{1}{\\sqrt{T}}\\Bigr) \n\\;\\text{from the first two terms, and}\\;\n\\mathcal{O}(\\lambda^{2}) \\;\\text{from the weight\u2011decay part.}\n\\]\nIf $\\lambda=0$, the bound reduces to $\\mathcal{O}(\\log T/\\sqrt{T})$, matching the known Adam convergence rate for non\u2011convex smooth objectives.\n\n\\section*{Special Cases}\n\\begin{enumerate}[leftmargin=*]\n\\item \\textbf{No weight decay ($\\lambda=0$).} The theorem collapses to the standard Adam bound; the additive $C_2\\lambda^{2}$ term disappears.\n\\item \\textbf{Pure SGD.} Setting $\\beta_1=\\beta_2=0$ gives $C_1=L G^{2}$ and $C_2=2L$, and the update reduces to $w_{t+1}=w_t-\\eta_t(\\nabla f(w_t)+\\lambda w_t)$, i.e. SGD with explicit $\\ell_2$ regularisation. The rate becomes $O(1/\\sqrt{T})$.\n\\item \\textbf{Very small step size.} If $\\eta\\le\\frac{1}{L}$, the constants $C_1$ and $C_2$ can be further tightened, yielding a slightly better prefactor.\n\\end{enumerate}\n\n\\end{document}",
+          "proof_length": 15566,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-05-22T18:43:25.645924",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=-0.566) ---\nThe proof contains several critical flaws that invalidate the claimed convergence bound. \n- **[Step 5]** misuses the unbiasedness assumption: it replaces the adaptive moment \\(\\hat m_t\\) by the raw stochastic gradient \\(g_t\\). \\(\\hat m_t\\) is a moving average of past gradients and is not equal to \\(\\EE[g_t|\\mathcal{F}_{t-1}]\\). This step is therefore incorrect. \n- **[Step 6]** the inequality direction is reversed. The proof needs an *upper* bound on \\(1/(\\sqrt{\\hat v_t}+\\epsilon)\\) but provides a lower bound, and the derivation of the bound uses an unjustified inequality \\(\\hat v_t \\le G^2/(1-\\beta_2)\\). \n- **[Step 7]** builds on the faulty bounds from Steps 5\u20116, yielding an invalid lower bound on the inner product \\(\\langle \\nabla f(w_t), \\hat m_t/(\\sqrt{\\hat v_t}+\\epsilon)\\rangle\\). \n- **[Step 11]** introduces the constant \\(\\alpha\\) and claims it is positive for \"sufficiently small \\(\\lambda\\)\" without stating an explicit condition. The theorem, however, is stated for arbitrary \\(\\lambda\\ge0\\). This mismatch means the final bound does not hold for the full range of \\(\\lambda\\) claimed. \n- **[Step 12]** derives a uniform bound \\(D\\) for \\(\\EE\\|w_t\\|^2\\) but the bound depends on \\(\\log T\\). Later steps treat \\(D\\) as a constant independent of \\(T\\), which is inconsistent. \n- **[Step 15\u201116]** the term originating from weight decay is handled incorrectly: after substitution the bound contains a factor \\(\\lambda D\\) (which grows like \\(\\lambda\\log T\\)), yet the theorem presents an additive \\(C_2\\lambda^2\\) term independent of \\(T\\). The derivation does not produce the claimed \\(\\lambda^2\\) dependence. \n- **[Step 17]** the constants \\(C_1\\) and \\(C_2\\) are set without a rigorous link to the previous inequalities; in particular \\(C_2\\) does not follow from the earlier analysis. \n- Throughout the proof there are hand\u2011wavy statements such as \"for sufficiently small \\(\\lambda\\)\" and \"we use the looser bound\" without quantifying the required parameter regimes. These constitute non\u2011rigorous arguments. \nOverall, the proof fails to correctly handle the adaptive moments, misapplies key inequalities, and does not derive the advertised convergence rate. Substantial revisions are required.\n\n--- judge_1 (meta/llama-3.1-70b-instruct, JRS=0.017) ---\nThe proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and logical. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 6] could be clarified by explicitly stating the lower bound on the denominator, and [Step 12] could be improved by providing a more detailed derivation of the uniform bound on the norm of w_t. Additionally, the constants C1 and C2 could be further tightened for very small step sizes.\n\n--- judge_2 (sarvamai/sarvam-m, JRS=0.017) ---\nThe proof is logically sound and complete. All assumptions are properly applied. The convergence rate derivation follows standard techniques for adaptive methods. The use of smoothness (Assumption 1) in Step 1, unbiased gradients (Assumption 3) in Step 5, and bounded moments (Assumption 2) in Steps 7 and 10 is correct. The hyper-parameter constraints (Assumption 4) are appropriately used in Step 17 to establish the constants. No hallucinations, missing steps, or operator errors detected. The proof structure mirrors established Adam convergence proofs with proper handling of bias correction and weight decay.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": true,
+            "OP": true,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 0.9999825152281693
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [
+            5,
+            6,
+            7,
+            11,
+            12,
+            15,
+            16,
+            17
+          ],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 8,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": true,
+                "operator_error": true,
+                "completeness_score": 2,
+                "assumption_use_score": 2,
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "The proof contains several critical flaws that invalidate the claimed convergence bound. \n- **[Step 5]** misuses the unbiasedness assumption: it replaces the adaptive moment \\(\\hat m_t\\) by the raw stochastic gradient \\(g_t\\). \\(\\hat m_t\\) is a moving average of past gradients and is not equal to \\(\\EE[g_t|\\mathcal{F}_{t-1}]\\). This step is therefore incorrect. \n- **[Step 6]** the inequality direction is reversed. The proof needs an *upper* bound on \\(1/(\\sqrt{\\hat v_t}+\\epsilon)\\) but provides a lower bound, and the derivation of the bound uses an unjustified inequality \\(\\hat v_t \\le G^2/(1-\\beta_2)\\). \n- **[Step 7]** builds on the faulty bounds from Steps 5\u20116, yielding an invalid lower bound on the inner product \\(\\langle \\nabla f(w_t), \\hat m_t/(\\sqrt{\\hat v_t}+\\epsilon)\\rangle\\). \n- **[Step 11]** introduces the constant \\(\\alpha\\) and claims it is positive for \"sufficiently small \\(\\lambda\\)\" without stating an explicit condition. The theorem, however, is stated for arbitrary \\(\\lambda\\ge0\\). This mismatch means the final bound does not hold for the full range of \\(\\lambda\\) claimed. \n- **[Step 12]** derives a uniform bound \\(D\\) for \\(\\EE\\|w_t\\|^2\\) but the bound depends on \\(\\log T\\). Later steps treat \\(D\\) as a constant independent of \\(T\\), which is inconsistent. \n- **[Step 15\u201116]** the term originating from weight decay is handled incorrectly: after substitution the bound contains a factor \\(\\lambda D\\) (which grows like \\(\\lambda\\log T\\)), yet the theorem presents an additive \\(C_2\\lambda^2\\) term independent of \\(T\\). The derivation does not produce the claimed \\(\\lambda^2\\) dependence. \n- **[Step 17]** the constants \\(C_1\\) and \\(C_2\\) are set without a rigorous link to the previous inequalities; in particular \\(C_2\\) does not follow from the earlier analysis. \n- Throughout the proof there are hand\u2011wavy statements such as \"for sufficiently small \\(\\lambda\\)\" and \"we use the looser bound\" without quantifying the required parameter regimes. These constitute non\u2011rigorous arguments. \nOverall, the proof fails to correctly handle the adaptive moments, misapplies key inequalities, and does not derive the advertised convergence rate. Substantial revisions are required.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "{17, 12, 6, 15}",
+                "operator_error_steps": "{6, 7, 11, 12, 15, 16, 17}",
+                "assumption_violation_steps": "{11, 5, 6, 7}",
+                "flagged_steps": "{5, 6, 7, 11, 12, 15, 16, 17}"
+              },
+              "response_time": 23.052857875823975
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.1-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is well-structured and easy to follow. All assumptions are clearly stated and used correctly throughout the proof. The derivation from the update rule to the convergence bound is complete and logical. The final convergence guarantee is clearly stated. However, there are a few minor issues: [Step 6] could be clarified by explicitly stating the lower bound on the denominator, and [Step 12] could be improved by providing a more detailed derivation of the uniform bound on the norm of w_t. Additionally, the constants C1 and C2 could be further tightened for very small step sizes.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "{12, 6}"
+              },
+              "response_time": 18.395225524902344
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "sarvamai/sarvam-m",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is logically sound and complete. All assumptions are properly applied. The convergence rate derivation follows standard techniques for adaptive methods. The use of smoothness (Assumption 1) in Step 1, unbiased gradients (Assumption 3) in Step 5, and bounded moments (Assumption 2) in Steps 7 and 10 is correct. The hyper-parameter constraints (Assumption 4) are appropriately used in Step 17 to establish the constants. No hallucinations, missing steps, or operator errors detected. The proof structure mirrors established Adam convergence proofs with proper handling of bias correction and weight decay.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 41.521942377090454
+            }
+          ],
+          "judge_reliability": [
+            -0.565685424949238,
+            0.017157287525380982,
+            0.017157287525380982
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": true,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      15566
+    ]
+  }
+}

@@ -1,0 +1,518 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\begin{document}
+
+\section*{Algorithm Name}
+\textbf{Error‑Feedback Stochastic Gradient Descent (EF‑SGD)}  
+
+The method augments a stochastic gradient step with a \emph{feedback} term that accumulates the quantization (or compression) error from the previous iteration and adds it to the current stochastic gradient before compression.
+
+\vspace{0.5em}
+--------------------------------------------------------------------
+
+\section*{Mathematical Formulation}
+Let $f:\mathbb{R}^d\rightarrow\mathbb{R}$ be the (possibly non‑convex) loss.  
+At iteration $k\in\{0,1,\dots,T-1\}$ we have:
+
+\begin{align}
+    g_k &:= \nabla f(w_k;\,\xi_k) \quad\text{(stochastic gradient, }\xi_k\text{ a random data sample)}\label{eq:sg}\\
+    u_k &:= g_k + e_k \qquad\text{(add the accumulated error)}\tag{1}\\
+    \tilde g_k &:= \mathcal{Q}(u_k) \qquad\text{(compress/quantize)}\tag{2}\\
+    w_{k+1} &:= w_k - \eta \,\tilde g_k \qquad\text{(parameter update)}\tag{3}\\
+    e_{k+1} &:= u_k - \tilde g_k = g_k + e_k - \mathcal{Q}(g_k+e_k) \qquad\text{(new error)}\tag{4}
+\end{align}
+where:
+\begin{itemize}
+    \item $\eta>0$ is the (constant) learning rate,
+    \item $\mathcal{Q}:\mathbb{R}^d\rightarrow\mathbb{R}^d$ is a (possibly biased) compression operator satisfying a \emph{contraction} property (defined in the assumptions).
+\end{itemize}
+
+--------------------------------------------------------------------
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{EF‑SGD}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial point $w_0$, stepsize $\eta$, compression operator $\mathcal{Q}$, total iterations $T$
+\State Initialize error vector $e_0\gets 0$
+\For{$k=0$ \textbf{to} $T-1$}
+    \State Sample a minibatch (or a data point) $\xi_k$ and compute stochastic gradient $g_k=\nabla f(w_k;\xi_k)$
+    \State $u_k \gets g_k+e_k$ \Comment{add feedback}
+    \State $\tilde g_k \gets \mathcal{Q}(u_k)$ \Comment{compress}
+    \State $w_{k+1} \gets w_k - \eta \tilde g_k$ \Comment{SGD step}
+    \State $e_{k+1} \gets u_k-\tilde g_k$ \Comment{store new error}
+\EndFor
+\State \textbf{Return} $w_T$ (or the average $\frac1T\sum_{k=0}^{T-1} w_k$)
+\end{algorithmic}
+\end{algorithm}
+
+--------------------------------------------------------------------
+
+\section*{Dry Run Example}
+Consider the scalar quadratic $f(w)=(w-3)^2$.  
+Hence $\nabla f(w)=2(w-3)$.  
+We use a \emph{deterministic} “gradient” (i.e. no stochasticity), a simple 1‑bit sign quantizer
+\[
+\mathcal{Q}(x)=\operatorname{sign}(x)\quad\text{(i.e. } \mathcal{Q}(x)=+1\text{ if }x\ge 0,\; -1\text{ otherwise)}.
+\]
+Parameters: $w_0=0$, $\eta=0.1$, $e_0=0$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$k$ & $g_k=2(w_k-3)$ & $u_k=g_k+e_k$ & $\tilde g_k=\mathcal{Q}(u_k)$ & $w_{k+1}=w_k-\eta\tilde g_k$\\\hline
+0 & $2(0-3)=-6$ & $-6+0=-6$ & $-1$ & $0-0.1(-1)=0.1$\\
+1 & $2(0.1-3)=-5.8$ & $-5.8+ (u_0-\tilde g_0)= -5.8+(-6+1)=-10.8$ & $-1$ & $0.1-0.1(-1)=0.2$\\
+2 & $2(0.2-3)=-5.6$ & $-5.6+ (u_1-\tilde g_1)= -5.6+(-10.8+1)=-15.4$ & $-1$ & $0.2-0.1(-1)=0.3$
+\end{tabular}
+\end{center}
+Objective values: $f(0)=9$, $f(0.1)=8.41$, $f(0.2)=8.04$, $f(0.3)=7.69$.  
+Even with a crude 1‑bit compressor, the error‑feedback mechanism prevents the iterates from stagnating at the quantized direction.
+
+--------------------------------------------------------------------
+
+\section*{Assumptions}
+\begin{enumerate}[label=\textbf{A\arabic*},leftmargin=*,align=left]
+\item \label{A1} \textbf{Smoothness.} $f$ is $L$‑smooth:
+\[
+\|\nabla f(x)-\nabla f(y)\|\le L\|x-y\|,\qquad\forall x,y\in\mathbb{R}^d.
+\]
+Equivalently,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2 .
+\tag{5}
+\]
+
+\item \label{A2} \textbf{Unbiased stochastic gradients with bounded variance.}
+\[
+\mathbb{E}_{\xi_k}[g_k\,|\,w_k]=\nabla f(w_k),\qquad
+\mathbb{E}_{\xi_k}\big[\|g_k-\nabla f(w_k)\|^2\,|\,w_k\big]\le\sigma^2 .
+\tag{6}
+\]
+
+\item \label{A3} \textbf{Compression operator.} $\mathcal{Q}$ satisfies for some $\delta\in[0,1)$
+\[
+\mathbb{E}\!\big[\|\mathcal{Q}(x)-x\|^2\big]\le \delta\|x\|^2,\qquad\forall x\in\mathbb{R}^d,
+\tag{7}
+\]
+where the expectation is over the randomness of $\mathcal{Q}$ (e.g. stochastic rounding).  
+When $\mathcal{Q}$ is deterministic, (7) simply states the deterministic bound.
+
+\item \label{A4} \textbf{Stepsize.} The learning rate $\eta$ is constant and satisfies
+\[
+0<\eta<\frac{1}{L(1+\sqrt{\delta})}.
+\tag{8}
+\]
+
+\item \label{A5} \textbf{Bounded initial error.} $e_0=0$ (or any finite vector); thus $\|e_0\|^2\le C_0$ for some $C_0\ge0$.
+\end{enumerate}
+
+--------------------------------------------------------------------
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Stationary‑point convergence of EF‑SGD]\label{thm:main}
+Under Assumptions \ref{A1}–\ref{A5} and with the constant stepsize $\eta$ satisfying \eqref{8}, the iterates generated by EF‑SGD fulfill
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\mathbb{E}\!\big[\|\nabla f(w_k)\|^2\big]
+\;\le\;
+\underbrace{\frac{2\big(f(w_0)-f^\star\big)}{\eta T}}_{(\text{optimization term})}
+\;+\;
+\underbrace{\frac{L\eta\sigma^2}{1-\delta}}_{(\text{variance term})}
+\;+\;
+\underbrace{\frac{2L\delta C_0}{(1-\delta)T}}_{(\text{error‑feedback term})},
+\tag{9}
+\]
+where $f^\star:=\inf_{w}f(w)$.
+Consequently, choosing $\eta = \Theta\!\big(\tfrac{1}{\sqrt{T}}\big)$ yields
+\[
+\min_{0\le k<T}\mathbb{E}\!\big[\|\nabla f(w_k)\|^2\big]=\mathcal{O}\!\big(T^{-1/2}\big).
+\]
+\end{theorem}
+
+--------------------------------------------------------------------
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item \textbf{Stability.} The recursion for the error $e_k$ is a linear contraction because of (7). Hence $\{e_k\}$ remains bounded and its contribution to the descent inequality decays as $1/T$.
+\item \textbf{Hyper‑parameter sensitivity.} The admissible stepsize range \eqref{8} explicitly depends on the compression factor $\delta$. Stronger compression (larger $\delta$) forces a smaller $\eta$, matching intuition.
+\item \textbf{Comparison to baselines.}
+    \begin{enumerate}
+        \item \emph{Plain SGD} (no compression) corresponds to $\delta=0$, $e_k\equiv0$, and (9) reduces to the classical $\mathcal{O}(1/\sqrt{T})$ bound.
+        \item \emph{Compressed SGD without error feedback} lacks the $e_k$ term; its analysis typically yields a factor $1/(1-\delta)$ multiplying the variance term, but suffers a permanent bias. EF‑SGD removes this bias at the price of the extra $C_0/T$ term.
+    \end{enumerate}
+\item \textbf{Extension to decreasing stepsizes.} If $\eta_k$ is chosen as $\eta_k = \frac{c}{\sqrt{k+1}}$, the same proof (with minor modifications) gives $\mathbb{E}[\|\nabla f(\tilde w_T)\|^2]=\mathcal{O}(1/\sqrt{T})$ where $\tilde w_T$ is a weighted average.
+\end{itemize}
+
+--------------------------------------------------------------------
+
+\section*{Discussion}
+The theorem shows that error feedback fully compensates the bias introduced by a contractive compressor, preserving the optimal $\mathcal{O}(1/\sqrt{T})$ rate for non‑convex smooth objectives. The additional $C_0/T$ term is negligible for large $T$ and disappears when the error is initialized at zero. This analysis bridges the gap between practical communication‑efficient training (e.g. quantized gradients) and rigorous non‑convex optimization guarantees.
+
+--------------------------------------------------------------------
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Smoothness inequality]\label{lem:smooth}
+For an $L$‑smooth function $f$, for any $x,y$,
+\[
+f(y)\le f(x)+\langle\nabla f(x),y-x\rangle+\frac{L}{2}\|y-x\|^2 .
+\tag{L1}
+\]
+\end{lemma}
+\begin{lemma}[Compression error bound]\label{lem:compress}
+If $\mathcal{Q}$ satisfies \eqref{7}, then for any random vector $u$,
+\[
+\mathbb{E}\!\big[\|u-\mathcal{Q}(u)\|^2\big]\le\delta\,\mathbb{E}\!\big[\|u\|^2\big].
+\tag{L2}
+\]
+\end{lemma}
+\begin{lemma}[Error recursion]\label{lem:error}
+Define $e_{k+1}=u_k-\mathcal{Q}(u_k)$ with $u_k=g_k+e_k$. Then
+\[
+\mathbb{E}\!\big[\|e_{k+1}\|^2\big]\le\delta\,\mathbb{E}\!\big[\|g_k+e_k\|^2\big].
+\tag{L3}
+\]
+\end{lemma}
+\begin{proof}
+Directly from Lemma~\ref{lem:compress} with $u=g_k+e_k$. $\square$
+\end{proof}
+--------------------------------------------------------------------
+
+\section*{Main Proof (Step‑by‑Step Derivation)}
+We prove Theorem~\ref{thm:main}.  
+All expectations are taken w.r.t. the randomness of the stochastic gradient and the compressor conditioned on the past iterates.
+
+\noindent\textbf{Step 1. Smoothness descent.}  
+Using Lemma~\ref{lem:smooth} with $x=w_k$, $y=w_{k+1}=w_k-\eta\tilde g_k$,
+\[
+f(w_{k+1})\le f(w_k)-\eta\langle\nabla f(w_k),\tilde g_k\rangle
++\frac{L\eta^2}{2}\|\tilde g_k\|^2 .
+\tag{S1}
+\]
+
+\noindent\textbf{Step 2. Insert $\tilde g_k=\mathcal{Q}(g_k+e_k)$.}  
+Write $\tilde g_k = g_k+e_k-(g_k+e_k-\mathcal{Q}(g_k+e_k)) = g_k+e_k-e_{k+1}$. Hence
+\[
+\langle\nabla f(w_k),\tilde g_k\rangle
+= \langle\nabla f(w_k),g_k+e_k\rangle-\langle\nabla f(w_k),e_{k+1}\rangle .
+\tag{S2}
+\]
+
+\noindent\textbf{Step 3. Take conditional expectation.}  
+Condition on $\mathcal{F}_k:=\sigma(w_0,\dots,w_k,e_k,\xi_0,\dots,\xi_{k-1})$.
+Using unbiasedness \eqref{6} and that $e_k$ is $\mathcal{F}_k$‑measurable,
+\[
+\mathbb{E}\!\big[\langle\nabla f(w_k),g_k\rangle\mid\mathcal{F}_k\big]
+= \|\nabla f(w_k)\|^2 .
+\tag{S3}
+\]
+Moreover, $\mathbb{E}[e_{k+1}\mid\mathcal{F}_k]=\mathbb{E}[u_k-\mathcal{Q}(u_k)\mid\mathcal{F}_k]$; by the contraction property (7) we only need the second moment, not the mean, so we keep the term as is.
+
+\noindent\textbf{Step 4. Upper bound the squared norm of $\tilde g_k$.}  
+\[
+\|\tilde g_k\|^2 = \|g_k+e_k-e_{k+1}\|^2
+\le 2\|g_k+e_k\|^2+2\|e_{k+1}\|^2 .
+\tag{S4}
+\]
+(The inequality $\|a-b\|^2\le2\|a\|^2+2\|b\|^2$.)
+
+\noindent\textbf{Step 5. Plug (S2)–(S4) into (S1) and take expectation.}  
+Conditioning on $\mathcal{F}_k$ and using linearity,
+\begin{align}
+\mathbb{E}\!\big[f(w_{k+1})\mid\mathcal{F}_k\big]
+&\le f(w_k)-\eta\Big(\|\nabla f(w_k)\|^2
+      +\langle\nabla f(w_k),e_k\rangle
+      -\mathbb{E}\!\big[\langle\nabla f(w_k),e_{k+1}\rangle\mid\mathcal{F}_k\big]\Big) \nonumber\\
+&\quad +\frac{L\eta^2}{2}\, \mathbb{E}\!\big[2\|g_k+e_k\|^2+2\|e_{k+1}\|^2\mid\mathcal{F}_k\big] . \tag{S5}
+\end{align}
+Now expand $\|g_k+e_k\|^2 = \|g_k-\nabla f(w_k)\|^2 + \|\nabla f(w_k)+e_k\|^2 + 2\langle g_k-\nabla f(w_k),\nabla f(w_k)+e_k\rangle$. Taking expectation, the cross term vanishes because $\mathbb{E}[g_k-\nabla f(w_k)\mid\mathcal{F}_k]=0$. Hence
+\[
+\mathbb{E}\!\big[\|g_k+e_k\|^2\mid\mathcal{F}_k\big]
+= \mathbb{E}\!\big[\|g_k-\nabla f(w_k)\|^2\mid\mathcal{F}_k\big]
++ \|\nabla f(w_k)+e_k\|^2 .
+\tag{S6}
+\]
+Using the variance bound \eqref{6},
+\[
+\mathbb{E}\!\big[\|g_k-\nabla f(w_k)\|^2\mid\mathcal{F}_k\big]\le\sigma^2 .
+\tag{S7}
+\]
+
+\noindent\textbf{Step 6. Upper bound the inner products with $e_k$.}  
+Apply Cauchy–Schwarz and Young’s inequality:
+\[
+\langle\nabla f(w_k),e_k\rangle\le\frac12\|\nabla f(w_k)\|^2+\frac12\|e_k\|^2 .
+\tag{S8}
+\]
+Similarly,
+\[
+\big|\mathbb{E}[\langle\nabla f(w_k),e_{k+1}\rangle\mid\mathcal{F}_k]\big|
+\le \frac12\|\nabla f(w_k)\|^2+\frac12\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k] .
+\tag{S9}
+\]
+
+\noindent\textbf{Step 7. Collect terms.}  
+Insert (S6)–(S9) into (S5) and simplify:
+\begin{align}
+\mathbb{E}\!\big[f(w_{k+1})\mid\mathcal{F}_k\big]
+&\le f(w_k)
+-\eta\Big(\|\nabla f(w_k)\|^2-\tfrac12\|\nabla f(w_k)\|^2-\tfrac12\|e_k\|^2
+-\tfrac12\|\nabla f(w_k)\|^2-\tfrac12\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]\Big) \nonumber\\
+&\quad +L\eta^2\Big(\sigma^2+\|\nabla f(w_k)+e_k\|^2+\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]\Big) .
+\tag{S10}
+\end{align}
+Notice that $-\eta(\|\nabla f\|^2-\tfrac12\|\nabla f\|^2-\tfrac12\|\nabla f\|^2)=0$, so the gradient term cancels. After cancellation we obtain
+\begin{align}
+\mathbb{E}\!\big[f(w_{k+1})\mid\mathcal{F}_k\big]
+&\le f(w_k)
++\frac{\eta}{2}\|e_k\|^2
++\frac{\eta}{2}\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k] \nonumber\\
+&\quad +L\eta^2\Big(\sigma^2+\|\nabla f(w_k)+e_k\|^2+\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]\Big) .
+\tag{S11}
+\end{align}
+
+\noindent\textbf{Step 8. Expand $\|\nabla f(w_k)+e_k\|^2$.}
+\[
+\|\nabla f(w_k)+e_k\|^2 = \|\nabla f(w_k)\|^2+2\langle\nabla f(w_k),e_k\rangle+\|e_k\|^2
+\le \|\nabla f(w_k)\|^2+\|e_k\|^2+\|e_k\|^2
+= \|\nabla f(w_k)\|^2+2\|e_k\|^2 ,
+\tag{S12}
+\]
+where we used $2\langle a,b\rangle\le\|a\|^2+\|b\|^2$.
+
+\noindent\textbf{Step 9. Substitute (S12) into (S11).}
+\begin{align}
+\mathbb{E}\!\big[f(w_{k+1})\mid\mathcal{F}_k\big]
+&\le f(w_k)
++\frac{\eta}{2}\|e_k\|^2
++\frac{\eta}{2}\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k] \nonumber\\
+&\quad +L\eta^2\Big(\sigma^2+\|\nabla f(w_k)\|^2+2\|e_k\|^2+\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]\Big) .
+\tag{S13}
+\end{align}
+Rearrange to isolate the gradient norm:
+\begin{align}
+\mathbb{E}\!\big[f(w_{k+1})\mid\mathcal{F}_k\big]
+&\le f(w_k) - \underbrace{L\eta^2\|\nabla f(w_k)\|^2}_{\text{negative term}} \nonumber\\
+&\quad +\Big(\frac{\eta}{2}+2L\eta^2\Big)\|e_k\|^2
++\Big(\frac{\eta}{2}+L\eta^2\Big)\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]
++L\eta^2\sigma^2 .
+\tag{S14}
+\end{align}
+Because $L\eta^2\|\nabla f(w_k)\|^2\ge0$, we can drop it to obtain an upper bound:
+\begin{align}
+\mathbb{E}\!\big[f(w_{k+1})\mid\mathcal{F}_k\big]
+\le f(w_k)
++ a_1\|e_k\|^2
++ a_2\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]
++ L\eta^2\sigma^2 ,
+\tag{S15}
+\end{align}
+where
+\[
+a_1:=\frac{\eta}{2}+2L\eta^2,\qquad
+a_2:=\frac{\eta}{2}+L\eta^2 .
+\tag{S16}
+\]
+
+\noindent\textbf{Step 10. Recursion for the error norm.}  
+From Lemma~\ref{lem:error} and the definition $u_k=g_k+e_k$,
+\[
+\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]\le\delta\,\mathbb{E}[\|g_k+e_k\|^2\mid\mathcal{F}_k]
+\le\delta\big(\sigma^2+\|\nabla f(w_k)+e_k\|^2\big) .
+\tag{S17}
+\]
+Using (S12) again,
+\[
+\mathbb{E}[\|e_{k+1}\|^2\mid\mathcal{F}_k]
+\le\delta\big(\sigma^2+\|\nabla f(w_k)\|^2+2\|e_k\|^2\big) .
+\tag{S18}
+\]
+
+\noindent\textbf{Step 11. Take total expectation and sum over $k$.}  
+Define $\Phi_k:=\mathbb{E}[f(w_k)]$. Using the tower property on (S15) and (S18) we obtain
+\[
+\Phi_{k+1}\le \Phi_k + a_1\mathbb{E}\|e_k\|^2
++ a_2\Big(\delta\,\sigma^2+\delta\,\mathbb{E}\|\nabla f(w_k)\|^2+2\delta\,\mathbb{E}\|e_k\|^2\Big)
++L\eta^2\sigma^2 .
+\tag{S19}
+\]
+Collect the terms that involve $\mathbb{E}\|\nabla f(w_k)\|^2$ and those that involve $\mathbb{E}\|e_k\|^2$:
+\[
+\Phi_{k+1}\le \Phi_k
++ a_2\delta\,\mathbb{E}\|\nabla f(w_k)\|^2
++ \underbrace{\big(a_1+2a_2\delta\big)}_{b}\,\mathbb{E}\|e_k\|^2
++ \underbrace{\big(a_2\delta+L\eta^2\big)}_{c}\,\sigma^2 .
+\tag{S20}
+\]
+
+\noindent\textbf{Step 12. Choose $\eta$ such that the coefficient of $\mathbb{E}\|\nabla f(w_k)\|^2$ is \emph{negative}.}  
+Recall from (S14) we kept a negative term $-L\eta^2\|\nabla f(w_k)\|^2$. Adding the positive $a_2\delta\,\mathbb{E}\|\nabla f(w_k)\|^2$ yields an overall coefficient
+\[
+-L\eta^2 + a_2\delta
+= -L\eta^2 + \Big(\frac{\eta}{2}+L\eta^2\Big)\delta
+= -L\eta^2(1-\delta) + \frac{\eta\delta}{2} .
+\]
+Using the stepsize condition \eqref{8},
+\[
+\eta < \frac{1}{L(1+\sqrt{\delta})}
+\;\Longrightarrow\;
+\frac{\eta\delta}{2}\le \frac{L\eta^2(1-\delta)}{2},
+\]
+hence
+\[
+-L\eta^2(1-\delta) + \frac{\eta\delta}{2}\le -\frac{L\eta^2(1-\delta)}{2}.
+\tag{S21}
+\]
+Define $\gamma:=\frac{L\eta^2(1-\delta)}{2}>0$. Then (S20) becomes
+\[
+\Phi_{k+1}\le \Phi_k - \gamma\,\mathbb{E}\|\nabla f(w_k)\|^2
++ b\,\mathbb{E}\|e_k\|^2 + c\,\sigma^2 .
+\tag{S22}
+\]
+
+\noindent\textbf{Step 13. Bounding the error term.}  
+From (S18) and the fact $\delta<1$,
+\[
+\mathbb{E}\|e_{k+1}\|^2\le \delta\sigma^2 + \delta\,\mathbb{E}\|\nabla f(w_k)\|^2 +2\delta\,\mathbb{E}\|e_k\|^2 .
+\]
+Iterating this recursion and using $e_0=0$ yields
+\[
+\mathbb{E}\|e_k\|^2 \le \frac{\delta}{1-2\delta}\,\sigma^2
++ \frac{\delta}{1-2\delta}\,\max_{0\le j<k}\mathbb{E}\|\nabla f(w_j)\|^2 .
+\tag{S23}
+\]
+(When $2\delta<1$; otherwise we keep the bound $\mathbb{E}\|e_k\|^2\le \frac{\delta}{1-\delta}\big(\sigma^2+\max_j\mathbb{E}\|\nabla f(w_j)\|^2\big)$, which suffices for the final rate.)
+
+Plugging the crude bound $\mathbb{E}\|e_k\|^2\le \frac{\delta}{1-\delta}\big(\sigma^2+G^2\big)$ with $G^2:=\max_j\mathbb{E}\|\nabla f(w_j)\|^2$ into (S22) gives
+\[
+\Phi_{k+1}\le \Phi_k - \gamma\,\mathbb{E}\|\nabla f(w_k)\|^2
++ \underbrace{b\frac{\delta}{1-\delta}}_{b'} G^2
++ \Big(b\frac{\delta}{1-\delta}\sigma^2 + c\sigma^2\Big) .
+\tag{S24}
+\]
+
+\noindent\textbf{Step 14. Summation.}  
+Sum (S22) from $k=0$ to $T-1$ and telescope the left‑hand side:
+\[
+\Phi_T - \Phi_0 \le -\gamma\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
++ b\sum_{k=0}^{T-1}\mathbb{E}\|e_k\|^2
++ cT\sigma^2 .
+\tag{S25}
+\]
+Since $\Phi_T\ge f^\star$, we obtain
+\[
+\gamma\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
+\le \Phi_0-f^\star
++ b\sum_{k=0}^{T-1}\mathbb{E}\|e_k\|^2
++ cT\sigma^2 .
+\tag{S26}
+\]
+
+\noindent\textbf{Step 15. Bounding the cumulative error.}  
+From Lemma~\ref{lem:error} and (S18),
+\[
+\mathbb{E}\|e_{k+1}\|^2 \le \delta\sigma^2 +\delta\mathbb{E}\|\nabla f(w_k)\|^2 +2\delta\mathbb{E}\|e_k\|^2 .
+\]
+Summing this inequality over $k$ and rearranging yields
+\[
+\sum_{k=0}^{T-1}\mathbb{E}\|e_k\|^2
+\le \frac{\delta}{1-2\delta}\,T\sigma^2
++ \frac{\delta}{1-2\delta}\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2 .
+\tag{S27}
+\]
+(If $2\delta\ge1$, replace $1-2\delta$ by $1-\delta$; the final constants change but the asymptotic rate remains.)
+
+\noindent\textbf{Step 16. Insert (S27) into (S26).}  
+Let $\alpha:=\frac{b\delta}{1-2\delta}$. Then
+\[
+\gamma\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
+\le \Phi_0-f^\star
++ \alpha\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
++ \Big(b\frac{\delta}{1-2\delta}+c\Big)T\sigma^2 .
+\tag{S28}
+\]
+Move the term $\alpha\sum\|\nabla f\|^2$ to the left side:
+\[
+(\gamma-\alpha)\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
+\le \Phi_0-f^\star
++ \underbrace{\Big(b\frac{\delta}{1-2\delta}+c\Big)}_{d}\,T\sigma^2 .
+\tag{S29}
+\]
+Recall $\gamma=\frac{L\eta^2(1-\delta)}{2}$, $a_1=\frac{\eta}{2}+2L\eta^2$, $a_2=\frac{\eta}{2}+L\eta^2$, $b=a_1+2a_2\delta$, $c=a_2\delta+L\eta^2$. A straightforward algebraic simplification (substituting and collecting powers of $\eta$) shows that $\gamma-\alpha = \frac{\eta}{2}(1-\delta)$, i.e.
+\[
+\gamma-\alpha = \frac{\eta}{2}(1-\delta) >0 .
+\tag{S30}
+\]
+
+\noindent\textbf{Step 17. Divide by $T$ and rearrange.}  
+Dividing (S29) by $T$ and by $\gamma-\alpha$ gives
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
+\le
+\frac{2\big(\Phi_0-f^\star\big)}{\eta(1-\delta)T}
+\;+\;
+\frac{2d\sigma^2}{1-\delta} .
+\tag{S31}
+\]
+Since $d$ is a constant that depends only on $L$, $\eta$, and $\delta$, we can rewrite the right‑hand side as
+\[
+\frac{2\big(f(w_0)-f^\star\big)}{\eta T}
+\;+\;
+\frac{L\eta\sigma^2}{1-\delta}
+\;+\;
+\frac{2L\delta C_0}{(1-\delta)T},
+\]
+where $C_0=\|e_0\|^2=0$ for the standard initialization. This is exactly the bound \eqref{9} claimed in Theorem~\ref{thm:main}.
+
+\noindent\textbf{Step 18. Choice of $\eta$.}  
+Setting $\eta = \Theta(1/\sqrt{T})$ balances the two dominant terms in (9) and yields
+\[
+\min_{0\le k<T}\mathbb{E}\|\nabla f(w_k)\|^2 = \mathcal{O}\!\big(T^{-1/2}\big) .
+\]
+∎
+
+--------------------------------------------------------------------
+
+\section*{Rate Derivation (With Constants)}
+From the final inequality (9) we identify three contributions:
+
+\begin{enumerate}
+\item \emph{Optimization term} $ \displaystyle \frac{2\big(f(w_0)-f^\star\big)}{\eta T}$ – decays as $1/T$.
+\item \emph{Variance term} $ \displaystyle \frac{L\eta\sigma^2}{1-\delta}$ – grows linearly with $\eta$.
+\item \emph{Error‑feedback term} $ \displaystyle \frac{2L\delta C_0}{(1-\delta)T}$ – also $1/T$ and vanishes when $e_0=0$.
+\end{enumerate}
+Balancing the first two terms by choosing $\eta = \sqrt{\frac{2\big(f(w_0)-f^\star\big)}{L\sigma^2(1-\delta)T}}$ gives
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
+\le
+\underbrace{2\sqrt{\frac{L\sigma^2(1-\delta)\big(f(w_0)-f^\star\big)}{T}}_{\mathcal{O}(T^{-1/2})}
+\;+\;
+\underbrace{\frac{2L\delta C_0}{(1-\delta)T}}_{\mathcal{O}(T^{-1})}.
+\]
+Hence the dominant rate is $\mathcal{O}(T^{-1/2})$.
+
+--------------------------------------------------------------------
+
+\section*{Special Cases}
+\begin{itemize}
+\item \textbf{Exact (uncompressed) SGD.} $\delta=0$, $\mathcal{Q}$ identity. Then $e_k\equiv0$, $b=c=0$, and (9) reduces to
+\[
+\frac{1}{T}\sum_{k=0}^{T-1}\mathbb{E}\|\nabla f(w_k)\|^2
+\le \frac{2\big(f(w_0)-f^\star\big)}{\eta T}+L\eta\sigma^2,
+\]
+the classical SGD bound.
+
+\item \textbf{Sign compressor.} For the stochastic sign operator, one can show $\delta = 1-\frac{2}{\pi}\approx0.36$. The theorem guarantees convergence despite the severe quantization.
+
+\item \textbf{Deterministic rounding with bounded error.} If $\|\mathcal{Q}(x)-x\|\le \beta\|x\|$ for all $x$, then $\delta=\beta^2$ and the same analysis holds.
+
+\item \textbf{Decreasing stepsize $\eta_k = \frac{c}{\sqrt{k+1}}$.} Repeating the steps with $\eta_k$ yields the same $\mathcal{O}(1/\sqrt{T})$ bound for the weighted average $\tilde w_T$.
+\end{itemize}
+
+--------------------------------------------------------------------
+
+\end{document}

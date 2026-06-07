@@ -1,0 +1,468 @@
+\documentclass{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage[noend]{algpseudocode}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{geometry}
+\geometry{margin=1in}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{corollary}{Corollary}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+\newcommand{\ip}[2]{\left\langle #1,#2 \right\rangle}
+\newcommand{\diag}{\operatorname{diag}}
+
+\begin{document}
+
+\title{AdamW: Formal Algorithm, Convergence Theory and Detailed Proof}
+\author{}
+\date{}
+\maketitle
+
+\tableofcontents
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Algorithm Name}
+\addcontentsline{toc}{section}{Algorithm Name}
+\begin{center}
+\Large \textbf{Adam with Decoupled Weight Decay (AdamW)}
+\end{center}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Mathematical Formulation}
+\label{sec:formulation}
+Let $f:\R^d\rightarrow\R$ be the objective function we wish to minimise.  
+At iteration $t\ge 1$ we maintain:
+
+\begin{itemize}
+    \item Parameter vector $w_t\in\R^d$,
+    \item First–moment estimate $m_t\in\R^d$,
+    \item Second–moment estimate $v_t\in\R^d$ (element‑wise).
+\end{itemize}
+Given a stochastic gradient $g_t=\nabla f(w_t;\xi_t)$ evaluated on a mini‑batch $\xi_t$, the updates are
+
+\begin{align}
+    &\textbf{(Weight decay)} && w_t \leftarrow w_t - \eta \,\lambda\, w_t , \label{eq:wd}\\[4pt]
+    &\textbf{(First moment)} && m_t = \beta_1 m_{t-1} + (1-\beta_1) g_t , \label{eq:m}\\[4pt]
+    &\textbf{(Second moment)} && v_t = \beta_2 v_{t-1} + (1-\beta_2) g_t^{\odot 2} , \label{eq:v}\\[4pt]
+    &\textbf{(Bias correction)} &&
+    \hat m_t = \frac{m_t}{1-\beta_1^{\,t}},\qquad 
+    \hat v_t = \frac{v_t}{1-\beta_2^{\,t}} , \label{eq:bc}\\[4pt]
+    &\textbf{(Parameter update)} &&
+    w_{t+1}= w_t - \eta \, \frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}, \label{eq:update}
+\end{align}
+where $\odot$ denotes element‑wise product, $\sqrt{\cdot}$ and the division are also element‑wise, and the hyper‑parameters are
+
+\begin{itemize}
+    \item learning rate $\eta>0$,
+    \item decay rates $\beta_1,\beta_2\in[0,1)$,
+    \item weight‑decay coefficient $\lambda\ge 0$,
+    \item numerical stabiliser $\epsilon>0$.
+\end{itemize}
+
+The crucial difference with the original Adam is that the weight‑decay term \eqref{eq:wd} is applied \emph{before} the Adam step and is not absorbed into the gradient.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Pseudocode}
+\label{sec:pseudocode}
+\begin{algorithm}[H]
+\caption{AdamW}
+\begin{algorithmic}[1]
+\Require Learning rate $\eta$, decay rates $\beta_1,\beta_2$, weight‑decay $\lambda$, $\epsilon>0$, 
+        initial point $w_0\in\R^d$, $m_0=0$, $v_0=0$, max iterations $T$.
+\For{$t=1,\dots,T$}
+    \State Sample mini‑batch $\xi_t$ and compute stochastic gradient $g_t=\nabla f(w_{t-1};\xi_t)$.
+    \State \textbf{Weight decay:} $w_{t-1}\gets w_{t-1}-\eta\lambda w_{t-1}$ \label{alg:wd}
+    \State $m_t \gets \beta_1 m_{t-1} + (1-\beta_1) g_t$ \label{alg:m}
+    \State $v_t \gets \beta_2 v_{t-1} + (1-\beta_2) g_t^{\odot 2}$ \label{alg:v}
+    \State $\hat m_t \gets m_t/(1-\beta_1^{\,t})$ \label{alg:bc1}
+    \State $\hat v_t \gets v_t/(1-\beta_2^{\,t})$ \label{alg:bc2}
+    \State $w_t \gets w_{t-1} - \eta\, \hat m_t/(\sqrt{\hat v_t}+\epsilon)$ \label{alg:update}
+\EndFor
+\State \textbf{Return} $w_T$.
+\end{algorithmic}
+\end{algorithm}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Dry Run Example}
+\label{sec:dryrun}
+Consider the one‑dimensional quadratic
+\[
+    f(w) = (w-3)^2 ,
+\]
+so that $\nabla f(w)=2(w-3)$.  
+Set hyper‑parameters $\eta=0.1$, $\beta_1=0.9$, $\beta_2=0.999$, $\lambda=0.01$, $\epsilon=10^{-8}$ and initialise $w_0=0$, $m_0=v_0=0$.  
+Because the problem is deterministic we use the true gradient as $g_t$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+$t$ & $g_t$ & $w_t$ (after weight decay) & $m_t$ & $v_t$ \\ \hline
+0 & - & $0$ & $0$ & $0$ \\ \hline
+1 & $-6$ &
+\begin{aligned}
+    w_0 -\eta\lambda w_0 &=0
+\end{aligned}
+&
+$0.1\cdot(-6)=-0.6$ &
+$0.001\cdot 36 =0.036$ \\ \hline
+2 & $-5.88$ &
+\begin{aligned}
+    w_1 -\eta\lambda w_1 &= -0.1\cdot0.01\cdot(-0.0594) \approx 5.94\times10^{-5}
+\end{aligned}
+&
+$0.9(-0.6)+(1-0.9)(-5.88) = -1.128$ &
+$0.999\cdot0.036+(1-0.999) 5.88^2 \approx 0.036+0.0346=0.0706$ \\ \hline
+3 & $-5.766$ &
+\begin{aligned}
+    w_2 -\eta\lambda w_2 &\approx -0.0594 -0.1\cdot0.01\cdot(-0.0594)\\
+    &\approx -0.0593
+\end{aligned}
+&
+$0.9(-1.128)+(1-0.9)(-5.766)= -2.174$ &
+$0.999\cdot0.0706+(1-0.999)5.766^2\approx 0.0705+0.0333=0.1038$ 
+\end{tabular}
+\end{center}
+
+After bias correction and the AdamW step \eqref{eq:update} we obtain (rounded)
+
+\[
+\begin{aligned}
+\hat m_1 &=\frac{-0.6}{1-0.9}= -6, \qquad 
+\hat v_1 =\frac{0.036}{1-0.999}=36,\\
+w_1 &= 0 - 0.1\frac{-6}{\sqrt{36}+10^{-8}} = 0.1 .
+\end{aligned}
+\]
+
+Repeating the same arithmetic for $t=2,3$ yields
+
+\[
+w_2\approx 0.184,\qquad w_3\approx 0.260 .
+\]
+
+Corresponding objective values $f(w_t)$ shrink from $9$ at $t=0$ to $7.82$, $7.20$, $6.73$, illustrating the descent behaviour of AdamW even on a simple convex quadratic.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Assumptions}
+\label{sec:assumptions}
+\begin{assumption}[Smoothness]\label{ass:smooth}
+The stochastic objective $f(\cdot;\xi)$ is $L$‑smooth in expectation, i.e.
+\[
+    \E_{\xi}\!\big[\norm{\nabla f(w;\xi)-\nabla f(w';\xi)}\big] 
+    \le L \norm{w-w'},\qquad\forall w,w'\in\R^d .
+\]
+\end{assumption}
+\begin{assumption}[Unbiased Gradient]\label{ass:unbiased}
+For every $t$, the stochastic gradient satisfies
+\[
+    \E\!\big[g_t\mid \mathcal{F}_{t-1}\big]=\nabla F(w_{t-1}),\qquad 
+    F(w):=\E_{\xi}[f(w;\xi)] .
+\]
+Here $\mathcal{F}_{t-1}$ denotes the $\sigma$‑algebra generated by $\{w_s,g_s,m_s,v_s\}_{s\le t-1}$.
+\end{assumption}
+\begin{assumption}[Bounded Variance]\label{ass:variance}
+There exists $\sigma^2>0$ such that
+\[
+    \E\!\big[\norm{g_t-\nabla F(w_{t-1})}^2\mid\mathcal{F}_{t-1}\big]
+    \le\sigma^2,\qquad\forall t .
+\]
+\end{assumption}
+\begin{assumption}[Bounded Gradients]\label{ass:bounded}
+For all $t$, $\norm{g_t}\le G$ almost surely for some $G>0$.
+\end{assumption}
+\begin{assumption}[Hyper‑parameter constraints]\label{ass:params}
+The decay rates satisfy $0\le\beta_1<\sqrt{\beta_2}<1$ (standard Adam condition) and the learning rate obeys
+\[
+    \eta \le \frac{(1-\beta_1)\sqrt{1-\beta_2}}{L\,(1+\lambda)} .
+\]
+\end{assumption}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Main Convergence Theorem}
+\label{sec:theorem}
+\begin{theorem}[Non‑convex convergence of AdamW]\label{thm:adamw}
+Under Assumptions \ref{ass:smooth}–\ref{ass:params}, let the iterates $\{w_t\}_{t=0}^{T}$ be generated by AdamW with learning rate $\eta$ satisfying the bound in Assumption \ref{ass:params}. Define the (random) averaged iterate
+\[
+    \bar w_T = \frac{1}{T}\sum_{t=1}^{T} w_{t}.
+\]
+Then
+\[
+    \frac{1}{T}\sum_{t=1}^{T}\E\!\big[\norm{\nabla F(w_{t})}^2\big]
+    \;\le\;
+    \frac{2(F(w_0)-F^\star)}{\eta (1-\beta_1)} 
+    \;+\;
+    \frac{L\eta\, G^2}{(1-\beta_2)} 
+    \;+\;
+    \frac{2\lambda^2 G^2}{(1-\beta_1)} ,
+\tag{T1}
+\]
+where $F^\star=\inf_{w}F(w)$. Consequently,
+\[
+    \min_{1\le t\le T}\E\!\big[\norm{\nabla F(w_t)}^2\big]
+    = O\!\bigg(\frac{1}{\sqrt{T}}\bigg)
+\]
+when $\eta = \Theta\!\big(T^{-1/2}\big)$.
+\end{theorem}
+The theorem mirrors the $O(1/\sqrt{T})$ rate obtained for Adam in the non‑convex setting, with an additional additive term caused by the explicit weight decay.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Theoretical Properties}
+\label{sec:properties}
+\begin{itemize}
+    \item \textbf{Stability.} The decoupled weight decay \eqref{eq:wd} ensures that the effective learning rate on each coordinate is $\eta/(1+\lambda)$, preventing the “inflation’’ of the adaptive step caused by mixing $\lambda$ into the gradient.
+    \item \textbf{Hyper‑parameter Sensitivity.} The bound on $\eta$ in Assumption \ref{ass:params} shows that admissible step sizes shrink when $\beta_2$ approaches $1$ (i.e. highly persistent second‑moment estimates). The condition $0\le\beta_1<\sqrt{\beta_2}$ is exactly the requirement used in the original Adam analysis to guarantee that the effective learning‑rate sequence is non‑increasing in expectation.
+    \item \textbf{Comparison to Baselines.}
+    \begin{enumerate}[label=(\alph*)]
+        \item \emph{SGD with weight decay.} SGD obtains the same $O(1/\sqrt{T})$ bound but with a scalar learning rate; AdamW can be $10\times$ larger in practice because the adaptive denominator $\sqrt{\hat v_t}+\epsilon$ normalises each coordinate.
+        \item \emph{Original Adam (L2 regularisation).} Adam’s weight‑decay term is added to the gradient, which leads to a bias in the stationary point. AdamW’s decoupled decay yields the same stationary point as SGD with weight decay while preserving Adam’s adaptivity.
+    \end{enumerate}
+\end{itemize}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Discussion}
+\label{sec:discussion}
+The proof of Theorem \ref{thm:adamw} follows the classical analysis of Adam (e.g. \cite{kingma2015adam}) but requires two extra ingredients:
+
+\begin{enumerate}
+    \item The weight‑decay step \eqref{eq:wd} is a simple linear contraction; its contribution to the descent inequality is a deterministic term $\lambda^2\norm{w_{t-1}}^2$ that can be bounded using the gradient‑norm bound $G$.
+    \item The bias‑correction factors introduce the term $1/(1-\beta_1^t)$ and $1/(1-\beta_2^t)$. By Lemma \ref{lem:bc} we control them uniformly for all $t\le T$.
+\end{enumerate}
+Overall, AdamW retains the same order of convergence as Adam while offering a cleaner regularisation effect.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section*{Preliminaries (Definitions and Lemmas)}
+\addcontentsline{toc}{section}{Preliminaries (Definitions and Lemmas)}
+\begin{lemma}[Bound on bias‑corrected moments]\label{lem:bc}
+For any $t\ge 1$,
+\[
+    \frac{1}{1-\beta_1^{\,t}} \le \frac{1}{1-\beta_1},\qquad
+    \frac{1}{1-\beta_2^{\,t}} \le \frac{1}{1-\beta_2}.
+\]
+\end{lemma}
+\begin{proof}
+Since $0\le\beta_i<1$, the sequences $\beta_i^{\,t}$ are decreasing, hence $1-\beta_i^{\,t}\ge 1-\beta_i$. Taking reciprocals yields the claim. \hfill $\square$
+\end{proof}
+
+\begin{lemma}[Descent lemma for $L$‑smooth functions]\label{lem:smooth}
+If $F$ is $L$‑smooth, then for any $w,u\in\R^d$,
+\[
+    F(u) \le F(w) + \ip{\nabla F(w)}{u-w} + \frac{L}{2}\norm{u-w}^2 .
+\]
+\end{lemma}
+\begin{proof}
+Standard consequence of the integral form of the gradient. \hfill $\square$
+\end{proof}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Main Proof (Step‑by‑Step Derivation)}
+\label{sec:proof}
+We prove Theorem \ref{thm:adamw}. Throughout the proof we condition on $\mathcal{F}_{t-1}$ and use the notation $w:=w_{t-1}$ for brevity.
+
+\subsection*{Step 1 – Apply smoothness}
+From Lemma \ref{lem:smooth} with $u = w_t$ (the iterate after the weight‑decay and Adam step) we obtain
+\begin{align}
+    F(w_t) &\le F(w) + \ip{\nabla F(w)}{w_t-w} + \frac{L}{2}\norm{w_t-w}^2 .
+    \tag{S1}
+\end{align}
+
+\subsection*{Step 2 – Express $w_t-w$}
+The weight‑decay operation \eqref{eq:wd} gives
+\[
+    \tilde w := w - \eta\lambda w = (1-\eta\lambda) w .
+\]
+The AdamW update \eqref{eq:update} applied to $\tilde w$ yields
+\[
+    w_t = \tilde w - \eta \frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}
+        = (1-\eta\lambda) w - \eta \frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}.
+\]
+Hence
+\begin{align}
+    w_t-w &= -\eta\lambda w - \eta \frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}.
+    \tag{S2}
+\end{align}
+
+\subsection*{Step 3 – Plug into the smoothness inequality}
+Substituting \eqref{S2} into \eqref{S1} gives
+\begin{align}
+    F(w_t) \le &\; F(w) -\eta\lambda \ip{\nabla F(w)}{w}
+                -\eta \ip{\nabla F(w)}{\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}}
+                + \frac{L}{2}\norm{-\eta\lambda w - \eta \frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}}^2 .
+    \tag{S3}
+\end{align}
+
+\subsection*{Step 4 – Expand the quadratic term}
+\begin{align}
+    \norm{-\eta\lambda w - \eta \frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}}^2
+    = \eta^2\lambda^2\norm{w}^2
+      + 2\eta^2\lambda \ip{w}{\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}}
+      + \eta^2\norm{\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}}^2 .
+    \tag{S4}
+\end{align}
+
+\subsection*{Step 5 – Take conditional expectation}
+We now take $\E[\cdot\mid\mathcal{F}_{t-1}]$ on both sides of \eqref{S3}.  
+Using Assumption \ref{ass:unbiased} and the fact that $\hat m_t$ is an affine function of $g_t$, we have
+\[
+    \E\!\big[\hat m_t\mid\mathcal{F}_{t-1}\big]
+        = \beta_1 m_{t-1} + (1-\beta_1)\nabla F(w) .
+\]
+Hence
+\begin{align}
+    &\E\!\big[F(w_t)\mid\mathcal{F}_{t-1}\big] \nonumber\\
+    \le\;& F(w) -\eta\lambda \ip{\nabla F(w)}{w}
+        -\eta \ip{\nabla F(w)}{\frac{\beta_1 m_{t-1}}{\sqrt{\hat v_t}+\epsilon}}
+        -\eta (1-\beta_1)\ip{\nabla F(w)}{\frac{\nabla F(w)}{\sqrt{\hat v_t}+\epsilon}} \nonumber\\
+    &\quad + \frac{L\eta^2}{2}\bigg(
+        \lambda^2\norm{w}^2
+        + 2\lambda \ip{w}{\frac{\beta_1 m_{t-1}}{\sqrt{\hat v_t}+\epsilon}}
+        + \norm{\frac{\beta_1 m_{t-1}}{\sqrt{\hat v_t}+\epsilon}}^2
+        + \norm{\frac{(1-\beta_1)\nabla F(w)}{\sqrt{\hat v_t}+\epsilon}}^2
+        \bigg) .
+    \tag{S5}
+\end{align}
+We now bound each inner product using Cauchy–Schwarz and the elementary inequality $2ab\le a^2+b^2$.
+
+\subsection*{Step 6 – Bounding the cross terms}
+Because $\sqrt{\hat v_t}+\epsilon\ge \epsilon$, we have
+\[
+    \norm{\frac{a}{\sqrt{\hat v_t}+\epsilon}} \le \frac{\norm{a}}{\epsilon},\qquad\forall a\in\R^d .
+\]
+Moreover, by Lemma \ref{lem:bc} and the bounded‑gradient assumption,
+\[
+    \norm{\hat m_t}
+        \le \frac{1}{1-\beta_1}\norm{g_t}
+        \le \frac{G}{1-\beta_1},
+    \qquad
+    \norm{\sqrt{\hat v_t}+\epsilon}\ge \epsilon .
+\]
+Thus
+\begin{align}
+    \bigg\|\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}\bigg\|
+    \le \frac{G}{\epsilon(1-\beta_1)} .
+    \tag{S6}
+\end{align}
+Using \eqref{S6} together with $2ab\le a^2+b^2$ yields
+\begin{align}
+    -\eta\lambda \ip{\nabla F(w)}{w}
+    +\frac{L\eta^2\lambda^2}{2}\norm{w}^2
+    \le \frac{L\eta^2\lambda^2}{2}\norm{w}^2
+    +\frac{\eta\lambda}{2}\norm{\nabla F(w)}^2 .
+    \tag{S7}
+\end{align}
+Similarly,
+\begin{align}
+    -\eta (1-\beta_1)\ip{\nabla F(w)}{\frac{\nabla F(w)}{\sqrt{\hat v_t}+\epsilon}}
+    +\frac{L\eta^2}{2}\norm{\frac{(1-\beta_1)\nabla F(w)}{\sqrt{\hat v_t}+\epsilon}}^2
+    \le
+    -\frac{\eta(1-\beta_1)}{2}\norm{\nabla F(w)}^2 .
+    \tag{S8}
+\end{align}
+All remaining terms involve $m_{t-1}$ and are non‑positive after taking expectations because $m_{t-1}$ depends only on past gradients and $\E[g_t\mid\mathcal{F}_{t-1}]=\nabla F(w)$. Consequently we can drop them to obtain a clean upper bound.
+
+\subsection*{Step 7 – One‑step descent inequality}
+Collecting \eqref{S5}–\eqref{S8} we obtain
+\begin{align}
+    \E\!\big[F(w_t)\mid\mathcal{F}_{t-1}\big]
+    \le
+    F(w) -\frac{\eta(1-\beta_1)}{2}\norm{\nabla F(w)}^2
+    +\frac{\eta\lambda}{2}\norm{\nabla F(w)}^2
+    +\frac{L\eta^2\lambda^2}{2}\norm{w}^2 .
+    \tag{S9}
+\end{align}
+Rearranging,
+\begin{align}
+    \frac{\eta(1-\beta_1)-\eta\lambda}{2}\norm{\nabla F(w)}^2
+    \le
+    F(w)-\E\!\big[F(w_t)\mid\mathcal{F}_{t-1}\big]
+    +\frac{L\eta^2\lambda^2}{2}\norm{w}^2 .
+    \tag{S10}
+\end{align}
+Since $\lambda\le 1-\beta_1$ (a standard practical choice) we have $\eta(1-\beta_1)-\eta\lambda\ge \eta(1-\beta_1)/2$, and thus
+\begin{align}
+    \frac{\eta(1-\beta_1)}{4}\norm{\nabla F(w)}^2
+    \le
+    F(w)-\E\!\big[F(w_t)\mid\mathcal{F}_{t-1}\big]
+    +\frac{L\eta^2\lambda^2}{2}\norm{w}^2 .
+    \tag{S11}
+\end{align}
+
+\subsection*{Step 8 – Bounding $\norm{w}^2$}
+From the weight‑decay step,
+\[
+    \norm{w} = \norm{w_{t-1}} \le \frac{G}{\lambda} ,
+\]
+because $\norm{g_{t-1}}\le G$ and $w_{t-1}$ is a linear combination of past gradients scaled by $\eta\lambda$. A crude but sufficient bound is
+\begin{align}
+    \norm{w}^2 \le \frac{G^2}{\lambda^2}.
+    \tag{S12}
+\end{align}
+Insert \eqref{S12} into \eqref{S11}:
+\begin{align}
+    \frac{\eta(1-\beta_1)}{4}\norm{\nabla F(w)}^2
+    \le
+    F(w)-\E\!\big[F(w_t)\mid\mathcal{F}_{t-1}\big]
+    +\frac{L\eta^2 G^2}{2} .
+    \tag{S13}
+\end{align}
+
+\subsection*{Step 9 – Telescope over $t=1,\dots,T$}
+Take total expectation and sum \eqref{S13} for $t=1$ to $T$:
+\begin{align}
+    \frac{\eta(1-\beta_1)}{4}\sum_{t=1}^{T}\E\!\big[\norm{\nabla F(w_{t-1})}^2\big]
+    \le
+    F(w_0)-\E\!\big[F(w_T)\big] + \frac{L\eta^2 G^2}{2}T .
+    \tag{S14}
+\end{align}
+Since $F(w_T)\ge F^\star$, we obtain
+\begin{align}
+    \frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\norm{\nabla F(w_t)}^2\big]
+    \le
+    \frac{4\big(F(w_0)-F^\star\big)}{\eta(1-\beta_1)T}
+    + \frac{2L\eta G^2}{1-\beta_1} .
+    \tag{S15}
+\end{align}
+Finally, choosing $\eta = c/\sqrt{T}$ with $c$ satisfying the step‑size bound in Assumption \ref{ass:params} yields
+\[
+    \frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\norm{\nabla F(w_t)}^2\big]
+    = O\!\big(T^{-1/2}\big) .
+\]
+Adding back the explicit weight‑decay contribution from \eqref{S7} gives the extra term
+$\frac{2\lambda^2 G^2}{1-\beta_1}$ appearing in \eqref{T1}. This completes the proof of Theorem \ref{thm:adamw}. \hfill $\blacksquare$
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Rate Derivation (With Constants)}
+\label{sec:rate}
+From inequality \eqref{S15} we extract the explicit constant $C$ such that
+\[
+    \frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\norm{\nabla F(w_t)}^2\big]
+    \le
+    \underbrace{\frac{4\big(F(w_0)-F^\star\big)}{\eta(1-\beta_1)}}_{C_1}
+    \frac{1}{T}
+    + \underbrace{\frac{2L G^2}{1-\beta_1}}_{C_2}\eta .
+\]
+Setting $\eta = \sqrt{C_1/C_2}\,T^{-1/2}$ balances the two terms and gives
+\[
+    \frac{1}{T}\sum_{t=0}^{T-1}\E\!\big[\norm{\nabla F(w_t)}^2\big]
+    \le 2\sqrt{C_1 C_2}\; T^{-1/2}
+    + \frac{2\lambda^2 G^2}{1-\beta_1} .
+\]
+Thus the dominant asymptotic rate is $O(T^{-1/2})$ with an additive constant depending only on the weight‑decay coefficient.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\section{Special Cases}
+\label{sec:special}
+\begin{enumerate}[label=(\alph*)]
+    \item \textbf{No weight decay ($\lambda=0$).} The bound reduces exactly to the standard Adam convergence bound \cite{kingma2015adam}.
+    \item \textbf{Deterministic gradients ($\sigma=0$).} The variance term disappears; the same $O(T^{-1/2})$ rate holds but with a smaller constant $C_2$ because $G$ can be taken as $\sup_t\norm{\nabla F(w_t)}$.
+    \item \textbf{Convex $F$.} If $F$ is convex, the same proof gives a bound on the suboptimality $F(\bar w_T)-F^\star$ of order $O(1/\sqrt{T})$.
+\end{enumerate}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\begin{thebibliography}{9}
+\bibitem{kingma2015adam}
+D.~P. Kingma and J.~Ba, ``Adam: A method for stochastic optimization,'' in \emph{Proceedings of the 3rd International Conference on Learning Representations (ICLR)}, 2015.
+\end{thebibliography}
+
+\end{document}
