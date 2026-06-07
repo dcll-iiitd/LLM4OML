@@ -109,13 +109,7 @@ python scripts/run_single.py \
 ### Batch Processing
 Run evaluations on a dataset of optimization problems:
 ```bash
-python scripts/run_batch.py --input algorithms.csv --output batch_results --multi-judge
-```
-
-### Analyze Results
-Generate plots and summary statistics from batch runs:
-```bash
-python scripts/analyze_results.py --results-dir batch_results
+python scripts/multi_model_runner.py --config config/default.yaml --input data/algos.csv --provider openrouter --judge-provider nvidia --output-root results --multi-judge --models nvidia/nemotron-3-ultra-550b-a55b z-ai/glm-5.1 --judges openai/gpt-oss-120b meta/llama-3.3-70b-instruct qwen/qwen3.5-122b-a10b
 ```
 
 ---
