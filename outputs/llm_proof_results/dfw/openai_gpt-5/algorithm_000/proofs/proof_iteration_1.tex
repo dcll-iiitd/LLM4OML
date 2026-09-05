@@ -1,0 +1,337 @@
+\documentclass[11pt]{article}
+
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{fullpage}
+\usepackage{bm}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{assumption}{Assumption}
+\newtheorem{lemma}{Lemma}
+\newtheorem{definition}{Definition}
+\newtheorem{corollary}{Corollary}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\inner}[2]{\left\langle #1,\, #2 \right\rangle}
+\newcommand{\norm}[1]{\left\lVert #1 \right\rVert}
+
+\begin{document}
+
+\section*{Algorithm Name}
+Deep Frank-Wolfe with Proximal Linearization (DFW-PL)
+
+\section*{Mathematical Formulation}
+We consider a composite objective of the form
+\[
+\Phi(w) \;=\; \E_{z=(x,y)}\big[\ell(h(w;x),y)\big],
+\]
+where
+- $w\in\R^d$ are parameters,
+- $h:\R^d\to\R^m$ is a (possibly non-convex) inner network, differentiable with Jacobian $J(w)=\nabla h(w)\in\R^{m\times d}$,
+- $\ell:\R^m\times\mathcal{Y}\to\R_+$ is a convex and smooth outer loss in its first argument (the prediction), applied to $u=h(w;x)$.
+
+At iterate $w_t$, define
+\[
+u_t := h(w_t;x),\qquad J_t := J(w_t),\qquad g_{u,t} := \nabla_u \ell(u_t,y),\qquad g_t := \nabla \Phi(w_t) \;=\; J_t^\top g_{u,t}.
+\]
+DFW-PL chooses the descent direction $p_t := -g_t$ and an adaptive closed-form step size $\alpha_t$ by minimizing a tight quadratic upper bound on the exact outer loss applied to the \emph{linearized inner model}:
+\[
+w_{t+1} \;=\; w_t + \alpha_t p_t,\qquad 
+\alpha_t \;=\; \frac{\norm{g_t}^2}{L_\ell \norm{J_t p_t}^2 + \mu \norm{p_t}^2}.
+\]
+Here $L_\ell$ is the smoothness constant of $\ell$ in its first argument, and $\mu\ge 1$ is a curvature buffer arising from the nonlinearity of the inner model (specified precisely in the convergence analysis). The Jacobian-vector product $J_t p_t$ is computed efficiently by automatic differentiation without forming $J_t$ explicitly.
+
+Hyperparameters and constants:
+- $L_\ell>0$: Lipschitz gradient constant of $\ell(\cdot,y)$ in its prediction argument.
+- $G_\ell>0$: bound on $\|\nabla_u \ell(u,y)\|$ over the trajectory.
+- $\beta>0$: Lipschitz constant of the Jacobian of $h$, i.e., $\|J(w)-J(w')\|\le \beta \|w-w'\|$.
+- $\sigma_J>0$: bound on $\|J(w)\|$ over the trajectory.
+- $\mu:=\max\!\Big\{1,\, G_\ell \beta + \frac{L_\ell \beta^2}{4}\,(\sigma_J G_\ell)^2\Big\}$ (used in the proofs; any larger $\mu$ is valid).
+
+Remarks:
+- The outer loss is kept exact; only the inner model is linearized to derive a provable local quadratic upper bound that yields the closed-form $\alpha_t$ above.
+- No hand-designed learning-rate schedule is required.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Deep Frank-Wolfe with Proximal Linearization (DFW-PL)}
+\begin{algorithmic}[1]
+\STATE Input: $w_0\in\R^d$; constants $L_\ell>0$, $G_\ell>0$, $\beta>0$, $\sigma_J>0$
+\STATE Set $\mu \leftarrow \max\!\Big\{1,\, G_\ell \beta + \frac{L_\ell \beta^2}{4}\,(\sigma_J G_\ell)^2\Big\}$
+\FOR{$t=0,1,2,\dots,T-1$}
+  \STATE Compute prediction $u_t = h(w_t;x)$ and $g_{u,t} = \nabla_u \ell(u_t,y)$
+  \STATE Backprop composite gradient $g_t = J_t^\top g_{u,t}$ (via reverse-mode AD)
+  \STATE Set descent direction $p_t = -g_t$
+  \STATE Compute Jacobian-vector product $s_t = J_t p_t$ (via forward-mode or reverse-over-reverse)
+  \STATE Set step size $\displaystyle \alpha_t = \frac{\|g_t\|^2}{L_\ell \|s_t\|^2 + \mu \|p_t\|^2}$  // closed-form from quadratic upper bound
+  \STATE Update $w_{t+1} = w_t + \alpha_t p_t$
+  \IF{stopping criterion satisfied (e.g., $\|g_t\| \le \varepsilon$)}
+    \STATE break
+  \ENDIF
+\ENDFOR
+\STATE Output: $w_T$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+We follow the requested template on the scalar function $f(w)=(w-3)^2$. Here the inner model is the identity $h(w)=w$, the outer loss is $\ell(u)=(u-3)^2$, and $L_\ell=2$ (since $\nabla \ell(u)=2(u-3)$ is $2$-Lipschitz). The requested illustration uses a fixed step $\eta=0.1$ for three iterations.
+
+Initialization: $w_0=0$, gradient $g_0 = \nabla f(w_0)=2(w_0-3) = -6$, objective $f(w_0)=9$.
+
+Iteration 1:
+\[
+\begin{aligned}
+g_0 &= 2(0-3) = -6,\\
+w_1 &= w_0 - \eta g_0 = 0 - 0.1(-6) = 0.6,\\
+f(w_1) &= (0.6-3)^2 = 2.4^2 = 5.76.
+\end{aligned}
+\]
+
+Iteration 2:
+\[
+\begin{aligned}
+g_1 &= 2(0.6-3) = -4.8,\\
+w_2 &= w_1 - \eta g_1 = 0.6 - 0.1(-4.8) = 1.08,\\
+f(w_2) &= (1.08-3)^2 = 1.92^2 = 3.6864.
+\end{aligned}
+\]
+
+Iteration 3:
+\[
+\begin{aligned}
+g_2 &= 2(1.08-3) = -3.84,\\
+w_3 &= w_2 - \eta g_2 = 1.08 - 0.1(-3.84) = 1.464,\\
+f(w_3) &= (1.464-3)^2 = 1.536^2 = 2.359296.
+\end{aligned}
+\]
+
+Note: For this example, the DFW-PL closed-form step specializes to $\alpha_t=\frac{1}{2+\mu}$; choosing $\mu=8$ recovers $\alpha_t=0.1$.
+
+\section*{Assumptions}
+We work with the following standard conditions.
+
+\begin{assumption}[Outer loss convex and smooth]\label{asmp:ell}
+For each $y$, $\ell(\cdot,y)$ is convex and $L_\ell$-smooth in its first argument:
+\[
+\ell(v,y) \le \ell(u,y) + \inner{\nabla \ell(u,y)}{v-u} + \frac{L_\ell}{2}\|v-u\|^2,\quad \forall u,v\in\R^m.
+\]
+Moreover, $\|\nabla \ell(u,y)\| \le G_\ell$ for all $u$ encountered along the iterates.
+\end{assumption}
+
+\begin{assumption}[Inner model smoothness]\label{asmp:h}
+The inner model $h$ is differentiable with $\beta$-Lipschitz Jacobian:
+\[
+\|J(w)-J(w')\| \le \beta \|w-w'\|,\quad \forall w,w'\in\R^d.
+\]
+Consequently, for any $w$ and any direction $p$, the second-order Taylor remainder obeys
+\[
+\|h(w+\alpha p)-h(w)-\alpha J(w)p\| \le \frac{\beta}{2}\alpha^2\|p\|^2,\quad \forall \alpha\ge 0.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Jacobian]\label{asmp:J}
+Along the iterates $\{w_t\}$ we have $\|J(w_t)\|\le \sigma_J$ for some $\sigma_J>0$.
+\end{assumption}
+
+\begin{assumption}[Lower bounded objective]\label{asmp:lower}
+$\inf_{w}\Phi(w) > -\infty$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+We state a deterministic descent and stationarity-rate guarantee.
+
+\begin{theorem}[Monotone descent and stationarity rate]\label{thm:rate}
+Under Assumptions \ref{asmp:ell}--\ref{asmp:lower}, consider DFW-PL with $p_t=-g_t$ and
+\[
+\alpha_t \;=\; \frac{\|g_t\|^2}{L_\ell \|J_t p_t\|^2 + \mu \|p_t\|^2},\qquad \mu := \max\!\Big\{1,\, G_\ell \beta + \frac{L_\ell \beta^2}{4}\,(\sigma_J G_\ell)^2\Big\}.
+\]
+Then the iterates satisfy the one-step decrease
+\[
+\Phi(w_{t+1}) \;\le\; \Phi(w_t) \;-\; \frac{1}{2}\cdot \frac{\|g_t\|^4}{L_\ell \|J_t g_t\|^2 + \mu \|g_t\|^2}
+\;\le\; \Phi(w_t) \;-\; \frac{1}{2(L_\ell \sigma_J^2+\mu)}\,\|g_t\|^2.
+\]
+Summing from $t=0$ to $T-1$ yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\|g_t\|^2 \;\le\; \frac{2\,(L_\ell \sigma_J^2+\mu)}{T}\,\big(\Phi(w_0)-\inf_w \Phi(w)\big).
+\]
+In particular, $\min_{0\le t\le T-1}\|g_t\|^2 = O\big(1/T\big)$, i.e., the method converges to a first-order stationary point at the standard nonconvex rate with explicit constants.
+\end{theorem}
+
+\section*{Theoretical Properties}
+- Stability: The step size satisfies $\alpha_t \le 1/\mu \le 1$, ensuring conservative steps when curvature is large.
+- Hyperparameter sensitivity: Only $\mu$ aggregates problem constants $(L_\ell,G_\ell,\beta,\sigma_J)$; any larger $\mu$ preserves all guarantees (more conservative).
+- Comparison to baselines:
+  - Versus SGD with hand-tuned schedules, DFW-PL computes $\alpha_t$ in closed form from curvature proxies $L_\ell\|J_t p_t\|^2$ and $\mu\|p_t\|^2$.
+  - Versus Frank-Wolfe on parameter domains, DFW-PL performs a Frank-Wolfe-like linearization in the \emph{model space} while keeping the outer loss exact.
+  - Versus first-order methods with global $L$, DFW-PL adapts locally through $J_t p_t$ without backtracking.
+
+\section*{Discussion}
+- When $h$ is linear ($\beta=0$), we may set $\mu=1$; the step size simplifies and the bound matches classical smooth convex descent guarantees.
+- For common losses (squared, logistic), the same derivation applies with the same $L_\ell$.
+
+\section*{Preliminaries (Definitions and Lemmas)}
+We first collect two standard lemmas.
+
+\begin{lemma}[Smoothness of $\ell$]\label{lem:ell_smooth}
+Under Assumption \ref{asmp:ell}, for any $a,r\in\R^m$,
+\[
+\ell(a+r,y) \;\le\; \ell(a,y) + \inner{\nabla \ell(a,y)}{r} + \frac{L_\ell}{2}\|r\|^2.
+\]
+\end{lemma}
+
+\begin{lemma}[Second-order remainder bound for $h$]\label{lem:h_remainder}
+Under Assumption \ref{asmp:h}, for any $w\in\R^d$, direction $p\in\R^d$, and $\alpha\ge 0$,
+\[
+R(\alpha;w,p) \;:=\; h(w+\alpha p)-h(w)-\alpha J(w)p,\qquad \|R(\alpha;w,p)\| \;\le\; \frac{\beta}{2}\alpha^2\|p\|^2.
+\]
+\end{lemma}
+
+\noindent We also record a bound following from Assumptions \ref{asmp:ell} and \ref{asmp:J}:
+\begin{equation}\label{eq:gw_bound}
+\|g_t\| = \|J_t^\top g_{u,t}\| \le \|J_t\|\,\|g_{u,t}\| \le \sigma_J G_\ell.
+\end{equation}
+
+\section*{Main Proof (Step-by-Step Derivation)}
+We prove Theorem \ref{thm:rate}. Fix an iteration $t$, write $w=w_t$, $J=J_t$, $u=h(w)$, $g_u=\nabla\ell(u,y)$, $g=\nabla\Phi(w)=J^\top g_u$, and consider any direction $p\in\R^d$ and scalar $\alpha\ge 0$.
+
+Define the actual next prediction and its linear approximation:
+\[
+u^+ \;:=\; h(w+\alpha p),\qquad \tilde{u} \;:=\; u + \alpha J p,\qquad R := u^+ - \tilde{u}.
+\]
+By Lemma \ref{lem:h_remainder}, $\|R\| \le \frac{\beta}{2}\alpha^2\|p\|^2$. We bound the one-step change in $\Phi$.
+
+\noindent\textbf{Part I: Keep the outer loss exact while using the linearized inner model.}
+\begin{align}
+\Phi(w+\alpha p) &= \E\big[\ell(u^+,y)\big] \nonumber\\
+&= \E\big[\ell(\tilde{u}+R,y)\big]. \nonumber
+\end{align}
+Apply Lemma \ref{lem:ell_smooth} at $a=\tilde{u}$ and $r=R$:
+\begin{align}
+\ell(\tilde{u}+R,y) 
+&\le \ell(\tilde{u},y) + \inner{\nabla\ell(\tilde{u},y)}{R} + \frac{L_\ell}{2}\|R\|^2. \tag*{[Step 1]}
+\end{align}
+Take expectation and use $\|\nabla\ell(\tilde{u},y)\|\le G_\ell$:
+\begin{align}
+\Phi(w+\alpha p)
+&\le \E[\ell(\tilde{u},y)] + \E\big[\inner{\nabla\ell(\tilde{u},y)}{R}\big] + \frac{L_\ell}{2}\E\|R\|^2 \nonumber\\
+&\le \E[\ell(\tilde{u},y)] + G_\ell\,\E\|R\| + \frac{L_\ell}{2}\E\|R\|^2. \tag*{[Step 2]: Cauchy-Schwarz and gradient bound}
+\end{align}
+Using Lemma \ref{lem:h_remainder} and dropping the expectation (deterministic upper bound):
+\begin{align}
+\E\|R\| \le \frac{\beta}{2}\alpha^2\|p\|^2,\qquad
+\E\|R\|^2 \le \left(\frac{\beta}{2}\alpha^2\|p\|^2\right)^2 = \frac{\beta^2}{4}\alpha^4\|p\|^4. \tag*{[Step 3]}
+\end{align}
+Thus
+\begin{align}
+\Phi(w+\alpha p) \le \E[\ell(\tilde{u},y)] + \frac{G_\ell \beta}{2}\alpha^2\|p\|^2 + \frac{L_\ell \beta^2}{8}\alpha^4\|p\|^4. \tag*{[Step 4]}
+\end{align}
+
+\noindent\textbf{Part II: Upper bound $\E[\ell(\tilde{u},y)]$ via smoothness of $\ell$.}
+Apply Lemma \ref{lem:ell_smooth} at $a=u$ and $r=\alpha J p$:
+\begin{align}
+\ell(\tilde{u},y) = \ell(u+\alpha J p,y)
+&\le \ell(u,y) + \alpha\,\inner{\nabla\ell(u,y)}{J p} + \frac{L_\ell}{2}\alpha^2 \|J p\|^2. \tag*{[Step 5]}
+\end{align}
+Taking expectation and recognizing $\E[\ell(u,y)]=\Phi(w)$ and $\E[\nabla\ell(u,y)]=g_u$:
+\begin{align}
+\E[\ell(\tilde{u},y)] 
+&\le \Phi(w) + \alpha\,\inner{g_u}{J p} + \frac{L_\ell}{2}\alpha^2 \|J p\|^2. \tag*{[Step 6]}
+\end{align}
+Use $\inner{g_u}{J p} = \inner{J^\top g_u}{p} = \inner{g}{p}$:
+\begin{align}
+\E[\ell(\tilde{u},y)] 
+&\le \Phi(w) + \alpha\,\inner{g}{p} + \frac{L_\ell}{2}\alpha^2 \|J p\|^2. \tag*{[Step 7]}
+\end{align}
+
+\noindent\textbf{Part III: Combine Parts I and II, and dominate the $\alpha^4$ term.}
+From [Step 4] and [Step 7],
+\begin{align}
+\Phi(w+\alpha p) 
+&\le \Phi(w) + \alpha\,\inner{g}{p} + \frac{L_\ell}{2}\alpha^2 \|J p\|^2 + \frac{G_\ell \beta}{2}\alpha^2\|p\|^2 + \frac{L_\ell \beta^2}{8}\alpha^4\|p\|^4. \tag*{[Step 8]}
+\end{align}
+By \eqref{eq:gw_bound}, for the DFW-PL direction we will set $p=-g$ and then $\|p\|=\|g\|\le \sigma_J G_\ell$; thus
+\begin{align}
+\|p\|^4 \le (\sigma_J G_\ell)^2 \|p\|^2. \tag*{[Step 9]}
+\end{align}
+Moreover, we preselect any $\mu$ such that
+\begin{align}
+\mu \;\ge\; G_\ell \beta + \frac{L_\ell \beta^2}{4}(\sigma_J G_\ell)^2 \qquad\Longrightarrow\qquad
+\frac{G_\ell \beta}{2}\alpha^2\|p\|^2 + \frac{L_\ell \beta^2}{8}\alpha^4\|p\|^4 \;\le\; \frac{\mu}{2}\alpha^2\|p\|^2, \quad \forall \alpha\in[0,1]. \tag*{[Step 10]}
+\end{align}
+Combining [Step 8]--[Step 10], for any $\alpha\in[0,1]$,
+\begin{align}
+\Phi(w+\alpha p) 
+&\le \Phi(w) + \alpha\,\inner{g}{p} + \frac{1}{2}\alpha^2\Big(L_\ell \|J p\|^2 + \mu \|p\|^2\Big). \tag*{[Step 11]}
+\end{align}
+
+\noindent\textbf{Part IV: Choose $p=-g$ and minimize the quadratic upper bound in $\alpha$.}
+Set $p^\star=-g$ so that $\inner{g}{p^\star} = -\|g\|^2$ and $Jp^\star = -Jg$. Then the right-hand side of [Step 11] is a convex quadratic in $\alpha\in[0,1]$:
+\begin{align}
+Q(\alpha) := \Phi(w) - \alpha \|g\|^2 + \frac{1}{2}\alpha^2\Big(L_\ell \|J g\|^2 + \mu \|g\|^2\Big). \tag*{[Step 12]}
+\end{align}
+Its unconstrained minimizer over $\alpha\ge 0$ is
+\begin{align}
+\alpha_{\mathrm{quad}} \;=\; \frac{\|g\|^2}{L_\ell \|J g\|^2 + \mu \|g\|^2}. \tag*{[Step 13]: derivative zero condition}
+\end{align}
+Note that $\alpha_{\mathrm{quad}}\le \frac{1}{\mu}\le 1$ by $\mu\ge 1$, so $\alpha_{\mathrm{quad}}\in[0,1]$. Plugging $\alpha_{\mathrm{quad}}$ into $Q$ yields 
+\begin{align}
+Q(\alpha_{\mathrm{quad}}) 
+&= \Phi(w) - \frac{1}{2}\cdot \frac{\|g\|^4}{L_\ell \|J g\|^2 + \mu \|g\|^2}. \tag*{[Step 14]: standard quadratic completion}
+\end{align}
+Therefore, with $p=-g$ and $\alpha=\alpha_{\mathrm{quad}}$, [Step 11] implies
+\begin{align}
+\Phi(w+\alpha_{\mathrm{quad}} p) \le Q(\alpha_{\mathrm{quad}}) 
+= \Phi(w) - \frac{1}{2}\cdot \frac{\|g\|^4}{L_\ell \|J g\|^2 + \mu \|g\|^2}. \tag*{[Step 15]}
+\end{align}
+Finally, using $\|J g\|\le \|J\|\,\|g\| \le \sigma_J \|g\|$,
+\begin{align}
+\frac{\|g\|^4}{L_\ell \|J g\|^2 + \mu \|g\|^2} 
+\;\ge\; \frac{\|g\|^4}{(L_\ell \sigma_J^2 + \mu)\|g\|^2}
+\;=\; \frac{\|g\|^2}{L_\ell \sigma_J^2 + \mu}. \tag*{[Step 16]}
+\end{align}
+Combining [Step 15] and [Step 16] proves the one-step decrease:
+\begin{align}
+\Phi(w_{t+1}) \le \Phi(w_t) - \frac{1}{2}\cdot \frac{\|g_t\|^4}{L_\ell \|J_t g_t\|^2 + \mu \|g_t\|^2}
+\le \Phi(w_t) - \frac{1}{2(L_\ell \sigma_J^2 + \mu)}\,\|g_t\|^2. \tag*{[Step 17]}
+\end{align}
+Summing [Step 17] over $t=0,\dots,T-1$ and using $\Phi(w_T)\ge \inf_w \Phi(w)$ yields
+\begin{align}
+\sum_{t=0}^{T-1}\|g_t\|^2 \;\le\; 2\,(L_\ell \sigma_J^2 + \mu)\,\big(\Phi(w_0)-\inf_w \Phi(w)\big). \tag*{[Step 18]}
+\end{align}
+Dividing by $T$ completes the proof of Theorem \ref{thm:rate}. \qed
+
+\section*{Rate Derivation (With Constants)}
+From [Step 18],
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\|\nabla \Phi(w_t)\|^2 
+\;\le\; \frac{2\,(L_\ell \sigma_J^2 + \mu)}{T}\,\big(\Phi(w_0)-\Phi^\star\big),
+\]
+where $\Phi^\star:=\inf_w \Phi(w)$. With the explicit choice
+\[
+\mu \;=\; \max\!\Big\{1,\, G_\ell \beta + \frac{L_\ell \beta^2}{4}\,(\sigma_J G_\ell)^2\Big\},
+\]
+the constants are fully specified. In particular, if $h$ is linear ($\beta=0$), we may set $\mu=1$ and obtain
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\|\nabla \Phi(w_t)\|^2 
+\;\le\; \frac{2\,(L_\ell \sigma_J^2 + 1)}{T}\,\big(\Phi(w_0)-\Phi^\star\big).
+\]
+
+\section*{Special Cases}
+- Linear inner model ($\beta=0$): $h(w)=Aw+b$, $J\equiv A$, no remainder term; the step size reduces to
+\[
+\alpha_t = \frac{\|g_t\|^2}{L_\ell \|A g_t\|^2 + \|g_t\|^2} \le 1,
+\]
+and the descent bound is
+\[
+\Phi(w_{t+1}) \le \Phi(w_t) - \frac{1}{2(L_\ell \|A\|^2+1)}\|g_t\|^2.
+\]
+- Identity inner model with squared loss: $h(w)=w$, $\ell(u)=(u-y)^2$, $L_\ell=2$, $\beta=0$, $\mu=1$. Then
+\[
+\alpha_t = \frac{\|g_t\|^2}{2\|g_t\|^2 + \|g_t\|^2} = \frac{1}{3},\quad
+w_{t+1} = w_t - \tfrac{1}{3} g_t,
+\]
+and $\Phi(w_{t+1})\le \Phi(w_t) - \frac{1}{2(2+1)}\|g_t\|^2$.
+
+\end{document}

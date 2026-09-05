@@ -1,0 +1,254 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage[margin=1in]{geometry}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newcommand{\R}{\mathbb{R}}
+
+\begin{document}
+
+\section*{Algorithm Name}
+AMSGrad with bias correction and monotone second-moment accumulator
+
+\section*{Mathematical Formulation}
+We minimize a (possibly non-convex) differentiable objective $f:\R^d\to\R$.
+At iteration $t\ge 1$, we observe a (possibly stochastic) gradient $g_t\in\R^d$.
+Elementwise operations are denoted by $\odot$ (product), $\oslash$ (division), and powers are taken elementwise. Let hyperparameters
+- base stepsizes $\{\eta_t\}_{t\ge 1}$,
+- momentum $\beta_1\in[0,1)$,
+- second-moment decay $\beta_2\in[0,1)$,
+- numerical stability $\epsilon>0$.
+
+Define for $t\ge 1$:
+\[
+\begin{aligned}
+m_t &= \beta_1 m_{t-1} + (1-\beta_1) g_t, \\
+v_t &= \beta_2 v_{t-1} + (1-\beta_2) (g_t \odot g_t), \\
+\hat m_t &= \frac{m_t}{1-\beta_1^t},\qquad \tilde v_t = \frac{v_t}{1-\beta_2^t},\\
+\hat v_t &= \max(\hat v_{t-1},\, \tilde v_t)\quad\text{(max taken elementwise)},\\
+w_{t+1} &= w_t - \eta_t\, \hat m_t \oslash \big(\sqrt{\hat v_t} + \epsilon\big).
+\end{aligned}
+\]
+Initialization: $w_1\in\R^d$ arbitrary, $m_0=0$, $v_0=0$, $\hat v_0=0$.
+
+When we prove convergence below, we will focus on the deterministic-gradient special case or the momentum-free special case (explicitly stated).
+
+\section*{Pseudocode}
+\noindent Inputs: $w_1$, $\{\eta_t\}_{t\ge1}$, $\beta_1\in[0,1)$, $\beta_2\in[0,1)$, $\epsilon>0$.
+\begin{enumerate}
+\item Set $m_0\gets 0$, $v_0\gets 0$, $\hat v_0\gets 0$.
+\item For $t=1,2,\dots,T$:
+  \begin{enumerate}
+  \item Compute stochastic gradient $g_t$ at $w_t$.
+  \item Update first and second moments:
+    \[
+    m_t \gets \beta_1 m_{t-1} + (1-\beta_1) g_t,\quad
+    v_t \gets \beta_2 v_{t-1} + (1-\beta_2) (g_t \odot g_t).
+    \]
+  \item Bias-correct:
+    \[
+    \hat m_t \gets \frac{m_t}{1-\beta_1^t},\quad
+    \tilde v_t \gets \frac{v_t}{1-\beta_2^t}.
+    \]
+  \item Monotone variance:
+    \[
+    \hat v_t \gets \max(\hat v_{t-1},\, \tilde v_t).
+    \]
+  \item Update parameters:
+    \[
+    w_{t+1} \gets w_t - \eta_t\, \hat m_t \oslash \big(\sqrt{\hat v_t} + \epsilon\big).
+    \]
+  \end{enumerate}
+\item Return $w_{T+1}$ or an iterate selected by validation.
+\end{enumerate}
+
+\section*{Dry Run Example}
+Target: $f(w)=(w-3)^2$ (scalar), gradient $\nabla f(w)=2(w-3)$.
+Initialize $w_0=0$, choose $\eta_t\equiv \eta=0.1$, $\beta_1=0.9$, $\beta_2=0.999$, $\epsilon=10^{-8}$.
+\[
+\begin{aligned}
+\text{Iter 1: }& g_1=2(0-3)=-6;\\
+& m_1=0.9\cdot 0+0.1\cdot(-6)=-0.6,\quad v_1=0.999\cdot 0+0.001\cdot 36=0.036;\\
+& \hat m_1 = \frac{-0.6}{1-0.9}=-6,\quad \tilde v_1=\frac{0.036}{1-0.999}=36,\quad \hat v_1=\max(0,36)=36;\\
+& w_1 = 0 - 0.1 \cdot \frac{-6}{\sqrt{36}+10^{-8}} \approx 0.1;\\
+& f(w_1)=(0.1-3)^2=8.41.\\[0.5em]
+\text{Iter 2: }& g_2=2(0.1-3)=-5.8;\\
+& m_2=0.9(-0.6)+0.1(-5.8)=-1.12,\quad \hat m_2=\frac{-1.12}{1-0.9^2}=\frac{-1.12}{0.19}\approx -5.89473684;\\
+& v_2=0.999\cdot 0.036 + 0.001 \cdot 33.64=0.069604;\\
+& \tilde v_2=\frac{0.069604}{1-0.999^2}=\frac{0.069604}{0.001999}\approx 34.81940970,\\
+& \hat v_2=\max(36,34.8194)=36;\\
+& w_2 = 0.1 - 0.1 \cdot \frac{-5.89473684}{6+10^{-8}} \approx 0.19824561403;\\
+& f(w_2) \approx (0.1982456-3)^2 \approx 7.849811.\\[0.5em]
+\text{Iter 3: }& g_3=2(0.1982456-3) \approx -5.60350877;\\
+& m_3=0.9(-1.12)+0.1(-5.60350877)\approx -1.56835088,\\
+& \hat m_3=\frac{-1.56835088}{1-0.9^3}=\frac{-1.56835088}{0.271}\approx -5.787827;\\
+& v_3=0.999\cdot 0.069604 + 0.001 \cdot 31.3953 \approx 0.100929696;\\
+& \tilde v_3 = \frac{0.100929696}{1-0.999^3}=\frac{0.100929696}{0.002997001}\approx 33.68,\\
+& \hat v_3=\max(36,33.68)=36;\\
+& w_3 = 0.1982456 - 0.1 \cdot \frac{-5.787827}{6} \approx 0.2947094;\\
+& f(w_3) \approx (0.2947094-3)^2 \approx 7.322.
+\end{aligned}
+\]
+
+\section*{Assumptions}
+We analyze the momentum-free AMSGrad (set $\beta_1=0$, so $m_t=g_t$ and $\hat m_t=g_t$) under deterministic gradients $g_t=\nabla f(w_t)$.
+\begin{itemize}
+\item A1 (Smoothness): $f$ is $L$-smooth: for all $x,y$, $f(y)\le f(x)+\langle \nabla f(x),y-x\rangle + \frac{L}{2}\|y-x\|_2^2$.
+\item A2 (Lower bounded): $f_{\inf}:=\inf_{x\in\R^d} f(x)>-\infty$.
+\item A3 (Bounded gradients in $\ell_\infty$): for all $t$ and coordinates $i$, $|\nabla_i f(w_t)|\le G_\infty$.
+\item A4 (Stepsizes): $\eta_t = \eta/\sqrt{t}$ with $0<\eta \le \epsilon/(2L)$.
+\end{itemize}
+Remark: A3 implies $\tilde v_{t,i}\le G_\infty^2$ and, hence, $\hat v_{t,i}\le G_\infty^2$ for all $t$.
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Non-convex rate for momentum-free AMSGrad]
+Under A1--A4, for any $T\ge 1$, the iterates of AMSGrad with $\beta_1=0$ satisfy
+\[
+\min_{1\le t\le T}\|\nabla f(w_t)\|_2^2
+\;\le\;
+\frac{( \epsilon + G_\infty )^2}{\eta\,( \sqrt{T}-1)}\;\big(f(w_1)-f_{\inf}\big).
+\]
+Equivalently, $\min_{1\le t\le T}\|\nabla f(w_t)\|_2^2 = \mathcal{O}\!\left(\frac{1}{\sqrt{T}}\right)$ with explicit constant $\frac{( \epsilon + G_\infty )^2}{\eta}$ times the initial suboptimality.
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{itemize}
+\item Stability via monotone preconditioner: $\hat v_t$ is elementwise nondecreasing, so the effective per-coordinate stepsizes $\eta_t/(\sqrt{\hat v_{t,i}}+\epsilon)$ are nonincreasing, preventing exploding updates.
+\item Hyperparameter sensitivity:
+  - Larger $\epsilon$ increases the lower bound on the denominator, reducing stepsizes but improving the constant in the descent sufficient condition $\eta \le \epsilon/(2L)$.
+  - Larger $\beta_2$ makes $\tilde v_t$ smoother; monotone max prevents transient decreases in the denominator.
+\item Comparison to SGD: In the momentum-free, deterministic setting, the rate matches the canonical non-convex SGD rate $O(1/\sqrt{T})$, while AMSGrad adaptively rescales coordinates to mitigate ill-conditioning.
+\end{itemize}
+
+\section*{Discussion}
+- The proof below is for $\beta_1=0$ (no momentum). Extending to $\beta_1>0$ adds bias-correlation terms between $\hat m_t$ and $\hat v_t$; with additional technical conditions one obtains the same $O(1/\sqrt{T})$ rate up to constants.
+- In the stochastic setting, one typically obtains an $O(1/\sqrt{T})$ rate for the expected gradient norm under standard unbiasedness/variance assumptions, with constants depending on $\sigma$, $\epsilon$, and $G_\infty$.
+
+\section*{Preliminaries (Definitions and Lemmas)}
+Throughout, all inequalities hold elementwise when applied to vectors unless otherwise stated. Define the diagonal matrix
+\[
+H_t := \mathrm{diag}\big(\sqrt{\hat v_t} + \epsilon\big)\in\R^{d\times d},\qquad D_t := H_t^{-1}.
+\]
+Thus the update is $w_{t+1}=w_t - \eta_t D_t \nabla f(w_t)$ in the momentum-free deterministic setting.
+
+\begin{lemma}[Smoothness one-step bound]
+For any $t\ge 1$, with $y=w_{t+1}$ and $x=w_t$,
+\[
+f(w_{t+1}) \le f(w_t) + \langle \nabla f(w_t), w_{t+1}-w_t\rangle + \frac{L}{2}\|w_{t+1}-w_t\|_2^2.
+\]
+\textbf{Proof.} This is the standard descent lemma for $L$-smooth functions. [Step 1]
+\end{lemma}
+
+\begin{lemma}[Preconditioner bounds]
+Under A3, for all $t$,
+\[
+\epsilon\, I \;\preceq\; H_t \;\preceq\; (\epsilon + G_\infty)\, I.
+\]
+\textbf{Proof.} Because $|g_{t,i}|\le G_\infty$ (A3), we have $g_{t,i}^2\le G_\infty^2$, hence $v_{t,i}\le G_\infty^2$, so $\tilde v_{t,i}\le G_\infty^2$ and $\hat v_{t,i}\le G_\infty^2$ by monotonicity of the max. Therefore $0\le \sqrt{\hat v_{t,i}} \le G_\infty$ and $\epsilon \le \sqrt{\hat v_{t,i}} + \epsilon \le \epsilon + G_\infty$ for each $i$. This yields the claimed matrix inequality. [Step 2]
+\end{lemma}
+
+\begin{lemma}[One-step descent inequality (deterministic, $\beta_1=0$)]
+Under A1 and with $w_{t+1}=w_t - \eta_t D_t \nabla f(w_t)$,
+\[
+f(w_{t+1}) \le f(w_t) - \eta_t \|\nabla f(w_t)\|_{D_t}^2 + \frac{L}{2}\eta_t^2 \|\nabla f(w_t)\|_{D_t^2}^2.
+\]
+\textbf{Proof.} Set $\Delta_t:=w_{t+1}-w_t=-\eta_t D_t \nabla f(w_t)$. Apply Lemma 1:
+\[
+\begin{aligned}
+f(w_{t+1}) &\le f(w_t) + \langle \nabla f(w_t), \Delta_t\rangle + \frac{L}{2}\|\Delta_t\|_2^2 \quad\text{(by smoothness)} \quad\text{[Step 3]}\\
+&= f(w_t) - \eta_t \langle \nabla f(w_t), D_t \nabla f(w_t)\rangle + \frac{L}{2}\eta_t^2 \| D_t \nabla f(w_t)\|_2^2 \quad\text{[Step 4]}\\
+&= f(w_t) - \eta_t \|\nabla f(w_t)\|_{D_t}^2 + \frac{L}{2}\eta_t^2 \|\nabla f(w_t)\|_{D_t^2}^2, \quad\text{[Step 5]}
+\end{aligned}
+\]
+where $\|x\|_{D}:=\sqrt{x^\top D x}$; since $D_t$ is diagonal and positive definite, $\|D_t x\|_2^2 = x^\top D_t^\top D_t x = x^\top D_t^2 x = \|x\|_{D_t^2}^2$.
+\end{lemma}
+
+\begin{lemma}[Relating $D_t^2$ and $D_t$]
+For all $t$, $\|\nabla f(w_t)\|_{D_t^2}^2 \le \frac{1}{\epsilon}\, \|\nabla f(w_t)\|_{D_t}^2$.
+\textbf{Proof.} Since $H_{t,ii}\ge \epsilon$ for all $i$ (Lemma 2), we have $D_{t,ii} = 1/H_{t,ii} \le 1/\epsilon$. Therefore $D_{t,ii}^2 \le \frac{1}{\epsilon} D_{t,ii}$ for all $i$. Summing coordinate-wise yields the inequality. [Step 6]
+\end{lemma}
+
+\begin{lemma}[Sums for the stepsize schedule]
+Let $\eta_t=\eta/\sqrt{t}$ with $\eta>0$. Then, for $T\ge 1$,
+\[
+\sum_{t=1}^T \eta_t \;\ge\; 2\eta(\sqrt{T}-1),\qquad \sum_{t=1}^T \eta_t^2 \;\le\; \eta^2\,(1+\log T).
+\]
+\textbf{Proof.} For the first bound, use the integral comparison $\sum_{t=1}^T \frac{1}{\sqrt{t}}\ge \int_{1}^{T} \frac{1}{\sqrt{x}}\,dx = 2(\sqrt{T}-1)$ and multiply by $\eta$. [Step 7]
+For the second, $\sum_{t=1}^T \frac{1}{t} \le 1 + \log T$; multiply by $\eta^2$. [Step 8]
+\end{lemma}
+
+\section*{Main Proof (Step-by-Step Derivation)}
+We prove the theorem under A1--A4 with $\beta_1=0$.
+From Lemma 3 and Lemma 4, for all $t\ge 1$,
+\[
+\begin{aligned}
+f(w_{t+1})
+&\le f(w_t) - \eta_t \|\nabla f(w_t)\|_{D_t}^2 + \frac{L}{2}\eta_t^2 \|\nabla f(w_t)\|_{D_t^2}^2 \quad\text{[Step 9]}\\
+&\le f(w_t) - \eta_t \|\nabla f(w_t)\|_{D_t}^2 + \frac{L}{2}\eta_t^2 \cdot \frac{1}{\epsilon}\, \|\nabla f(w_t)\|_{D_t}^2 \quad\text{(by Lemma 4)} \quad\text{[Step 10]}\\
+&= f(w_t) - \Big(\eta_t - \frac{L}{2\epsilon}\eta_t^2\Big)\, \|\nabla f(w_t)\|_{D_t}^2. \quad\text{[Step 11]}
+\end{aligned}
+\]
+Define the (nonnegative) coefficient
+\[
+\gamma_t := \eta_t - \frac{L}{2\epsilon}\eta_t^2 = \frac{\eta_t}{2}\Big(2 - \frac{L}{\epsilon}\eta_t\Big). \quad\text{[Step 12]}
+\]
+By A4, $\eta_t\le \eta \le \epsilon/(2L)$, hence $2 - \frac{L}{\epsilon}\eta_t \ge 2 - \frac{L}{\epsilon}\eta \ge 1$, so $\gamma_t \ge \frac{\eta_t}{2}$. [Step 13]
+Thus
+\[
+f(w_{t+1}) \le f(w_t) - \gamma_t \|\nabla f(w_t)\|_{D_t}^2 \le f(w_t) - \frac{\eta_t}{2}\, \|\nabla f(w_t)\|_{D_t}^2. \quad\text{[Step 14]}
+\]
+Next, lower bound the preconditioned norm using Lemma 2:
+\[
+\|\nabla f(w_t)\|_{D_t}^2 = \nabla f(w_t)^\top H_t^{-1} \nabla f(w_t) \ge \frac{1}{(\epsilon+G_\infty)^2}\, \|\nabla f(w_t)\|_2^2. \quad\text{[Step 15]}
+\]
+Plugging this into [Step 14],
+\[
+f(w_{t+1}) \le f(w_t) - \frac{\eta_t}{2(\epsilon+G_\infty)^2}\, \|\nabla f(w_t)\|_2^2. \quad\text{[Step 16]}
+\]
+Summing [Step 16] over $t=1$ to $T$ gives the telescoping bound
+\[
+f(w_{T+1}) \le f(w_1) - \frac{1}{2(\epsilon+G_\infty)^2} \sum_{t=1}^T \eta_t\, \|\nabla f(w_t)\|_2^2. \quad\text{[Step 17]}
+\]
+Using A2 ($f(w_{T+1})\ge f_{\inf}$), we obtain
+\[
+\sum_{t=1}^T \eta_t\, \|\nabla f(w_t)\|_2^2 \le 2(\epsilon+G_\infty)^2 \big(f(w_1)-f_{\inf}\big). \quad\text{[Step 18]}
+\]
+Let $t^\star \in \arg\min_{1\le t\le T} \|\nabla f(w_t)\|_2^2$. Then
+\[
+\|\nabla f(w_{t^\star})\|_2^2 \cdot \sum_{t=1}^T \eta_t \;\le\; \sum_{t=1}^T \eta_t\, \|\nabla f(w_t)\|_2^2 \;\le\; 2(\epsilon+G_\infty)^2 \big(f(w_1)-f_{\inf}\big). \quad\text{[Step 19]}
+\]
+Using Lemma 5, $\sum_{t=1}^T \eta_t \ge 2\eta(\sqrt{T}-1)$, hence
+\[
+\min_{1\le t\le T}\|\nabla f(w_t)\|_2^2 \;=\; \|\nabla f(w_{t^\star})\|_2^2
+\;\le\; \frac{2(\epsilon+G_\infty)^2 \big(f(w_1)-f_{\inf}\big)}{2\eta(\sqrt{T}-1)}
+\;=\; \frac{(\epsilon+G_\infty)^2}{\eta(\sqrt{T}-1)}\,\big(f(w_1)-f_{\inf}\big). \quad\text{[Step 20]}
+\]
+This proves the theorem. \qed
+
+\section*{Rate Derivation (With Constants)}
+From [Step 20],
+\[
+\min_{1\le t\le T}\|\nabla f(w_t)\|_2^2 \le \frac{(\epsilon+G_\infty)^2}{\eta}\cdot \frac{f(w_1)-f_{\inf}}{\sqrt{T}-1}.
+\]
+For $T\ge 4$, $\sqrt{T}-1 \ge \frac{1}{2}\sqrt{T}$, hence the simpler bound
+\[
+\min_{1\le t\le T}\|\nabla f(w_t)\|_2^2 \le \frac{2(\epsilon+G_\infty)^2}{\eta}\cdot \frac{f(w_1)-f_{\inf}}{\sqrt{T}}.
+\]
+Moreover, averaging the gradients yields
+\[
+\frac{\sum_{t=1}^T \eta_t \|\nabla f(w_t)\|_2^2}{\sum_{t=1}^T \eta_t}
+\le \frac{2(\epsilon+G_\infty)^2\big(f(w_1)-f_{\inf}\big)}{2\eta(\sqrt{T}-1)}
+= \frac{(\epsilon+G_\infty)^2\big(f(w_1)-f_{\inf}\big)}{\eta(\sqrt{T}-1)}.
+\]
+
+\section*{Special Cases}
+\begin{itemize}
+\item Constant stepsize: If $\eta_t\equiv \eta \le \epsilon/(2L)$, then [Step 18] becomes
+$\sum_{t=1}^T \|\nabla f(w_t)\|_2^2 \le \frac{2(\epsilon+G_\infty)^2}{\eta} \big(f(w_1)-f_{\inf}\big)$,
+so $\min_{1\le t\le T}\|\nabla f(w_t)\|_2^2 \le \frac{2(\epsilon+G_\infty)^2}{\eta}\cdot \frac{f(w_1)-f_{\inf}}{T}$.
+\item With momentum ($\beta_1>0$): Writing $\hat m_t$ as a convex combination of past gradients introduces additional bias terms coupling $\hat m_t$ and $H_t$. Under standard bounded-gradient and smoothness assumptions, and with $\eta_t=\eta/\sqrt{t}$, one can extend the proof by (i) lower bounding $\langle \nabla f(w_t), \hat m_t\rangle$ using Lipschitz continuity to control drift across iterations, and (ii) reusing Lemmas 2 and 4 to control quadratic terms. The same $O(1/\sqrt{T})$ rate holds up to constants depending on $\beta_1$.
+\item Stochastic gradients: If $g_t$ is an unbiased estimator of $\nabla f(w_t)$ with bounded variance, a similar proof goes through with expectations; the noise contributes additional terms that remain controlled under the decreasing stepsize $\eta_t=\eta/\sqrt{t}$, yielding an $O(1/\sqrt{T})$ rate in expectation for the minimal gradient norm.
+\end{itemize}
+
+\end{document}

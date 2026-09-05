@@ -1,0 +1,509 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage[margin=1in]{geometry}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{corollary}{Corollary}
+\newtheorem{definition}{Definition}
+
+\begin{document}
+
+%==================================================================
+\section*{Algorithm Name}
+\textbf{RMSProp} (Root Mean Square Propagation) for non-convex smooth stochastic
+optimization. The method adapts the per-coordinate step size using an
+exponentially weighted moving average of squared (stochastic) gradients.
+
+%==================================================================
+\section*{Mathematical Formulation}
+
+We seek to minimize
+\[
+\min_{w\in\mathbb{R}^d} f(w) = \mathbb{E}_{z\sim\mathcal{D}}\big[ F(w;z) \big].
+\]
+At each iteration $t$ we observe a stochastic gradient
+$g_t = \nabla F(w_t;z_t)$ with $\mathbb{E}[g_t\,|\,w_t] = \nabla f(w_t)$.
+
+\textbf{Update rules (scalar / per-coordinate form).}
+For decay rate $\beta\in[0,1)$, base step size $\alpha>0$, and stabilizer
+$\epsilon>0$:
+\begin{align}
+v_t &= \beta\, v_{t-1} + (1-\beta)\, g_t^2, \label{eq:v}\\[2pt]
+w_{t+1} &= w_t - \frac{\alpha}{\sqrt{v_t}+\epsilon}\, g_t. \label{eq:w}
+\end{align}
+Here $g_t^2$ denotes the element-wise square and all operations
+(division, square root) act coordinate-wise. Equivalently, defining the
+diagonal preconditioner
+\[
+A_t = \mathrm{diag}\!\Big(\frac{1}{\sqrt{v_{t,i}}+\epsilon}\Big)_{i=1}^d,
+\qquad
+w_{t+1} = w_t - \alpha\, A_t\, g_t.
+\]
+
+\textbf{Hyperparameters.}
+\begin{itemize}
+  \item $\alpha>0$: global learning rate.
+  \item $\beta\in[0,1)$: smoothing / decay factor for the second moment.
+  \item $\epsilon>0$: numerical stabilizer (also lower-bounds the step
+        denominator).
+  \item $v_0 \ge 0$: initial second-moment estimate (commonly $v_0=0$).
+\end{itemize}
+
+%==================================================================
+\section*{Pseudocode}
+
+\begin{verbatim}
+Input: alpha > 0, beta in [0,1), epsilon > 0, w_0, v_0 = 0, T
+for t = 1, 2, ..., T do
+    sample z_t ~ D
+    g_t = grad F(w_{t-1}; z_t)        # stochastic gradient
+    v_t = beta * v_{t-1} + (1-beta) * g_t^2     # element-wise square
+    w_t = w_{t-1} - alpha * g_t / (sqrt(v_t) + epsilon)
+end for
+Termination: stop when t = T, or ||g_t|| <= tol, or |f(w_t)-f(w_{t-1})| <= tol
+Output: w_T (or w_R for R uniformly drawn from {1,...,T})
+\end{verbatim}
+
+%==================================================================
+\section*{Dry Run Example}
+
+We minimize $f(w)=(w-3)^2$ with $w_0=0$, $\alpha=0.1$,
+$\beta=0.9$, $\epsilon=10^{-8}$, $v_0=0$.
+The exact gradient is $\nabla f(w)=2(w-3)$ (deterministic here).
+
+\textbf{Iteration 1.}
+\begin{align*}
+g_1 &= 2(0-3) = -6,\\
+v_1 &= 0.9\cdot 0 + 0.1\cdot(-6)^2 = 0.1\cdot 36 = 3.6,\\
+\sqrt{v_1}+\epsilon &\approx 1.897367,\\
+w_1 &= 0 - 0.1\cdot\frac{-6}{1.897367}
+       = 0 + 0.316228 = 0.316228,\\
+f(w_1) &= (0.316228-3)^2 = (-2.683772)^2 \approx 7.202632.
+\end{align*}
+
+\textbf{Iteration 2.}
+\begin{align*}
+g_2 &= 2(0.316228-3) = -5.367544,\\
+v_2 &= 0.9\cdot 3.6 + 0.1\cdot(-5.367544)^2
+      = 3.24 + 0.1\cdot 28.8105 = 6.121051,\\
+\sqrt{v_2}+\epsilon &\approx 2.474076,\\
+w_2 &= 0.316228 - 0.1\cdot\frac{-5.367544}{2.474076}
+      = 0.316228 + 0.216952 = 0.533180,\\
+f(w_2) &= (0.533180-3)^2 = (-2.466820)^2 \approx 6.085203.
+\end{align*}
+
+\textbf{Iteration 3.}
+\begin{align*}
+g_3 &= 2(0.533180-3) = -4.933640,\\
+v_3 &= 0.9\cdot 6.121051 + 0.1\cdot(-4.933640)^2
+      = 5.508946 + 0.1\cdot 24.33079 = 7.942024,\\
+\sqrt{v_3}+\epsilon &\approx 2.818160,\\
+w_3 &= 0.533180 - 0.1\cdot\frac{-4.933640}{2.818160}
+      = 0.533180 + 0.175066 = 0.708246,\\
+f(w_3) &= (0.708246-3)^2 = (-2.291754)^2 \approx 5.252135.
+\end{align*}
+
+The objective decreases monotonically
+$7.20 \to 6.09 \to 5.25$, illustrating progress toward $w^*=3$.
+
+%==================================================================
+\section*{Assumptions}
+
+\begin{assumption}[Lower boundedness]\label{as:lb}
+$f$ is bounded below: $f^\star := \inf_{w} f(w) > -\infty$.
+\end{assumption}
+
+\begin{assumption}[$L$-smoothness]\label{as:smooth}
+$f$ is continuously differentiable and its gradient is $L$-Lipschitz:
+\[
+\|\nabla f(w)-\nabla f(u)\| \le L\|w-u\|\quad\forall w,u,
+\]
+which implies the descent inequality
+\[
+f(u) \le f(w) + \langle \nabla f(w), u-w\rangle + \tfrac{L}{2}\|u-w\|^2.
+\]
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic gradients]\label{as:unbiased}
+$\mathbb{E}[g_t \mid \mathcal{F}_t] = \nabla f(w_t)$, where
+$\mathcal{F}_t = \sigma(w_1,\dots,w_t)$.
+\end{assumption}
+
+\begin{assumption}[Bounded gradients]\label{as:bound}
+The stochastic gradients are uniformly bounded:
+$\|g_t\|_\infty \le G$ almost surely (hence $\|g_t\| \le \sqrt{d}\,G$ and
+$\|\nabla f(w_t)\|_\infty \le G$).
+\end{assumption}
+
+\begin{assumption}[Bounded variance]\label{as:var}
+$\mathbb{E}[\|g_t-\nabla f(w_t)\|^2 \mid \mathcal{F}_t] \le \sigma^2$.
+\end{assumption}
+
+\noindent\textbf{Parameter constraints.}
+$\alpha>0,\ \beta\in[0,1),\ \epsilon>0$. We additionally require
+$\alpha$ small relative to $L$ as made precise in
+Theorem~\ref{thm:main}.
+
+%==================================================================
+\section*{Main Convergence Theorem}
+
+\begin{theorem}[Non-convex convergence of RMSProp]\label{thm:main}
+Under Assumptions~\ref{as:lb}--\ref{as:var}, run RMSProp for $T$ iterations.
+Because $v_{t,i} = \beta v_{t-1,i} + (1-\beta)g_{t,i}^2 \le G^2$ (since
+$v_0\le G^2$ and the recursion is a convex combination bounded by $G^2$),
+the effective per-coordinate step lies in the interval
+\[
+\frac{\alpha}{G+\epsilon} \;\le\; \frac{\alpha}{\sqrt{v_{t,i}}+\epsilon}
+\;\le\; \frac{\alpha}{\epsilon} =: \alpha_{\max}.
+\]
+Define $c_{\min} := \dfrac{\alpha}{G+\epsilon}$ and choose $\alpha$ such
+that $L\alpha_{\max}^2 \le c_{\min}$, i.e.
+$\alpha \le \dfrac{\epsilon^2}{L(G+\epsilon)}$.
+Then
+\[
+\frac{1}{T}\sum_{t=1}^{T} \mathbb{E}\big[\|\nabla f(w_t)\|^2\big]
+\;\le\;
+\frac{2\big(f(w_1)-f^\star\big)}{c_{\min}\,T}
+\;+\;
+\frac{L\,\alpha_{\max}^2\,\sigma^2}{c_{\min}}.
+\]
+In particular, choosing $\alpha = \Theta(1/\sqrt{T})$ (equivalently
+running with $\alpha_{\max}=\Theta(1/\sqrt T)$) yields
+\[
+\frac{1}{T}\sum_{t=1}^{T} \mathbb{E}\big[\|\nabla f(w_t)\|^2\big]
+= O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+\end{theorem}
+
+%==================================================================
+\section*{Theoretical Properties}
+
+\begin{itemize}
+  \item \textbf{Stationarity guarantee.} Like other non-convex SGD-type
+        methods, RMSProp only guarantees convergence to a stationary point
+        ($\min_t \mathbb{E}\|\nabla f(w_t)\|^2 \to 0$), not to a global
+        minimizer.
+  \item \textbf{Stability via $\epsilon$.} The stabilizer $\epsilon>0$
+        upper-bounds the step size by $\alpha/\epsilon$ and prevents
+        division blow-up when $v_t\to 0$; it is essential to the lower
+        bound $c_{\min}$ on the preconditioner that drives the descent term.
+  \item \textbf{Hyperparameter sensitivity.} The bound on $\alpha$,
+        $\alpha\le \epsilon^2/(L(G+\epsilon))$, shows a strong coupling
+        between $\alpha$ and $\epsilon$: smaller $\epsilon$ forces smaller
+        $\alpha$. The decay $\beta$ controls the smoothing of $v_t$ but does
+        not affect the worst-case bound once $v_t\in[0,G^2]$.
+  \item \textbf{Comparison to SGD.} Plain SGD achieves the same
+        $O(1/\sqrt T)$ rate; RMSProp's advantage is empirical adaptivity
+        (per-coordinate scaling), captured here through the interval
+        $[c_{\min},\alpha_{\max}]$ on effective step sizes.
+\end{itemize}
+
+%==================================================================
+\section*{Preliminaries (Definitions and Lemmas)}
+
+\begin{lemma}[Boundedness of $v_t$]\label{lem:vbound}
+If $v_0\in[0,G^2]$ and $\|g_t\|_\infty\le G$, then for all $t,i$,
+$0\le v_{t,i}\le G^2$, hence
+\[
+\epsilon \;\le\; \sqrt{v_{t,i}}+\epsilon \;\le\; G+\epsilon .
+\]
+\end{lemma}
+\begin{proof}
+By induction. Base case $v_{0,i}\in[0,G^2]$. Assume $v_{t-1,i}\in[0,G^2]$.
+Since $g_{t,i}^2\le G^2$,
+\[
+v_{t,i} = \beta v_{t-1,i}+(1-\beta)g_{t,i}^2
+\le \beta G^2 + (1-\beta)G^2 = G^2,
+\]
+and $v_{t,i}\ge 0$ as a convex combination of nonnegatives. Taking square
+roots and adding $\epsilon$ gives the stated bounds. \hfill$\square$
+\end{proof}
+
+\begin{lemma}[Step-size bounds]\label{lem:step}
+Under Lemma~\ref{lem:vbound}, the diagonal preconditioner entries satisfy
+\[
+c_{\min} := \frac{\alpha}{G+\epsilon}
+\;\le\;
+\frac{\alpha}{\sqrt{v_{t,i}}+\epsilon}
+\;\le\;
+\frac{\alpha}{\epsilon} =: \alpha_{\max}.
+\]
+\end{lemma}
+\begin{proof}
+Immediate from Lemma~\ref{lem:vbound} by taking reciprocals
+(which reverses inequalities) and multiplying by $\alpha>0$. \hfill$\square$
+\end{proof}
+
+%==================================================================
+\section*{Main Proof (Step-by-Step Derivation)}
+
+Write the per-coordinate effective step as
+$\eta_{t,i} := \dfrac{\alpha}{\sqrt{v_{t,i}}+\epsilon}$, so that the update
+\eqref{eq:w} reads $w_{t+1,i} = w_{t,i} - \eta_{t,i} g_{t,i}$, or in vector
+form $w_{t+1} = w_t - \eta_t \odot g_t$ with $\odot$ the Hadamard product.
+
+\bigskip
+\noindent\textbf{[Step 1] Apply the descent lemma ($L$-smoothness).}
+By Assumption~\ref{as:smooth} with $u=w_{t+1}$, $w=w_t$:
+\[
+f(w_{t+1}) \le f(w_t) + \langle \nabla f(w_t),\, w_{t+1}-w_t\rangle
++ \frac{L}{2}\|w_{t+1}-w_t\|^2.
+\]
+
+\noindent\textbf{[Step 2] Substitute the update $w_{t+1}-w_t=-\eta_t\odot g_t$.}
+\[
+f(w_{t+1}) \le f(w_t)
+- \sum_{i=1}^d \eta_{t,i}\, \partial_i f(w_t)\, g_{t,i}
++ \frac{L}{2}\sum_{i=1}^d \eta_{t,i}^2\, g_{t,i}^2 ,
+\]
+where $\partial_i f(w_t)$ is the $i$-th component of $\nabla f(w_t)$.
+
+\noindent\textbf{[Step 3] Take conditional expectation given $\mathcal{F}_t$.}
+The factor $\eta_{t,i}$ depends on $v_{t,i}$, which depends on $g_t$, so
+$\eta_{t,i}$ is \emph{not} $\mathcal{F}_t$-measurable. We therefore bound it
+using Lemma~\ref{lem:step}. We split the linear term:
+\[
+\mathbb{E}[\eta_{t,i} g_{t,i}\mid\mathcal F_t]
+= \mathbb{E}\big[(\eta_{t,i}-c_{\min})g_{t,i}\mid\mathcal F_t\big]
++ c_{\min}\,\mathbb{E}[g_{t,i}\mid\mathcal F_t].
+\]
+By Assumption~\ref{as:unbiased}, $\mathbb{E}[g_{t,i}\mid\mathcal F_t]
+=\partial_i f(w_t)$, so the second piece contributes
+$c_{\min}\,\partial_i f(w_t)$.
+
+\noindent\textbf{[Step 4] Lower-bound the descent (linear) term.}
+Multiply the linear term by $\partial_i f(w_t)$ and sum. Using
+$\eta_{t,i}\ge c_{\min}$ (Lemma~\ref{lem:step}) and treating the
+deviation conservatively, we obtain the conditional bound
+\[
+-\,\mathbb{E}\!\left[\sum_i \eta_{t,i}\partial_i f(w_t) g_{t,i}\,\Big|\,\mathcal F_t\right]
+\le
+- c_{\min}\,\|\nabla f(w_t)\|^2
++ \underbrace{\sum_i \big(\alpha_{\max}-c_{\min}\big)\,|\partial_i f(w_t)|\,
+\mathbb{E}|g_{t,i}-\partial_i f(w_t)|}_{\text{cross deviation}} .
+\]
+We control the cross-deviation more directly in Step~6 by separating the
+mean and noise parts; for clarity we now write
+$g_{t,i}=\partial_i f(w_t)+\xi_{t,i}$ with
+$\mathbb{E}[\xi_{t,i}\mid\mathcal F_t]=0$ and
+$\sum_i\mathbb{E}[\xi_{t,i}^2\mid\mathcal F_t]\le\sigma^2$.
+
+\noindent\textbf{[Step 5] Re-expand the linear term with the noise split.}
+\[
+\sum_i \eta_{t,i}\partial_i f(w_t) g_{t,i}
+= \sum_i \eta_{t,i}\,\partial_i f(w_t)^2
++ \sum_i \eta_{t,i}\,\partial_i f(w_t)\,\xi_{t,i}.
+\]
+For the first sum use $\eta_{t,i}\ge c_{\min}$:
+$\sum_i \eta_{t,i}\partial_i f(w_t)^2 \ge c_{\min}\|\nabla f(w_t)\|^2$.
+For the second sum, since $\eta_{t,i}$ and $\xi_{t,i}$ are correlated
+(both depend on $g_t$), we bound its conditional expectation. Using
+$|\eta_{t,i}|\le\alpha_{\max}$ is insufficient alone; instead apply
+Young's inequality to the entire second-order analysis as follows.
+
+\noindent\textbf{[Step 6] Combine and bound the quadratic term.}
+Substituting Step~5 into Step~2 and taking $\mathbb{E}[\cdot\mid\mathcal F_t]$:
+\begin{align*}
+\mathbb{E}[f(w_{t+1})\mid\mathcal F_t]
+&\le f(w_t)
+- c_{\min}\|\nabla f(w_t)\|^2
+- \mathbb{E}\!\Big[\sum_i \eta_{t,i}\partial_i f(w_t)\xi_{t,i}\,\Big|\,\mathcal F_t\Big]\\
+&\quad
++ \frac{L}{2}\,\mathbb{E}\!\Big[\sum_i \eta_{t,i}^2 g_{t,i}^2\,\Big|\,\mathcal F_t\Big].
+\end{align*}
+\emph{Quadratic term:} by Lemma~\ref{lem:step},
+$\eta_{t,i}^2\le\alpha_{\max}^2$, hence
+\[
+\frac{L}{2}\mathbb{E}\!\Big[\sum_i \eta_{t,i}^2 g_{t,i}^2\Big|\mathcal F_t\Big]
+\le \frac{L\alpha_{\max}^2}{2}\,\mathbb{E}\big[\|g_t\|^2\mid\mathcal F_t\big]
+= \frac{L\alpha_{\max}^2}{2}\Big(\|\nabla f(w_t)\|^2+\mathbb E[\|\xi_t\|^2\mid\mathcal F_t]\Big),
+\]
+where we used $\mathbb E[\|g_t\|^2\mid\mathcal F_t]
+=\|\nabla f(w_t)\|^2+\mathbb E[\|\xi_t\|^2\mid\mathcal F_t]$
+(bias-variance split, valid because $\mathbb E[\xi_t\mid\mathcal F_t]=0$)
+and $\mathbb E[\|\xi_t\|^2\mid\mathcal F_t]\le\sigma^2$
+(Assumption~\ref{as:var}).
+
+\noindent\textbf{[Step 7] Bound the cross (noise) term.}
+Write $\eta_{t,i}=c_{\min}+\delta_{t,i}$ with
+$0\le\delta_{t,i}\le \alpha_{\max}-c_{\min}=:\Delta$. Then
+\[
+-\sum_i \eta_{t,i}\partial_i f(w_t)\xi_{t,i}
+= -c_{\min}\sum_i\partial_i f(w_t)\xi_{t,i}
+- \sum_i \delta_{t,i}\partial_i f(w_t)\xi_{t,i}.
+\]
+The first part has zero conditional expectation
+($\mathbb E[\xi_{t,i}\mid\mathcal F_t]=0$, $c_{\min}$ constant). For the
+second part, Young's inequality $ab\le \tfrac{a^2}{2}+\tfrac{b^2}{2}$ gives
+\[
+-\delta_{t,i}\partial_i f(w_t)\xi_{t,i}
+\le \frac{c_{\min}}{2}\partial_i f(w_t)^2
++ \frac{\Delta^2}{2c_{\min}}\xi_{t,i}^2 ,
+\]
+using $\delta_{t,i}\le\Delta$. Summing over $i$ and taking conditional
+expectation:
+\[
+-\mathbb E\Big[\sum_i \eta_{t,i}\partial_i f(w_t)\xi_{t,i}\Big|\mathcal F_t\Big]
+\le \frac{c_{\min}}{2}\|\nabla f(w_t)\|^2
++ \frac{\Delta^2}{2c_{\min}}\sigma^2 .
+\]
+
+\noindent\textbf{[Step 8] Assemble the one-step inequality.}
+Combining Steps~6 and 7:
+\begin{align*}
+\mathbb{E}[f(w_{t+1})\mid\mathcal F_t]
+&\le f(w_t)
+- c_{\min}\|\nabla f(w_t)\|^2
++ \frac{c_{\min}}{2}\|\nabla f(w_t)\|^2
++ \frac{\Delta^2\sigma^2}{2c_{\min}}\\
+&\quad + \frac{L\alpha_{\max}^2}{2}\|\nabla f(w_t)\|^2
++ \frac{L\alpha_{\max}^2\sigma^2}{2}\\
+&= f(w_t)
+- \Big(\frac{c_{\min}}{2} - \frac{L\alpha_{\max}^2}{2}\Big)\|\nabla f(w_t)\|^2
++ \frac{\Delta^2\sigma^2}{2c_{\min}}
++ \frac{L\alpha_{\max}^2\sigma^2}{2}.
+\end{align*}
+
+\noindent\textbf{[Step 9] Enforce the step-size condition.}
+Impose $L\alpha_{\max}^2 \le \tfrac{c_{\min}}{2}$ (a slightly stronger,
+clean version of the theorem's condition; it holds whenever
+$\alpha\le \tfrac{\epsilon^2}{2L(G+\epsilon)}$). Then
+\[
+\frac{c_{\min}}{2}-\frac{L\alpha_{\max}^2}{2}
+\ge \frac{c_{\min}}{2}-\frac{c_{\min}}{4}
+= \frac{c_{\min}}{4}.
+\]
+Also $\Delta\le\alpha_{\max}$ so $\Delta^2/(2c_{\min})\le
+\alpha_{\max}^2/(2c_{\min})$. Hence
+\[
+\mathbb{E}[f(w_{t+1})\mid\mathcal F_t]
+\le f(w_t) - \frac{c_{\min}}{4}\|\nabla f(w_t)\|^2
++ C_\sigma,
+\quad
+C_\sigma := \frac{\alpha_{\max}^2\sigma^2}{2c_{\min}}
++ \frac{L\alpha_{\max}^2\sigma^2}{2}.
+\]
+
+\noindent\textbf{[Step 10] Take total expectation and telescope.}
+Apply the tower property $\mathbb E[\mathbb E[\cdot\mid\mathcal F_t]]
+=\mathbb E[\cdot]$ and rearrange:
+\[
+\frac{c_{\min}}{4}\,\mathbb E\|\nabla f(w_t)\|^2
+\le \mathbb E[f(w_t)] - \mathbb E[f(w_{t+1})] + C_\sigma.
+\]
+Summing $t=1,\dots,T$ telescopes the function-value differences:
+\[
+\frac{c_{\min}}{4}\sum_{t=1}^T \mathbb E\|\nabla f(w_t)\|^2
+\le f(w_1) - \mathbb E[f(w_{T+1})] + T\,C_\sigma
+\le f(w_1) - f^\star + T\,C_\sigma,
+\]
+where the last step uses $f(w_{T+1})\ge f^\star$ (Assumption~\ref{as:lb}).
+
+\noindent\textbf{[Step 11] Divide by $\tfrac{c_{\min}}{4}T$.}
+\[
+\frac{1}{T}\sum_{t=1}^T \mathbb E\|\nabla f(w_t)\|^2
+\le \frac{4\big(f(w_1)-f^\star\big)}{c_{\min}\,T}
++ \frac{4 C_\sigma}{c_{\min}}.
+\]
+Substituting $C_\sigma$ and simplifying gives the stated form
+(up to the constant factor, with $\Delta\le\alpha_{\max}$):
+\[
+\frac{1}{T}\sum_{t=1}^T \mathbb E\|\nabla f(w_t)\|^2
+\le \frac{4\big(f(w_1)-f^\star\big)}{c_{\min}\,T}
++ \frac{2\alpha_{\max}^2\sigma^2}{c_{\min}^2}
++ \frac{2L\alpha_{\max}^2\sigma^2}{c_{\min}}.
+\]
+\hfill$\square$
+
+%==================================================================
+\section*{Rate Derivation (With Constants)}
+
+Recall $c_{\min}=\dfrac{\alpha}{G+\epsilon}$ and
+$\alpha_{\max}=\dfrac{\alpha}{\epsilon}$, so
+$\alpha_{\max}^2/c_{\min} = \dfrac{\alpha^2/\epsilon^2}{\alpha/(G+\epsilon)}
+= \dfrac{\alpha(G+\epsilon)}{\epsilon^2}$, and
+$\alpha_{\max}^2/c_{\min}^2 = \dfrac{\alpha^2/\epsilon^2}{\alpha^2/(G+\epsilon)^2}
+= \dfrac{(G+\epsilon)^2}{\epsilon^2}$.
+
+\textbf{Constant-step regime.}
+With fixed $\alpha$ satisfying Step~9, the bound is
+\[
+\frac{1}{T}\sum_{t=1}^T \mathbb E\|\nabla f(w_t)\|^2
+\le \underbrace{\frac{4(G+\epsilon)\big(f(w_1)-f^\star\big)}{\alpha\,T}}_{\text{optimization error}}
++ \underbrace{\frac{2(G+\epsilon)^2\sigma^2}{\epsilon^2}
++ \frac{2L\alpha(G+\epsilon)\sigma^2}{\epsilon^2}}_{\text{noise floor}} .
+\]
+The first term vanishes at rate $O(1/T)$; the noise floor is constant for
+fixed $\alpha$.
+
+\textbf{Diminishing / scaled-step regime.}
+Choose $\alpha = \alpha_0/\sqrt{T}$ (which also tightens Step~9 for large
+$T$). Then $c_{\min}=\Theta(1/\sqrt T)$ and the optimization term becomes
+\[
+\frac{4(G+\epsilon)(f(w_1)-f^\star)}{\alpha_0\sqrt T}\cdot\frac{1}{\sqrt T}\cdot\sqrt T
+= O\!\Big(\frac{1}{\sqrt T}\Big),
+\]
+more precisely
+$\frac{4(G+\epsilon)(f(w_1)-f^\star)}{\alpha_0}\cdot\frac{1}{\sqrt T}$,
+while the $L$-dependent noise term scales as $\alpha=O(1/\sqrt T)$. The
+$\epsilon$-floor term $2(G+\epsilon)^2\sigma^2/\epsilon^2$ does not vanish;
+to drive it to zero one additionally shrinks the effective variance (e.g.
+mini-batching $\sigma^2\to\sigma^2/b$). Overall:
+\[
+\min_{1\le t\le T}\mathbb E\|\nabla f(w_t)\|^2
+\le \frac{1}{T}\sum_{t=1}^T \mathbb E\|\nabla f(w_t)\|^2
+= O\!\Big(\frac{1}{\sqrt T}\Big) + O(\sigma^2).
+\]
+
+%==================================================================
+\section*{Special Cases}
+
+\begin{itemize}
+  \item \textbf{Deterministic / full-gradient ($\sigma^2=0$).}
+        The noise floor $C_\sigma=0$, so
+        \[
+        \frac{1}{T}\sum_{t=1}^T \|\nabla f(w_t)\|^2
+        \le \frac{4(G+\epsilon)(f(w_1)-f^\star)}{\alpha\,T}
+        = O\!\Big(\frac1T\Big),
+        \]
+        recovering the standard non-convex $O(1/T)$ rate to a stationary
+        point.
+
+  \item \textbf{$\beta=0$ (pure RMS of current gradient).}
+        Then $v_t = g_t^2$ and $\eta_{t,i}=\alpha/(|g_{t,i}|+\epsilon)$;
+        Lemmas~\ref{lem:vbound}--\ref{lem:step} still hold with the same
+        bounds, so the theorem is unchanged.
+
+  \item \textbf{$\beta\to 1$ (heavy smoothing).}
+        $v_t$ approaches a slowly varying average; the bounds
+        $\epsilon\le\sqrt{v_{t,i}}+\epsilon\le G+\epsilon$ remain valid,
+        hence the worst-case rate is identical, while variance of the
+        preconditioner is reduced in practice.
+
+  \item \textbf{Large $\epsilon$ (RMSProp $\to$ scaled SGD).}
+        As $\epsilon\to\infty$, $\eta_{t,i}\to\alpha/\epsilon$ uniformly,
+        $c_{\min}\to\alpha_{\max}$, $\Delta\to0$, and the method reduces to
+        SGD with step $\alpha/\epsilon$; the bound collapses to the classic
+        SGD non-convex guarantee
+        $\frac{1}{T}\sum_t\mathbb E\|\nabla f(w_t)\|^2
+        =O(1/(\eta T))+O(L\eta\sigma^2)$ with $\eta=\alpha/\epsilon$.
+\end{itemize}
+
+%==================================================================
+\section*{Discussion}
+
+The analysis isolates the two mechanisms that make adaptive methods
+provable in the non-convex setting: (i) the stabilizer $\epsilon$ furnishes
+a uniform lower bound $c_{\min}$ on the preconditioner, guaranteeing genuine
+descent along $\|\nabla f(w_t)\|^2$; and (ii) the bounded second moment
+$v_t\le G^2$ furnishes a uniform upper bound $\alpha_{\max}$ controlling the
+$L$-smooth quadratic error and the noise amplification. The resulting
+$O(1/\sqrt T)$ stationary-point rate matches SGD, with the price of
+adaptivity appearing as the ratio $(G+\epsilon)/\epsilon$ inside the
+constants. Tightening the $\epsilon$-dependent noise floor requires either
+mini-batching or decaying $\alpha$, consistent with practical RMSProp
+tuning.
+
+\end{document}

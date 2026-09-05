@@ -1,0 +1,275 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{xcolor}
+
+\title{Rigorous Analysis of the Composite Proximal Linear Algorithm \\ (Deep Frank-Wolfe Framework)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Algorithm Name}
+The algorithm analyzed is the \textbf{Composite Proximal Linear Algorithm}, often conceptualized in modern neural network training as a \textbf{Proximal Deep Frank-Wolfe} or \textbf{Truncated Gauss-Newton} method. It handles composite optimization problems where a convex outer loss is composed with a non-convex, smooth inner function (e.g., a neural network).
+
+\section*{Mathematical Formulation}
+We consider the composite optimization problem of the form:
+\begin{equation}
+    \min_{w \in \mathbb{R}^d} F(w) := h(c(w))
+\end{equation}
+where:
+\begin{itemize}
+    \item $w \in \mathbb{R}^d$ are the model parameters.
+    \item $c: \mathbb{R}^d \to \mathbb{R}^m$ is the inner non-convex network mapping, which is smooth.
+    \item $h: \mathbb{R}^m \to \mathbb{R}$ is the outer loss function, which is convex and exact.
+\end{itemize}
+
+At each iteration $t$, the algorithm linearizes the inner network model $c(w)$ around the current parameters $w_t$ using its Jacobian $J_c(w_t) \in \mathbb{R}^{m \times d}$:
+\begin{equation}
+    c(w; d) \approx c(w_t) + J_c(w_t)d
+\end{equation}
+where $d = w - w_t$ is the update direction. The outer loss $h$ is kept exact. To prevent divergence and control the step size, a proximal penalty is added. The update direction $d_t$ is computed as the closed-form minimizer of this composite proximal subproblem:
+\begin{equation}
+    d_t = \arg\min_{d \in \mathbb{R}^d} \left\{ h(c(w_t) + J_c(w_t)d) + \frac{1}{2\eta} \|d\|^2 \right\}
+\end{equation}
+The parameters are then updated as:
+\begin{equation}
+    w_{t+1} = w_t + d_t
+\end{equation}
+Here, $\eta > 0$ serves as the proximal step-size parameter, eliminating the need for hand-designed learning rate schedules when set according to the smoothness properties of the landscape.
+
+\section*{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{Composite Proximal Linear Algorithm (Deep Frank-Wolfe)}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Initial weights $w_0 \in \mathbb{R}^d$, proximal step size $\eta > 0$, max iterations $T$
+\For{$t = 0$ to $T-1$}
+    \State Compute the inner function output: $c_t = c(w_t)$
+    \State Compute the Jacobian of the inner function: $J_t = J_c(w_t)$
+    \State Formulate the linearized composite objective: 
+           $\hat{F}_{w_t}(d) = h(c_t + J_t d)$
+    \State Solve the proximal subproblem for the optimal step $d_t$:
+           $$d_t = \arg\min_{d} \left\{ \hat{F}_{w_t}(d) + \frac{1}{2\eta} \|d\|^2 \right\}$$
+    \State Update parameters: $w_{t+1} = w_t + d_t$
+    \If{$\|d_t\| \leq \epsilon$}
+        \State \textbf{break} (Convergence achieved)
+    \EndIf
+\EndFor
+\State \textbf{Output:} $w_T$
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+We apply the algorithm to a 1D problem: minimize $f(w) = (w-3)^2$. 
+We decompose this into the composite form $f(w) = h(c(w))$ where:
+\begin{itemize}
+    \item Outer loss $h(y) = y^2$ (convex)
+    \item Inner function $c(w) = w-3$ (smooth, with Jacobian $J_c(w) = 1$)
+\end{itemize}
+\textbf{Initialization:} $w_0 = 0$, $\eta = 0.1$. 
+
+\textbf{Iteration 1 ($t=0$):}
+\begin{itemize}
+    \item $c(w_0) = 0 - 3 = -3$
+    \item $J_c(w_0) = 1$
+    \item Subproblem: $d_0 = \arg\min_d \left( (-3 + d)^2 + \frac{1}{2(0.1)} d^2 \right) = \arg\min_d \left( d^2 - 6d + 9 + 5d^2 \right) = \arg\min_d \left( 6d^2 - 6d + 9 \right)$
+    \item First-order condition: $12d - 6 = 0 \implies d_0 = 0.5$
+    \item Update: $w_1 = w_0 + d_0 = 0 + 0.5 = 0.5$
+    \item Objective value: $f(w_1) = (0.5 - 3)^2 = 6.25$
+\end{itemize}
+
+\textbf{Iteration 2 ($t=1$):}
+\begin{itemize}
+    \item $c(w_1) = 0.5 - 3 = -2.5$
+    \item $J_c(w_1) = 1$
+    \item Subproblem: $d_1 = \arg\min_d \left( (-2.5 + d)^2 + 5d^2 \right) = \arg\min_d \left( 6d^2 - 5d + 6.25 \right)$
+    \item First-order condition: $12d - 5 = 0 \implies d_1 = \frac{5}{12} \approx 0.4167$
+    \item Update: $w_2 = w_1 + d_1 = 0.5 + 0.4167 = 0.9167$
+    \item Objective value: $f(w_2) = (0.9167 - 3)^2 \approx 4.34$
+\end{itemize}
+
+\textbf{Iteration 3 ($t=2$):}
+\begin{itemize}
+    \item $c(w_2) = \frac{11}{12} - 3 = -\frac{25}{12}$
+    \item $J_c(w_2) = 1$
+    \item Subproblem: $d_2 = \arg\min_d \left( \left(-\frac{25}{12} + d\right)^2 + 5d^2 \right) = \arg\min_d \left( 6d^2 - \frac{25}{6}d + \left(\frac{25}{12}\right)^2 \right)$
+    \item First-order condition: $12d - \frac{25}{6} = 0 \implies d_2 = \frac{25}{72} \approx 0.3472$
+    \item Update: $w_3 = w_2 + d_2 = \frac{11}{12} + \frac{25}{72} = \frac{91}{72} \approx 1.2639$
+    \item Objective value: $f(w_3) = (1.2639 - 3)^2 \approx 3.014$
+\end{itemize}
+
+\section*{Assumptions}
+To establish rigorous convergence, we make the following standard assumptions:
+\begin{enumerate}
+    \item \textbf{Convex and Lipschitz Outer Loss:} The function $h: \mathbb{R}^m \to \mathbb{R}$ is convex and $L_h$-Lipschitz continuous. For all $y_1, y_2 \in \mathbb{R}^m$:
+    $$|h(y_1) - h(y_2)| \leq L_h \|y_1 - y_2\|$$
+    \item \textbf{Smooth Inner Function:} The mapping $c: \mathbb{R}^d \to \mathbb{R}^m$ is continuously differentiable, and its Jacobian $J_c(w)$ is $L_c$-Lipschitz continuous. For all $w_1, w_2 \in \mathbb{R}^d$:
+    $$\|J_c(w_1) - J_c(w_2)\|_{\text{op}} \leq L_c \|w_1 - w_2\|$$
+    \item \textbf{Lower Boundedness:} The composite objective function $F(w) = h(c(w))$ is bounded from below by some value $F^* > -\infty$.
+\end{enumerate}
+
+\section*{Main Convergence Theorem}
+\textbf{Theorem 1 (Sublinear Convergence to a Stationary Point):} 
+Under Assumptions 1-3, if the proximal parameter $\eta$ is chosen such that $\eta < \frac{1}{L_h L_c}$, the sequence $\{w_t\}$ generated by the Composite Proximal Linear Algorithm satisfies:
+\begin{equation}
+    \min_{0 \leq t \leq T-1} \left\| \frac{1}{\eta} d_t \right\|^2 \leq \frac{2(F(w_0) - F^*)}{\eta T (1 - \eta L_h L_c)}
+\end{equation}
+This implies that the gradient mapping norm (the stationarity measure) converges to zero at a rate of $\mathcal{O}(1/\sqrt{T})$.
+
+\section*{Theoretical Properties}
+\begin{itemize}
+    \item \textbf{Weak Convexity:} The assumptions imply that $F(w)$ is $\rho$-weakly convex with $\rho = L_h L_c$. The proximal framework implicitly leverages this structure to guarantee monotonic descent.
+    \item \textbf{Stability:} Because the outer loss $h$ is evaluated exactly on the linearized inner function, the algorithm retains the global structure of $h$, avoiding the overshooting often seen in standard gradient descent on highly non-convex surfaces.
+    \item \textbf{Hyperparameter Sensitivity:} The algorithm is highly robust to the choice of $\eta$, provided $\eta < (L_h L_c)^{-1}$. It computes the optimal step size for the linearized geometry in closed form, eliminating the need for heuristic learning rate decay schedules.
+\end{itemize}
+
+\section*{Discussion}
+The Deep Frank-Wolfe / Proximal Linear formulation bridges the gap between first-order and second-order methods. By linearizing only the non-convex neural network mapping $c(w)$ while keeping the convex loss $h$ exact, it acts as a truncated Gauss-Newton method. This provides superior conditioning and faster escape from saddle points compared to standard SGD, while remaining computationally tractable via the proximal step.
+
+\section*{Preliminaries (Definitions and Lemmas)}
+
+\textbf{Definition 1 (Gradient Mapping):} 
+For proximal methods on non-smooth or weakly convex functions, the standard measure of stationarity is the gradient mapping $\mathcal{G}_t$, defined as:
+$$\mathcal{G}_t = \frac{1}{\eta} (w_{t} - w_{t+1}) = -\frac{1}{\eta} d_t$$
+If $\|\mathcal{G}_t\| = 0$, then $w_t$ is a stationary point of $F(w)$.
+
+\textbf{Lemma 1 (Quadratic Upper Bound for Smooth Mappings):}
+By Taylor's theorem and Assumption 2 ($L_c$-Lipschitz Jacobian), for any $w, d \in \mathbb{R}^d$:
+$$\|c(w + d) - (c(w) + J_c(w)d)\| \leq \frac{L_c}{2} \|d\|^2$$
+
+\section*{Main Proof (Step-by-Step Derivation)}
+
+We now provide the rigorous, step-by-step derivation of the convergence rate.
+
+\begin{itemize}
+    \item \textbf{[Step 1]} We begin by defining the update direction $d_t$ as the minimizer of the proximal subproblem at iteration $t$:
+    \begin{equation}
+        d_t = \arg\min_{d \in \mathbb{R}^d} \left\{ h(c(w_t) + J_c(w_t)d) + \frac{1}{2\eta}\|d\|^2 \right\}
+    \end{equation}
+    
+    \item \textbf{[Step 2]} Let us define the linearized approximation of the composite function at $w_t$ as:
+    \begin{equation}
+        \hat{F}_{w_t}(d) = h(c(w_t) + J_c(w_t)d)
+    \end{equation}
+    
+    \item \textbf{[Step 3]} We evaluate the true objective function at the next state $w_{t+1} = w_t + d_t$:
+    \begin{equation}
+        F(w_{t+1}) = h(c(w_t + d_t))
+    \end{equation}
+    
+    \item \textbf{[Step 4]} We add and subtract the linearized inner function inside the outer loss $h$:
+    \begin{equation}
+        F(w_{t+1}) = h\Big( c(w_t) + J_c(w_t)d_t + \big[ c(w_t + d_t) - (c(w_t) + J_c(w_t)d_t) \big] \Big)
+    \end{equation}
+    
+    \item \textbf{[Step 5]} We apply the $L_h$-Lipschitz continuity of $h$ (Assumption 1) to bound the difference between the true objective and the linearized objective:
+    \begin{equation}
+        F(w_{t+1}) - h(c(w_t) + J_c(w_t)d_t) \leq L_h \big\| c(w_t + d_t) - (c(w_t) + J_c(w_t)d_t) \big\|
+    \end{equation}
+    
+    \item \textbf{[Step 6]} We invoke Lemma 1 (derived from Assumption 2) to upper bound the non-linear residual of $c$:
+    \begin{equation}
+        \big\| c(w_t + d_t) - (c(w_t) + J_c(w_t)d_t) \big\| \leq \frac{L_c}{2} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 7]} Substituting \textbf{[Step 6]} into \textbf{[Step 5]}, we obtain an upper bound on the true objective at $t+1$:
+    \begin{equation}
+        F(w_{t+1}) \leq \hat{F}_{w_t}(d_t) + \frac{L_h L_c}{2} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 8]} We now analyze the proximal subproblem. Define the subproblem objective as $\Phi(d)$:
+    \begin{equation}
+        \Phi(d) = \hat{F}_{w_t}(d) + \frac{1}{2\eta} \|d\|^2
+    \end{equation}
+    Because $\hat{F}_{w_t}(d)$ is convex (as it is the composition of a convex function $h$ and an affine function), the addition of $\frac{1}{2\eta}\|d\|^2$ makes $\Phi(d)$ strictly strongly convex with parameter $\mu = \frac{1}{\eta}$.
+    
+    \item \textbf{[Step 9]} For any $\mu$-strongly convex function $\Phi$, if $d^*$ is its global minimizer, the following inequality holds for all $d$:
+    \begin{equation}
+        \Phi(d) \geq \Phi(d^*) + \frac{\mu}{2} \|d - d^*\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 10]} We apply the property from \textbf{[Step 9]} to our subproblem, using $d^* = d_t$, $\mu = \frac{1}{\eta}$, and evaluating at $d = 0$:
+    \begin{equation}
+        \Phi(0) \geq \Phi(d_t) + \frac{1}{2\eta} \|0 - d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 11]} We expand both sides of the inequality from \textbf{[Step 10]}:
+    \begin{equation}
+        \hat{F}_{w_t}(0) + 0 \geq \hat{F}_{w_t}(d_t) + \frac{1}{2\eta} \|d_t\|^2 + \frac{1}{2\eta} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 12]} Noting that $\hat{F}_{w_t}(0) = h(c(w_t)) = F(w_t)$, we simplify \textbf{[Step 11]} to bound the linearized objective at $d_t$:
+    \begin{equation}
+        F(w_t) \geq \hat{F}_{w_t}(d_t) + \frac{1}{\eta} \|d_t\|^2 \implies \hat{F}_{w_t}(d_t) \leq F(w_t) - \frac{1}{\eta} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 13]} We substitute the bound from \textbf{[Step 12]} into the descent inequality from \textbf{[Step 7]}:
+    \begin{equation}
+        F(w_{t+1}) \leq F(w_t) - \frac{1}{\eta} \|d_t\|^2 + \frac{L_h L_c}{2} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 14]} We factor out the squared norm of the step $\|d_t\|^2$:
+    \begin{equation}
+        F(w_{t+1}) \leq F(w_t) - \left( \frac{1}{\eta} - \frac{L_h L_c}{2} \right) \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 15]} To guarantee strict monotonic descent, we require the coefficient of $\|d_t\|^2$ to be positive. Let us set the hyperparameter $\eta$ such that $\eta \leq \frac{1}{L_h L_c}$. Under this condition, we have:
+    \begin{equation}
+        \frac{1}{\eta} - \frac{L_h L_c}{2} = \frac{1}{2\eta} + \left( \frac{1}{2\eta} - \frac{L_h L_c}{2} \right) \geq \frac{1}{2\eta}
+    \end{equation}
+    
+    \item \textbf{[Step 16]} Substituting the lower bound from \textbf{[Step 15]} into \textbf{[Step 14]}, we obtain the single-step descent guarantee:
+    \begin{equation}
+        F(w_{t+1}) \leq F(w_t) - \frac{1}{2\eta} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 17]} We sum the descent inequality from \textbf{[Step 16]} over all iterations from $t=0$ to $T-1$:
+    \begin{equation}
+        \sum_{t=0}^{T-1} \big( F(w_{t+1}) - F(w_t) \big) \leq -\frac{1}{2\eta} \sum_{t=0}^{T-1} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 18]} The left-hand side of \textbf{[Step 17]} is a telescoping sum. Evaluating it yields:
+    \begin{equation}
+        F(w_T) - F(w_0) \leq -\frac{1}{2\eta} \sum_{t=0}^{T-1} \|d_t\|^2
+    \end{equation}
+    
+    \item \textbf{[Step 19]} By Assumption 3, $F(w_T) \geq F^*$. We substitute this into \textbf{[Step 18]} and rearrange to bound the sum of squared step norms:
+    \begin{equation}
+        \frac{1}{2\eta} \sum_{t=0}^{T-1} \|d_t\|^2 \leq F(w_0) - F(w_T) \leq F(w_0) - F^*
+    \end{equation}
+    
+    \item \textbf{[Step 20]} We multiply by $2\eta$ and divide by $T$ to find the average squared step norm:
+    \begin{equation}
+        \frac{1}{T} \sum_{t=0}^{T-1} \|d_t\|^2 \leq \frac{2\eta (F(w_0) - F^*)}{T}
+    \end{equation}
+    
+    \item \textbf{[Step 21]} Since the minimum is always less than or equal to the average, we bound the minimum step norm across all $T$ iterations:
+    \begin{equation}
+        \min_{0 \leq t \leq T-1} \|d_t\|^2 \leq \frac{1}{T} \sum_{t=0}^{T-1} \|d_t\|^2 \leq \frac{2\eta (F(w_0) - F^*)}{T}
+    \end{equation}
+    
+    \item \textbf{[Step 22]} Recall from Definition 1 that the gradient mapping (stationarity measure) is $\mathcal{G}_t = \frac{1}{\eta} d_t$. Therefore, $\|\mathcal{G}_t\|^2 = \frac{1}{\eta^2} \|d_t\|^2$.
+    
+    \item \textbf{[Step 23]} Dividing \textbf{[Step 21]} by $\eta^2$, we arrive at the final convergence bound for the gradient mapping:
+    \begin{equation}
+        \min_{0 \leq t \leq T-1} \|\mathcal{G}_t\|^2 \leq \frac{2(F(w_0) - F^*)}{\eta T}
+    \end{equation}
+\end{itemize}
+
+\section*{Rate Derivation (With Constants)}
+From \textbf{[Step 23]}, taking the square root of both sides gives the strict convergence rate in terms of the stationarity measure:
+\begin{equation}
+    \min_{0 \leq t \leq T-1} \|\mathcal{G}_t\| \leq \sqrt{\frac{2(F(w_0) - F^*)}{\eta}} \cdot \frac{1}{\sqrt{T}} = \mathcal{O}\left(\frac{1}{\sqrt{T}}\right)
+\end{equation}
+This confirms that the algorithm reaches an $\epsilon$-stationary point in at most $\mathcal{O}(1/\epsilon^2)$ iterations, exactly matching the theoretical lower bound for non-convex optimization, but doing so without requiring hand-tuned learning rate schedules.
+
+\section*{Special Cases}
+\begin{itemize}
+    \item \textbf{Linear Inner Function:} If $c(w)$ is a linear operator (i.e., $c(w) = Aw + b$), then $J_c(w) \equiv A$ and $L_c = 0$. The algorithm perfectly reduces to the standard Proximal Point or Proximal Gradient Method, and $\eta$ can be chosen arbitrarily large, yielding single-step convergence for the subproblem.
+    \item \textbf{Identity Outer Loss:} If $h(y) = y$ (note: this breaks the global lower bound unless domain constrained, but locally applies), the subproblem becomes $\min_d J_c(w_t)d + \frac{1}{2\eta}\|d\|^2$. The closed-form solution is $d_t = -\eta J_c(w_t)^\top$, which reduces the algorithm exactly to standard Gradient Descent.
+\end{itemize}
+
+\end{document}

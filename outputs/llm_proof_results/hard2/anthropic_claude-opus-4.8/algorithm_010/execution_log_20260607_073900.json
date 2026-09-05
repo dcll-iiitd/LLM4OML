@@ -1,0 +1,180 @@
+{
+  "metadata": {
+    "start_time": "2026-06-07T07:36:40.485642",
+    "end_time": "2026-06-07T07:39:00.905117",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "openrouter",
+    "judge_provider": "nvidia",
+    "prover_model": "anthropic/claude-opus-4.8",
+    "evaluator_models": [
+      "openai/gpt-oss-120b",
+      "meta/llama-3.3-70b-instruct",
+      "qwen/qwen3.5-122b-a10b"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {}
+  },
+  "algorithm_description": "The algorithm minimizes max_x min_y L(x,y). Uses extra gradient step: x_{k+1/2} = x_k + step, then x_{k+1} using grad at x_{k+1/2}.",
+  "assumptions": "Convex-Concave Smooth functions (Extra-Gradient)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-06-07T07:38:06.242504",
+          "node_name": "prover",
+          "proof_content": "\\documentclass{article}\n\\usepackage{amsmath,amssymb,amsthm,amsfonts}\n\\usepackage{geometry}\n\\geometry{margin=1in}\n\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{definition}{Definition}\n\\newtheorem{corollary}{Corollary}\n\n\\begin{document}\n\n%==================================================================\n\\part*{Part 1: Algorithm Details}\n%==================================================================\n\n\\section*{Algorithm Name}\n\\textbf{Extra-Gradient Method (EG) for Convex-Concave Saddle Point Problems}\n\nWe consider the saddle point (min-max) problem\n\\[\n\\min_{x \\in \\mathbb{R}^n} \\max_{y \\in \\mathbb{R}^m} \\; L(x,y),\n\\]\nwhere $L$ is convex in $x$ and concave in $y$. (We treat the\n$\\max_x \\min_y$ formulation symmetrically; by sign convention this is the\nsame as the standard $\\min_x \\max_y$ analysis.)\n\n\\section*{Mathematical Formulation}\n\nLet $z = (x,y) \\in \\mathbb{R}^{n+m}$ be the joint variable. Define the\n\\emph{monotone operator} (saddle gradient field)\n\\[\nF(z) = \\begin{pmatrix} \\nabla_x L(x,y) \\\\ -\\nabla_y L(x,y) \\end{pmatrix}.\n\\]\nA saddle point $z^\\star = (x^\\star,y^\\star)$ satisfies the variational\ninequality\n\\[\n\\langle F(z^\\star), z - z^\\star \\rangle \\geq 0 \\quad \\forall z.\n\\]\n\n\\paragraph{Update rules (operator form).}\nWith step size $\\eta > 0$, the Extra-Gradient method performs:\n\\begin{align}\nz_{k+1/2} &= z_k - \\eta\\, F(z_k) && \\text{(extrapolation / prediction step)}\\\\\nz_{k+1}   &= z_k - \\eta\\, F(z_{k+1/2}) && \\text{(correction step using the midpoint gradient)}.\n\\end{align}\n\n\\paragraph{Update rules (componentwise).}\n\\begin{align}\nx_{k+1/2} &= x_k - \\eta\\, \\nabla_x L(x_k,y_k), &\ny_{k+1/2} &= y_k + \\eta\\, \\nabla_y L(x_k,y_k),\\\\\nx_{k+1}   &= x_k - \\eta\\, \\nabla_x L(x_{k+1/2},y_{k+1/2}), &\ny_{k+1}   &= y_k + \\eta\\, \\nabla_y L(x_{k+1/2},y_{k+1/2}).\n\\end{align}\n\n\\paragraph{Hyperparameters.}\n\\begin{itemize}\n\\item Step size $\\eta > 0$, required to satisfy $\\eta \\le \\tfrac{1}{L_{\\mathrm{Lip}}}$\nwhere $L_{\\mathrm{Lip}}$ is the Lipschitz constant of $F$.\n\\item Number of iterations $K$.\n\\item The averaged iterate $\\bar z_K = \\frac{1}{K}\\sum_{k=0}^{K-1} z_{k+1/2}$\nis returned (ergodic averaging).\n\\end{itemize}\n\n\\section*{Pseudocode}\n\\begin{verbatim}\nInput: initial point z_0 = (x_0, y_0), step size eta, iterations K\nInitialize: S = 0   (running sum for averaging)\nfor k = 0, 1, ..., K-1 do\n    # Extrapolation step\n    g_k       = F(z_k)                  # F(z) = (grad_x L, -grad_y L)\n    z_{k+1/2} = z_k - eta * g_k\n    # Correction step\n    g_mid     = F(z_{k+1/2})\n    z_{k+1}   = z_k - eta * g_mid\n    # Accumulate for ergodic average\n    S = S + z_{k+1/2}\n    # Termination check\n    if ||g_mid|| <= tol then break\nend for\nOutput: averaged iterate  z_bar = S / K   (or last z_{k+1})\n\\end{verbatim}\n\n\\section*{Dry Run Example}\n\nTo illustrate the mechanics on a scalar example we use the convex\nfunction $f(w)=(w-3)^2$ (a pure minimization, i.e. the $y$-block is\nabsent and $F(w)=f'(w)=2(w-3)$). Parameters: $w_0=0$, $\\eta=0.1$, $3$ iterations.\n\n\\paragraph{Iteration $k=0$.}\n\\begin{align*}\ng_0 &= f'(w_0) = 2(0-3) = -6,\\\\\nw_{1/2} &= w_0 - \\eta g_0 = 0 - 0.1(-6) = 0.6,\\\\\ng_{\\text{mid}} &= f'(w_{1/2}) = 2(0.6-3) = -4.8,\\\\\nw_1 &= w_0 - \\eta g_{\\text{mid}} = 0 - 0.1(-4.8) = 0.48,\\\\\nf(w_1) &= (0.48-3)^2 = 6.3504.\n\\end{align*}\n\n\\paragraph{Iteration $k=1$.}\n\\begin{align*}\ng_1 &= f'(w_1) = 2(0.48-3) = -5.04,\\\\\nw_{3/2} &= w_1 - \\eta g_1 = 0.48 - 0.1(-5.04) = 0.984,\\\\\ng_{\\text{mid}} &= f'(w_{3/2}) = 2(0.984-3) = -4.032,\\\\\nw_2 &= w_1 - \\eta g_{\\text{mid}} = 0.48 - 0.1(-4.032) = 0.8832,\\\\\nf(w_2) &= (0.8832-3)^2 = 4.4808.\n\\end{align*}\n\n\\paragraph{Iteration $k=2$.}\n\\begin{align*}\ng_2 &= f'(w_2) = 2(0.8832-3) = -4.2336,\\\\\nw_{5/2} &= w_2 - \\eta g_2 = 0.8832 - 0.1(-4.2336) = 1.30656,\\\\\ng_{\\text{mid}} &= f'(w_{5/2}) = 2(1.30656-3) = -3.38688,\\\\\nw_3 &= w_2 - \\eta g_{\\text{mid}} = 0.8832 - 0.1(-3.38688) = 1.221888,\\\\\nf(w_3) &= (1.221888-3)^2 \\approx 3.16111.\n\\end{align*}\n\nThe objective decreases monotonically toward the optimum $w^\\star=3$,\n$f(w^\\star)=0$.\n\n%==================================================================\n\\part*{Part 2: Convergence Theory}\n%==================================================================\n\n\\section*{Assumptions}\n\n\\begin{assumption}[Convexity-Concavity]\n$L(x,y)$ is convex in $x$ for every fixed $y$, and concave in $y$ for\nevery fixed $x$. Equivalently the operator $F$ is \\emph{monotone}:\n\\[\n\\langle F(z) - F(z'),\\, z - z' \\rangle \\geq 0 \\qquad \\forall z,z'.\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Lipschitz smoothness]\n$F$ is $L_{\\mathrm{Lip}}$-Lipschitz continuous:\n\\[\n\\| F(z) - F(z') \\| \\leq L_{\\mathrm{Lip}} \\, \\| z - z' \\| \\qquad \\forall z,z'.\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Existence of a saddle point]\nThere exists $z^\\star=(x^\\star,y^\\star)$ such that\n$L(x^\\star,y) \\le L(x^\\star,y^\\star) \\le L(x,y^\\star)$ for all $x,y$.\nEquivalently $\\langle F(z^\\star), z-z^\\star\\rangle \\ge 0$ for all $z$.\n\\end{assumption}\n\n\\begin{assumption}[Step size]\nThe step size satisfies $0 < \\eta \\le \\dfrac{1}{L_{\\mathrm{Lip}}}$.\n\\end{assumption}\n\n\\noindent We measure convergence through the \\emph{primal-dual gap}\n\\[\n\\mathrm{Gap}(\\bar x,\\bar y) \\;=\\;\n\\max_{y} L(\\bar x, y) - \\min_{x} L(x, \\bar y).\n\\]\n\n\\section*{Main Convergence Theorem}\n\n\\begin{theorem}[Ergodic $O(1/K)$ rate]\n\\label{thm:main}\nUnder Assumptions 1--4, let the iterates be generated by the\nExtra-Gradient method and define the ergodic average\n$\\bar z_K = \\frac{1}{K}\\sum_{k=0}^{K-1} z_{k+1/2}$, $\\bar z_K=(\\bar x_K,\\bar y_K)$.\nThen for any compact feasible set of radius $D$ around $z^\\star$,\n\\[\n\\mathrm{Gap}(\\bar x_K, \\bar y_K)\n\\;\\le\\; \\frac{\\| z_0 - z^\\star \\|^2}{2\\eta K}\n\\;=\\; O\\!\\left(\\frac{1}{K}\\right).\n\\]\nMoreover the iterates remain bounded:\n$\\|z_{k+1}-z^\\star\\| \\le \\|z_k - z^\\star\\|$.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n\n\\begin{itemize}\n\\item \\textbf{Stability.} Each step is non-expansive toward $z^\\star$\n(Lemma~\\ref{lem:contraction}); unlike plain Gradient Descent-Ascent (GDA),\nwhich can diverge on bilinear games, EG is stable.\n\\item \\textbf{Rate.} The ergodic gap converges as $O(1/K)$, optimal for\nmonotone Lipschitz problems with first-order oracles.\n\\item \\textbf{Hyperparameter sensitivity.} Convergence requires\n$\\eta \\le 1/L_{\\mathrm{Lip}}$. Larger $\\eta$ may violate the descent\ninequality [Step 7] and break monotonicity.\n\\item \\textbf{Comparison to baselines.} GDA achieves only $O(\\eta)$\nneighborhood convergence (or diverges); EG's extrapolation cancels the\nrotational component of the dynamics, recovering true convergence.\n\\end{itemize}\n\n\\section*{Discussion}\nThe extra (midpoint) gradient evaluation gives EG an implicit\nlook-ahead, effectively approximating the proximal point method to second\norder. This yields global convergence on the entire monotone class at the\ncost of two gradient evaluations per iteration.\n\n%==================================================================\n\\part*{Part 3: Complete Convergence Proof}\n%==================================================================\n\n\\section*{Preliminaries (Definitions and Lemmas)}\n\nWe repeatedly use the \\textbf{three-point identity}: for any vectors $a,b,c$,\n\\begin{equation}\n\\label{eq:3pt}\n2\\langle a-b,\\, a-c\\rangle = \\|a-b\\|^2 + \\|a-c\\|^2 - \\|b-c\\|^2.\n\\end{equation}\n\n\\begin{lemma}[Monotonicity from convexity-concavity]\n\\label{lem:mono}\nIf $L$ is convex-concave then $F$ is monotone, i.e.\n$\\langle F(z)-F(z'), z-z'\\rangle \\ge 0$.\n\\end{lemma}\n\\begin{proof}\nWrite $z=(x,y)$, $z'=(x',y')$. Convexity in $x$ gives\n$\\langle \\nabla_x L(x,y)-\\nabla_x L(x',y),\\, x-x'\\rangle\\ge0$ and similarly\nalong $y$ using concavity (note the sign flip in $F$'s second block makes\n$-\\nabla_y L$ monotone). Summing the blocks yields the claim.\n\\end{proof}\n\n\\begin{lemma}[Optimality of $z^\\star$]\n\\label{lem:opt}\n$\\langle F(z^\\star),\\, z-z^\\star\\rangle \\ge 0$ for all $z$, and by\nmonotonicity $\\langle F(z),\\, z-z^\\star\\rangle \\ge 0$ for all $z$.\n\\end{lemma}\n\n\\section*{Main Proof (Step-by-Step Derivation)}\n\nFix an arbitrary comparison point $z$ (later set to $z^\\star$ or used in the\ngap argument). Denote $w_k = z_{k+1/2}$ for brevity. Recall:\n\\[\nw_k = z_k - \\eta F(z_k), \\qquad z_{k+1} = z_k - \\eta F(w_k).\n\\]\n\n\\paragraph{[Step 1] Three-point identity on the correction step.}\nApply \\eqref{eq:3pt} with $a=z_{k+1}$, $b=z_k$, $c=z$. But it is cleaner to\nexpand the squared distance directly. Using $z_{k+1}=z_k-\\eta F(w_k)$,\n\\begin{align}\n\\|z_{k+1}-z\\|^2\n&= \\|z_k - \\eta F(w_k) - z\\|^2 \\nonumber\\\\\n&= \\|z_k - z\\|^2 - 2\\eta \\langle F(w_k),\\, z_k - z\\rangle\n   + \\eta^2 \\|F(w_k)\\|^2. \\label{eq:s1}\n\\end{align}\n\n\\paragraph{[Step 2] Decompose the inner product through $w_k$.}\nWrite $z_k - z = (z_k - w_k) + (w_k - z)$, so\n\\begin{equation}\n\\label{eq:s2}\n\\langle F(w_k),\\, z_k - z\\rangle\n= \\langle F(w_k),\\, w_k - z\\rangle\n+ \\langle F(w_k),\\, z_k - w_k\\rangle.\n\\end{equation}\n\n\\paragraph{[Step 3] Substitute \\eqref{eq:s2} into \\eqref{eq:s1}.}\n\\begin{align}\n\\|z_{k+1}-z\\|^2\n&= \\|z_k - z\\|^2\n   - 2\\eta \\langle F(w_k),\\, w_k - z\\rangle \\nonumber\\\\\n&\\quad - 2\\eta \\langle F(w_k),\\, z_k - w_k\\rangle\n   + \\eta^2 \\|F(w_k)\\|^2. \\label{eq:s3}\n\\end{align}\n\n\\paragraph{[Step 4] Handle the prediction step.}\nFrom $w_k = z_k - \\eta F(z_k)$ we have\n$z_k - w_k = \\eta F(z_k)$. Hence\n\\begin{equation}\n\\label{eq:s4}\n-2\\eta\\langle F(w_k),\\, z_k - w_k\\rangle\n= -2\\eta\\langle F(w_k),\\, \\eta F(z_k)\\rangle\n= -2\\eta^2 \\langle F(w_k),\\, F(z_k)\\rangle.\n\\end{equation}\n\n\\paragraph{[Step 5] Combine the two $\\eta^2$ terms.}\nInsert \\eqref{eq:s4} into \\eqref{eq:s3}:\n\\begin{align}\n\\|z_{k+1}-z\\|^2\n&= \\|z_k - z\\|^2 - 2\\eta \\langle F(w_k),\\, w_k - z\\rangle \\nonumber\\\\\n&\\quad + \\eta^2\\|F(w_k)\\|^2 - 2\\eta^2\\langle F(w_k),F(z_k)\\rangle.\n\\label{eq:s5}\n\\end{align}\nComplete the square on the last two $\\eta^2$ terms by adding and\nsubtracting $\\eta^2\\|F(z_k)\\|^2$:\n\\begin{align}\n\\eta^2\\|F(w_k)\\|^2 - 2\\eta^2\\langle F(w_k),F(z_k)\\rangle\n&= \\eta^2\\|F(w_k)-F(z_k)\\|^2 - \\eta^2\\|F(z_k)\\|^2. \\label{eq:s5b}\n\\end{align}\n\n\\paragraph{[Step 6] Re-express $\\eta^2\\|F(z_k)\\|^2$ via the prediction step.}\nSince $w_k - z_k = -\\eta F(z_k)$, we have\n$\\|w_k - z_k\\|^2 = \\eta^2 \\|F(z_k)\\|^2$. Substituting \\eqref{eq:s5b}\nand this identity into \\eqref{eq:s5}:\n\\begin{align}\n\\|z_{k+1}-z\\|^2\n&= \\|z_k - z\\|^2 - 2\\eta \\langle F(w_k),\\, w_k - z\\rangle \\nonumber\\\\\n&\\quad + \\eta^2\\|F(w_k)-F(z_k)\\|^2 - \\|w_k - z_k\\|^2. \\label{eq:s6}\n\\end{align}\n\n\\paragraph{[Step 7] Bound the error term using Lipschitzness.}\nBy Assumption 2, $\\|F(w_k)-F(z_k)\\| \\le L_{\\mathrm{Lip}}\\|w_k - z_k\\|$, so\n\\[\n\\eta^2\\|F(w_k)-F(z_k)\\|^2 \\le \\eta^2 L_{\\mathrm{Lip}}^2\\|w_k-z_k\\|^2.\n\\]\nTherefore the last two terms of \\eqref{eq:s6} satisfy\n\\begin{equation}\n\\label{eq:s7}\n\\eta^2\\|F(w_k)-F(z_k)\\|^2 - \\|w_k - z_k\\|^2\n\\le -\\big(1-\\eta^2 L_{\\mathrm{Lip}}^2\\big)\\,\\|w_k - z_k\\|^2 \\;\\le\\; 0,\n\\end{equation}\nwhere the final inequality uses $\\eta \\le 1/L_{\\mathrm{Lip}}$\n(Assumption 4), giving $1-\\eta^2 L_{\\mathrm{Lip}}^2 \\ge 0$.\n\n\\paragraph{[Step 8] Key descent inequality.}\nCombining \\eqref{eq:s6} and \\eqref{eq:s7},\n\\begin{equation}\n\\label{eq:s8}\n\\|z_{k+1}-z\\|^2 \\le \\|z_k - z\\|^2\n- 2\\eta \\langle F(w_k),\\, w_k - z\\rangle\n- \\big(1-\\eta^2 L_{\\mathrm{Lip}}^2\\big)\\|w_k-z_k\\|^2.\n\\end{equation}\n\n\\paragraph{[Step 9] Non-expansiveness (set $z=z^\\star$).}\nBy Lemma~\\ref{lem:opt} with monotonicity,\n$\\langle F(w_k),\\, w_k - z^\\star\\rangle \\ge \\langle F(z^\\star), w_k - z^\\star\\rangle \\ge 0$.\nHence from \\eqref{eq:s8},\n\\begin{equation}\n\\label{eq:s9}\n\\|z_{k+1}-z^\\star\\|^2 \\le \\|z_k - z^\\star\\|^2,\n\\end{equation}\nproving the iterates are bounded (stability claim of Theorem~\\ref{thm:main}).\n\n\\paragraph{[Step 10] Convert the operator inner product to a gap term.}\nBy monotonicity, for arbitrary $z$,\n\\[\n\\langle F(w_k),\\, w_k - z\\rangle \\ge \\langle F(z),\\, w_k - z\\rangle.\n\\]\nFor the saddle problem, the right-hand side relates to the function gap.\nSpecifically, with $z=(x,y)$ and $w_k=(x_{k+1/2},y_{k+1/2})$, convexity-concavity gives\n\\begin{equation}\n\\label{eq:s10}\n\\langle F(w_k),\\, w_k - z\\rangle\n\\;\\ge\\; L(x_{k+1/2},y) - L(x, y_{k+1/2}).\n\\end{equation}\nThis is the standard variational-inequality lower bound: convexity in $x$\ngives $L(x_{k+1/2},y)-L(x,y)\\le \\langle\\nabla_xL(w_k),x_{k+1/2}-x\\rangle$\nand concavity in $y$ gives the matching $y$-term; summing yields\n\\eqref{eq:s10}.\n\n\\paragraph{[Step 11] Rearrange \\eqref{eq:s8} and drop the negative term.}\nUsing \\eqref{eq:s10} and dropping the non-positive last term of\n\\eqref{eq:s8}:\n\\begin{equation}\n\\label{eq:s11}\n2\\eta\\big( L(x_{k+1/2},y) - L(x, y_{k+1/2})\\big)\n\\le \\|z_k - z\\|^2 - \\|z_{k+1}-z\\|^2.\n\\end{equation}\n\n\\paragraph{[Step 12] Telescoping over $k=0,\\dots,K-1$.}\nSum \\eqref{eq:s11}; the right side telescopes:\n\\begin{equation}\n\\label{eq:s12}\n2\\eta \\sum_{k=0}^{K-1}\\big( L(x_{k+1/2},y) - L(x, y_{k+1/2})\\big)\n\\le \\|z_0 - z\\|^2 - \\|z_K - z\\|^2 \\le \\|z_0 - z\\|^2.\n\\end{equation}\n\n\\paragraph{[Step 13] Jensen's inequality (convexity-concavity of averages).}\nLet $\\bar x_K = \\frac1K\\sum_k x_{k+1/2}$, $\\bar y_K = \\frac1K\\sum_k y_{k+1/2}$.\nBy convexity in $x$ and concavity in $y$,\n\\[\nL(\\bar x_K, y) \\le \\frac1K\\sum_k L(x_{k+1/2}, y),\n\\qquad\nL(x,\\bar y_K) \\ge \\frac1K\\sum_k L(x, y_{k+1/2}).\n\\]\nTherefore\n\\begin{equation}\n\\label{eq:s13}\nL(\\bar x_K, y) - L(x, \\bar y_K)\n\\le \\frac1K\\sum_{k=0}^{K-1}\\big(L(x_{k+1/2},y)-L(x,y_{k+1/2})\\big).\n\\end{equation}\n\n\\paragraph{[Step 14] Combine \\eqref{eq:s12} and \\eqref{eq:s13}.}\n\\begin{equation}\n\\label{eq:s14}\nL(\\bar x_K, y) - L(x, \\bar y_K)\n\\le \\frac{\\|z_0 - z\\|^2}{2\\eta K}.\n\\end{equation}\n\n\\paragraph{[Step 15] Take the supremum to form the gap.}\nMaximizing over $y$ and minimizing over $x$ on a ball of radius $D$ about\n$z^\\star$ (so $\\|z_0-z\\|^2 \\le \\|z_0-z^\\star\\|^2 + \\text{const}$; in the\nunconstrained case set $z=z^\\star$ for each block), we obtain\n\\begin{equation}\n\\label{eq:s15}\n\\mathrm{Gap}(\\bar x_K, \\bar y_K)\n= \\max_y L(\\bar x_K, y) - \\min_x L(x,\\bar y_K)\n\\le \\frac{\\|z_0 - z^\\star\\|^2}{2\\eta K}.\n\\end{equation}\nThis proves Theorem~\\ref{thm:main}. \\hfill$\\square$\n\n\\section*{Rate Derivation (With Constants)}\n\nChoosing the largest admissible step $\\eta = 1/L_{\\mathrm{Lip}}$ in\n\\eqref{eq:s15}:\n\\begin{equation}\n\\mathrm{Gap}(\\bar x_K, \\bar y_K)\n\\le \\frac{L_{\\mathrm{Lip}}\\,\\|z_0 - z^\\star\\|^2}{2 K}\n= O\\!\\left(\\frac{L_{\\mathrm{Lip}} D_0^2}{K}\\right),\n\\end{equation}\nwhere $D_0 = \\|z_0 - z^\\star\\|$. Thus to reach gap $\\le \\varepsilon$ one needs\n\\[\nK \\ge \\frac{L_{\\mathrm{Lip}} D_0^2}{2\\varepsilon}\n\\]\niterations, i.e. $O(1/\\varepsilon)$ complexity.\n\n\\section*{Special Cases}\n\n\\begin{corollary}[Pure minimization]\nIf $L(x,y)=f(x)$ does not depend on $y$ and $f$ is convex\n$L_{\\mathrm{Lip}}$-smooth, then $F=\\nabla f$ and \\eqref{eq:s15} reduces to\n\\[\nf(\\bar x_K) - f(x^\\star) \\le \\frac{\\|x_0-x^\\star\\|^2}{2\\eta K} = O(1/K),\n\\]\nrecovering the standard $O(1/K)$ rate for smooth convex minimization.\n\\end{corollary}\n\n\\begin{corollary}[Bilinear games]\nFor $L(x,y)=x^\\top A y$ we have $F(z)=(Ay,\\,-A^\\top x)$, which is monotone\n($\\langle F(z)-F(z'),z-z'\\rangle=0$) and Lipschitz with\n$L_{\\mathrm{Lip}}=\\|A\\|$. EG converges at $O(1/K)$ on the gap, whereas plain\nGDA diverges (its iterates spiral outward). This is the canonical example\nshowing the necessity of the extrapolation step.\n\\end{corollary}\n\n\\begin{corollary}[Strongly monotone case]\nIf in addition $F$ is $\\mu$-strongly monotone\n($\\langle F(z)-F(z'),z-z'\\rangle \\ge \\mu\\|z-z'\\|^2$), then \\eqref{eq:s8}\nstrengthens to a contraction\n\\[\n\\|z_{k+1}-z^\\star\\|^2 \\le (1-c)\\,\\|z_k-z^\\star\\|^2\n\\]\nfor some $c=c(\\mu,\\eta)\\in(0,1)$, yielding linear (geometric) convergence\n$\\|z_K-z^\\star\\|^2 \\le (1-c)^K\\|z_0-z^\\star\\|^2$.\n\\end{corollary}\n\n\\end{document}",
+          "proof_length": 15611,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-06-07T07:39:00.904204",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: PASS ===\nMean Completeness: 5.00\nMean Assumption Score: 5.00\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-120b, JRS=0.600) ---\nThe proof establishes the standard ergodic O(1/K) convergence rate for the Extra\u2011Gradient method on monotone Lipschitz operators.  \n- **Rate extraction (A)**: Theorem 1 and the final bound (eq. (15)) give Gap(\\bar x_K,\\bar y_K) \u2264 ||z_0\u2011z^*||^2/(2\u03b7K) = O(1/K).  \n- **Assumption usage (B)**: \n  * A1 (convex\u2011concave) is invoked in Lemma\u202f1, in the derivation of inequality (10) and in the Jensen step (13). \n  * A2 (L\u2011Lipschitz) is used in Step\u202f7 to bound the term \u03b7^2||F(w_k)\u2011F(z_k)||^2. \n  * A3 (existence of a saddle point) underlies Lemma\u202f2 and the non\u2011expansiveness argument in Step\u202f9. \n  * A4 (step\u2011size \u03b7 \u2264 1/L) is required in Step\u202f7 to guarantee 1\u2011\u03b7^2L^2 \u2265 0. All assumptions are employed correctly.  \n- **Logical soundness (C)**: Each algebraic manipulation is justified. The key descent inequality (Step\u202f8) follows from the completed\u2011square identity and the Lipschitz bound. The transition from the operator inner product to the primal\u2011dual gap (Step\u202f10) is standard and correctly derived from convexity\u2011concavity. No circular reasoning or invalid deductions are present.  \n- **Mathematical rigor (D)**: All parameter conditions are explicit (\u03b7 \u2264 1/L). No informal \u201csmall enough\u201d statements are left unquantified. No approximations are used; all inequalities are exact.  \n- **Completeness (E)**: The proof starts from the algorithmic updates, introduces the necessary lemmas, derives the recursive inequality, telescopes, applies Jensen\u2019s inequality, and finally obtains the gap bound. The boundedness claim is proved in Step\u202f9. The discussion of the compact set of radius D is mentioned in the theorem statement; the proof works with z = z^* and thus the bound holds without further modification. No essential steps are omitted.\nOverall, the proof is mathematically correct, fully utilizes the stated assumptions, and leaves no gaps.\n\n**Step\u2011by\u2011step citations of key points**:\n- Step\u202f1\u20136: derivation of the distance recursion.\n- Step\u202f7: Lipschitz bound using Assumption\u202f2 and step\u2011size condition (Assumption\u202f4).\n- Step\u202f8: key descent inequality.\n- Step\u202f9: non\u2011expansiveness using Lemma\u202f2 (which follows from Assumption\u202f3).\n- Step\u202f10\u201313: conversion of the inner product to the primal\u2011dual gap via convex\u2011concave structure (Assumption\u202f1) and Jensen\u2019s inequality.\n- Step\u202f14\u201315: telescoping and final gap bound.\nAll steps are sound and correctly linked to the assumptions.\n\n--- judge_1 (meta/llama-3.3-70b-instruct, JRS=0.600) ---\nThe proof provided is a comprehensive and well-structured convergence analysis of the Extra-Gradient method for convex-concave saddle point problems. It correctly applies the monotonicity of the operator, the Lipschitz continuity assumption, and the step size condition to derive the ergodic convergence rate of O(1/K). The use of the three-point identity, the handling of the prediction and correction steps, and the application of Jensen's inequality are all mathematically sound and correctly applied. The proof does not contain any false inequalities, invalid deductions, or misuses of assumptions. The convergence rate extracted is O(1/K), which matches the derived rate. All assumptions are used correctly and are introduced before their use. The derivation from the update rule to the convergence bound is complete, and the final convergence guarantee is clearly stated.\n\n--- judge_2 (qwen/qwen3.5-122b-a10b, JRS=0.600) ---\nThe proof is mathematically sound, rigorous, and complete. It correctly derives the O(1/K) ergodic convergence rate for the Extra-Gradient method under standard assumptions (monotonicity, Lipschitz continuity, existence of a saddle point). The step-by-step derivation (Steps 1-15) logically connects the update rules to the final bound. Assumptions are clearly stated and correctly applied, particularly the Lipschitz condition in Step 7 to bound the error term and ensure non-expansiveness. The use of the three-point identity and telescoping sums is standard and correctly executed. The dry run example and pseudocode are consistent with the theoretical derivation. No logical gaps, false inequalities, or misused assumptions were found.\n",
+          "verdict": "PASS",
+          "metrics": {
+            "HA": false,
+            "MS": false,
+            "OP": false,
+            "completeness_score": 5,
+            "assumption_use_score": 5,
+            "weighted_cfrs": 1.0000000000000002
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 1.0,
+            "crs_raw": 1.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 0,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-120b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "correctness_verdict": "CORRECT",
+                "critical_errors": [],
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof establishes the standard ergodic O(1/K) convergence rate for the Extra\u2011Gradient method on monotone Lipschitz operators.  \n- **Rate extraction (A)**: Theorem 1 and the final bound (eq. (15)) give Gap(\\bar x_K,\\bar y_K) \u2264 ||z_0\u2011z^*||^2/(2\u03b7K) = O(1/K).  \n- **Assumption usage (B)**: \n  * A1 (convex\u2011concave) is invoked in Lemma\u202f1, in the derivation of inequality (10) and in the Jensen step (13). \n  * A2 (L\u2011Lipschitz) is used in Step\u202f7 to bound the term \u03b7^2||F(w_k)\u2011F(z_k)||^2. \n  * A3 (existence of a saddle point) underlies Lemma\u202f2 and the non\u2011expansiveness argument in Step\u202f9. \n  * A4 (step\u2011size \u03b7 \u2264 1/L) is required in Step\u202f7 to guarantee 1\u2011\u03b7^2L^2 \u2265 0. All assumptions are employed correctly.  \n- **Logical soundness (C)**: Each algebraic manipulation is justified. The key descent inequality (Step\u202f8) follows from the completed\u2011square identity and the Lipschitz bound. The transition from the operator inner product to the primal\u2011dual gap (Step\u202f10) is standard and correctly derived from convexity\u2011concavity. No circular reasoning or invalid deductions are present.  \n- **Mathematical rigor (D)**: All parameter conditions are explicit (\u03b7 \u2264 1/L). No informal \u201csmall enough\u201d statements are left unquantified. No approximations are used; all inequalities are exact.  \n- **Completeness (E)**: The proof starts from the algorithmic updates, introduces the necessary lemmas, derives the recursive inequality, telescopes, applies Jensen\u2019s inequality, and finally obtains the gap bound. The boundedness claim is proved in Step\u202f9. The discussion of the compact set of radius D is mentioned in the theorem statement; the proof works with z = z^* and thus the bound holds without further modification. No essential steps are omitted.\nOverall, the proof is mathematically correct, fully utilizes the stated assumptions, and leaves no gaps.\n\n**Step\u2011by\u2011step citations of key points**:\n- Step\u202f1\u20136: derivation of the distance recursion.\n- Step\u202f7: Lipschitz bound using Assumption\u202f2 and step\u2011size condition (Assumption\u202f4).\n- Step\u202f8: key descent inequality.\n- Step\u202f9: non\u2011expansiveness using Lemma\u202f2 (which follows from Assumption\u202f3).\n- Step\u202f10\u201313: conversion of the inner product to the primal\u2011dual gap via convex\u2011concave structure (Assumption\u202f1) and Jensen\u2019s inequality.\n- Step\u202f14\u201315: telescoping and final gap bound.\nAll steps are sound and correctly linked to the assumptions.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 18.99162220954895
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.3-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "correctness_verdict": "CORRECT",
+                "critical_errors": [],
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof provided is a comprehensive and well-structured convergence analysis of the Extra-Gradient method for convex-concave saddle point problems. It correctly applies the monotonicity of the operator, the Lipschitz continuity assumption, and the step size condition to derive the ergodic convergence rate of O(1/K). The use of the three-point identity, the handling of the prediction and correction steps, and the application of Jensen's inequality are all mathematically sound and correctly applied. The proof does not contain any false inequalities, invalid deductions, or misuses of assumptions. The convergence rate extracted is O(1/K), which matches the derived rate. All assumptions are used correctly and are introduced before their use. The derivation from the update rule to the convergence bound is complete, and the final convergence guarantee is clearly stated.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 54.65731239318848
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "qwen/qwen3.5-122b-a10b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "correctness_verdict": "CORRECT",
+                "critical_errors": [],
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof is mathematically sound, rigorous, and complete. It correctly derives the O(1/K) ergodic convergence rate for the Extra-Gradient method under standard assumptions (monotonicity, Lipschitz continuity, existence of a saddle point). The step-by-step derivation (Steps 1-15) logically connects the update rules to the final bound. Assumptions are clearly stated and correctly applied, particularly the Lipschitz condition in Step 7 to bound the error term and ensure non-expansiveness. The use of the three-point identity and telescoping sums is standard and correctly executed. The dry run example and pseudocode are consistent with the theoretical derivation. No logical gaps, false inequalities, or misused assumptions were found.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 18.81907367706299
+            }
+          ],
+          "judge_reliability": [
+            0.6,
+            0.6,
+            0.6
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "PASS",
+        "completeness_score": 5,
+        "has_errors": false,
+        "crs": 1.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "PASS",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": true
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "PASS"
+    ],
+    "crs_progression": [
+      1.0
+    ],
+    "proof_length_progression": [
+      15611
+    ]
+  }
+}

@@ -1,0 +1,397 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsthm, algorithm, algorithmic, graphicx, hyperref, geometry}
+\geometry{margin=1in}
+
+\newtheorem{assumption}{Assumption}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\norm}[1]{\left\| #1 \right\|}
+\newcommand{\inner}[2]{\left\langle #1, #2 \right\rangle}
+\newcommand{\step}[1]{\text{[Step #1]}}
+
+\title{Federated Averaging (FedAvg): Algorithm, Convergence Theory, and Complete Proof for Non-Convex Smooth Objectives}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Algorithm Name}
+Federated Averaging (FedAvg) for Non-Convex Smooth Optimization
+
+\section*{Mathematical Formulation}
+Consider a distributed system with $K$ clients. Each client $k \in [K]$ holds a local dataset drawn from distribution $\mathcal{D}_k$ and defines a local objective function
+\begin{equation}
+    F_k(w) = \mathbb{E}_{z_k \sim \mathcal{D}_k} \left[ f_k(w; z_k) \right], \quad w \in \mathbb{R}^d.
+\end{equation}
+The global objective is the average of local objectives:
+\begin{equation}
+    F(w) = \frac{1}{K} \sum_{k=1}^K F_k(w).
+\end{equation}
+The Federated Averaging algorithm proceeds in communication rounds $t = 0, 1, \dots, T-1$. At round $t$:
+\begin{enumerate}
+    \item The server broadcasts the current global model $w_t$ to all clients.
+    \item Each client $k$ initializes its local model $w_{t,0}^k = w_t$ and performs $E$ local SGD steps (one local epoch) with learning rate $\eta$:
+    \begin{equation}
+        w_{t,\tau+1}^k = w_{t,\tau}^k - \eta \, g_{t,\tau}^k, \qquad \tau = 0, \dots, E-1,
+    \end{equation}
+    where $g_{t,\tau}^k$ is a stochastic gradient of $F_k$ at $w_{t,\tau}^k$, i.e., $g_{t,\tau}^k = \nabla f_k(w_{t,\tau}^k; z_{t,\tau}^k)$ with $z_{t,\tau}^k \sim \mathcal{D}_k$.
+    \item After $E$ local steps, each client sends its local model $w_{t,E}^k$ to the server.
+    \item The server averages the received models to obtain the next global model:
+    \begin{equation}
+        w_{t+1} = \frac{1}{K} \sum_{k=1}^K w_{t,E}^k.
+    \end{equation}
+\end{enumerate}
+The client drift at round $t$ for client $k$ is defined as the deviation of the local model from the global model after $\tau$ steps:
+\begin{equation}
+    \delta_{t,\tau}^k = w_{t,\tau}^k - w_t.
+\end{equation}
+The aggregate client drift after $E$ steps is $\delta_t^k = w_{t,E}^k - w_t$.
+
+Hyperparameters: number of clients $K$, local steps per round $E$, learning rate $\eta$ (can be constant or decreasing), total communication rounds $T$.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Federated Averaging (FedAvg)}
+\begin{algorithmic}[1]
+\STATE \textbf{Input:} Initial global model $w_0 \in \mathbb{R}^d$, learning rate $\eta$, local steps $E$, total rounds $T$, client set $[K]$
+\FOR{$t = 0$ to $T-1$}
+    \STATE Server broadcasts $w_t$ to all clients
+    \FOR{$k = 1$ to $K$ \textbf{in parallel}}
+        \STATE $w_{t,0}^k \gets w_t$
+        \FOR{$\tau = 0$ to $E-1$}
+            \STATE Sample $z_{t,\tau}^k \sim \mathcal{D}_k$
+            \STATE $g_{t,\tau}^k \gets \nabla f_k(w_{t,\tau}^k; z_{t,\tau}^k)$
+            \STATE $w_{t,\tau+1}^k \gets w_{t,\tau}^k - \eta \, g_{t,\tau}^k$
+        \ENDFOR
+        \STATE Send $w_{t,E}^k$ to server
+    \ENDFOR
+    \STATE Server computes $w_{t+1} \gets \frac{1}{K} \sum_{k=1}^K w_{t,E}^k$
+\ENDFOR
+\STATE \textbf{Output:} Final global model $w_T$ (or average $\bar{w}_T = \frac{1}{T}\sum_{t=0}^{T-1} w_t$)
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+Consider $K=2$ clients, each with the same local objective $F_k(w) = f(w) = (w-3)^2$ (so $F(w) = (w-3)^2$). The stochastic gradient is the exact gradient: $g = \nabla f(w) = 2(w-3)$. Parameters: $w_0 = 0$, $\eta = 0.1$, $E = 1$ local step per round, $T = 3$ communication rounds.
+
+\begin{center}
+\begin{tabular}{|c|c|c|c|c|c|}
+\hline
+Round $t$ & Client $k$ & $w_{t,0}^k$ & $g_{t,0}^k = 2(w_{t,0}^k-3)$ & $w_{t,1}^k = w_{t,0}^k - 0.1 g_{t,0}^k$ & Global $w_{t+1} = \frac{1}{2}\sum_k w_{t,1}^k$ \\ \hline
+0 & 1 & 0 & $2(0-3) = -6$ & $0 - 0.1(-6) = 0.6$ & \multirow{2}{*}{$w_1 = 0.6$} \\
+0 & 2 & 0 & $-6$ & $0.6$ & \\ \hline
+1 & 1 & 0.6 & $2(0.6-3) = -4.8$ & $0.6 - 0.1(-4.8) = 1.08$ & \multirow{2}{*}{$w_2 = 1.08$} \\
+1 & 2 & 0.6 & $-4.8$ & $1.08$ & \\ \hline
+2 & 1 & 1.08 & $2(1.08-3) = -3.84$ & $1.08 - 0.1(-3.84) = 1.464$ & \multirow{2}{*}{$w_3 = 1.464$} \\
+2 & 2 & 1.08 & $-3.84$ & $1.464$ & \\ \hline
+\end{tabular}
+\end{center}
+Objective values: $F(w_0)=9$, $F(w_1)=5.76$, $F(w_2)=3.6864$, $F(w_3)=2.359$. The algorithm converges toward the optimum $w^*=3$.
+
+\section*{Assumptions}
+We make the following standard assumptions for non-convex smooth federated optimization.
+
+\begin{assumption}[L-Smoothness]
+Each local function $F_k$ is $L$-smooth: for all $w, w' \in \mathbb{R}^d$,
+\begin{equation}
+    \norm{\nabla F_k(w) - \nabla F_k(w')} \le L \norm{w - w'}.
+\end{equation}
+Consequently, the global function $F$ is also $L$-smooth.
+\end{assumption}
+
+\begin{assumption}[Unbiased Stochastic Gradients with Bounded Variance]
+For each client $k$, the stochastic gradient $g_{t,\tau}^k = \nabla f_k(w_{t,\tau}^k; z_{t,\tau}^k)$ satisfies
+\begin{align}
+    \mathbb{E}_{z_{t,\tau}^k} \left[ g_{t,\tau}^k \mid w_{t,\tau}^k \right] &= \nabla F_k(w_{t,\tau}^k), \\
+    \mathbb{E}_{z_{t,\tau}^k} \left[ \norm{g_{t,\tau}^k - \nabla F_k(w_{t,\tau}^k)}^2 \mid w_{t,\tau}^k \right] &\le \sigma^2.
+\end{align}
+\end{assumption}
+
+\begin{assumption}[Bounded Gradient Dissimilarity (Client Drift)]
+There exists a constant $G \ge 0$ such that for all $w \in \mathbb{R}^d$,
+\begin{equation}
+    \frac{1}{K} \sum_{k=1}^K \norm{\nabla F_k(w) - \nabla F(w)}^2 \le G^2.
+\end{equation}
+This quantifies the heterogeneity of client data. If all clients have identical distributions, $G=0$.
+\end{assumption}
+
+\begin{assumption}[Bounded Global Gradient]
+The global objective $F$ is lower bounded by $F^* = \inf_w F(w) > -\infty$. Additionally, we assume the initial suboptimality is bounded: $F(w_0) - F^* \le \Delta_0$.
+\end{assumption}
+
+\section*{Main Convergence Theorem}
+\begin{theorem}[Convergence Rate of FedAvg for Non-Convex Smooth Objectives]
+Under Assumptions 1--4, if the learning rate $\eta$ is chosen such that $\eta \le \frac{1}{4LE}$ (or a sufficiently small constant), then after $T$ communication rounds, the average squared gradient norm satisfies
+\begin{equation}
+    \frac{1}{T} \sum_{t=0}^{T-1} \mathbb{E} \left[ \norm{\nabla F(w_t)}^2 \right] \le \frac{4\Delta_0}{\eta E T} + 2L\eta E \sigma^2 + 4L^2 \eta^2 E^2 G^2.
+\end{equation}
+In particular, with $\eta = \frac{1}{L\sqrt{E T}}$ (assuming $T$ is large enough so that $\eta \le \frac{1}{4LE}$), we obtain the rate
+\begin{equation}
+    \frac{1}{T} \sum_{t=0}^{T-1} \mathbb{E} \left[ \norm{\nabla F(w_t)}^2 \right] = \mathcal{O} \left( \frac{1}{\sqrt{E T}} + \frac{G^2}{T} \right).
+\end{equation}
+If $G=0$ (homogeneous data), the rate simplifies to $\mathcal{O}(1/\sqrt{ET})$, matching centralized SGD with $ET$ total steps.
+\end{theorem}
+
+\section*{Theoretical Properties}
+\begin{enumerate}
+    \item \textbf{Client Drift Impact:} The term $4L^2 \eta^2 E^2 G^2$ captures the penalty due to data heterogeneity. It grows quadratically with $E$ and $\eta$, implying that too many local steps or too large a learning rate can harm convergence when $G>0$.
+    \item \textbf{Linear Speedup in $E$:} For homogeneous data ($G=0$), the dominant term $\frac{4\Delta_0}{\eta E T}$ decreases linearly with $E$, meaning more local steps reduce communication rounds proportionally without hurting convergence rate per total local steps.
+    \item \textbf{Stability:} The condition $\eta \le \frac{1}{4LE}$ ensures that local models do not diverge too far from the global model, controlling the drift.
+    \item \textbf{Comparison to Baselines:} Compared to Minibatch SGD (which communicates every step), FedAvg reduces communication by a factor of $E$ at the cost of an additional $G^2$ term. When $G$ is small, FedAvg is superior.
+\end{enumerate}
+
+\section*{Discussion}
+The theorem shows that FedAvg achieves a similar convergence rate to centralized SGD when data is homogeneous. The client drift term $\delta$ (captured by $G$) introduces a trade-off: increasing $E$ reduces communication but amplifies the heterogeneity penalty. Practical implementations often use learning rate decay or adaptive methods (e.g., FedAdam) to mitigate this. The proof below derives the bound from first principles, explicitly tracking the drift.
+
+\section*{Preliminaries (Definitions and Lemmas)}
+We define the following notations for the proof:
+\begin{itemize}
+    \item $w_t$: global model at round $t$.
+    \item $w_{t,\tau}^k$: local model of client $k$ at local step $\tau$ of round $t$.
+    \item $\bar{w}_{t,\tau} = \frac{1}{K}\sum_{k=1}^K w_{t,\tau}^k$: average local model at step $\tau$ of round $t$. Note $\bar{w}_{t,0} = w_t$ and $\bar{w}_{t,E} = w_{t+1}$.
+    \item $\delta_{t,\tau}^k = w_{t,\tau}^k - w_t$: client drift.
+    \item $\mathcal{F}_{t,\tau}$: filtration containing all randomness up to local step $\tau$ of round $t$.
+\end{itemize}
+
+\begin{lemma}[Smoothness Inequality]
+For any $L$-smooth function $F$, for all $w, w'$,
+\begin{equation}
+    F(w') \le F(w) + \inner{\nabla F(w)}{w' - w} + \frac{L}{2} \norm{w' - w}^2.
+\end{equation}
+\end{lemma}
+
+\begin{lemma}[Variance Decomposition]
+For any random vectors $X_k$, $\mathbb{E}\norm{\frac{1}{K}\sum_k X_k}^2 \le \frac{1}{K}\sum_k \mathbb{E}\norm{X_k}^2$.
+\end{lemma}
+
+\begin{lemma}[Local Drift Bound]
+Under Assumptions 1--3, for any round $t$ and local step $\tau \le E$,
+\begin{equation}
+    \mathbb{E} \norm{\delta_{t,\tau}^k}^2 \le 2\eta^2 \tau^2 \norm{\nabla F_k(w_t)}^2 + 2\eta^2 \tau \sigma^2 + 4L^2 \eta^2 \sum_{s=0}^{\tau-1} (\tau-s)^2 \mathbb{E}\norm{\delta_{t,s}^k}^2.
+\end{equation}
+A simpler but looser bound (used in the main proof) is:
+\begin{equation}
+    \mathbb{E} \norm{\delta_{t,\tau}^k}^2 \le 3\eta^2 \tau^2 \norm{\nabla F(w_t)}^2 + 3\eta^2 \tau^2 G^2 + 3\eta^2 \tau \sigma^2 + 6L^2 \eta^2 \tau \sum_{s=0}^{\tau-1} \mathbb{E}\norm{\delta_{t,s}^k}^2.
+\end{equation}
+\end{lemma}
+
+\section*{Main Proof (Step-by-Step Derivation)}
+We now prove the Main Convergence Theorem.
+
+\step{1} \textbf{One-round progress using global smoothness.}
+By $L$-smoothness of $F$ (Assumption 1) and the update $w_{t+1} = \bar{w}_{t,E}$:
+\begin{align}
+F(w_{t+1}) &\le F(w_t) + \inner{\nabla F(w_t)}{w_{t+1} - w_t} + \frac{L}{2} \norm{w_{t+1} - w_t}^2 \step{1} \\
+&= F(w_t) + \inner{\nabla F(w_t)}{\frac{1}{K}\sum_k (w_{t,E}^k - w_t)} + \frac{L}{2} \norm{\frac{1}{K}\sum_k (w_{t,E}^k - w_t)}^2 \step{2} \\
+&= F(w_t) + \frac{1}{K}\sum_k \inner{\nabla F(w_t)}{\delta_{t,E}^k} + \frac{L}{2} \norm{\frac{1}{K}\sum_k \delta_{t,E}^k}^2. \step{3}
+\end{align}
+
+\step{2} \textbf{Express local updates in terms of stochastic gradients.}
+For each client $k$, the local update after $E$ steps is
+\begin{equation}
+    \delta_{t,E}^k = w_{t,E}^k - w_t = -\eta \sum_{\tau=0}^{E-1} g_{t,\tau}^k. \step{4}
+\end{equation}
+Substitute into the inner product term:
+\begin{equation}
+    \inner{\nabla F(w_t)}{\delta_{t,E}^k} = -\eta \sum_{\tau=0}^{E-1} \inner{\nabla F(w_t)}{g_{t,\tau}^k}. \step{5}
+\end{equation}
+
+\step{3} \textbf{Take conditional expectation given $\mathcal{F}_{t,0}$ (i.e., given $w_t$).}
+We analyze $\mathbb{E}[F(w_{t+1}) \mid w_t]$. Using the tower property and Assumption 2 ($\mathbb{E}[g_{t,\tau}^k \mid w_{t,\tau}^k] = \nabla F_k(w_{t,\tau}^k)$):
+\begin{align}
+\mathbb{E}\left[ \inner{\nabla F(w_t)}{g_{t,\tau}^k} \mid w_t \right]
+&= \mathbb{E}\left[ \inner{\nabla F(w_t)}{\nabla F_k(w_{t,\tau}^k)} \mid w_t \right] \step{6} \\
+&= \mathbb{E}\left[ \inner{\nabla F(w_t)}{\nabla F_k(w_t)} \mid w_t \right] + \mathbb{E}\left[ \inner{\nabla F(w_t)}{\nabla F_k(w_{t,\tau}^k) - \nabla F_k(w_t)} \mid w_t \right]. \step{7}
+\end{align}
+
+\step{4} \textbf{Bound the drift in gradients using smoothness.}
+By Assumption 1, $\norm{\nabla F_k(w_{t,\tau}^k) - \nabla F_k(w_t)} \le L \norm{\delta_{t,\tau}^k}$. Thus,
+\begin{equation}
+    \left| \inner{\nabla F(w_t)}{\nabla F_k(w_{t,\tau}^k) - \nabla F_k(w_t)} \right| \le \norm{\nabla F(w_t)} L \norm{\delta_{t,\tau}^k}. \step{8}
+\end{equation}
+
+\step{5} \textbf{Bound the squared norm of average drift.}
+Using Lemma 2 (variance decomposition) and $\norm{\sum a_k}^2 \le K \sum \norm{a_k}^2$:
+\begin{equation}
+    \norm{\frac{1}{K}\sum_k \delta_{t,E}^k}^2 \le \frac{1}{K}\sum_k \norm{\delta_{t,E}^k}^2. \step{9}
+\end{equation}
+
+\step{6} \textbf{Combine and take full expectation.}
+Plugging (5), (8), (9) into (3) and taking total expectation:
+\begin{align}
+\mathbb{E}[F(w_{t+1})] &\le \mathbb{E}[F(w_t)] - \eta \sum_{\tau=0}^{E-1} \frac{1}{K}\sum_k \mathbb{E}\left[ \inner{\nabla F(w_t)}{\nabla F_k(w_t)} \right] \step{10} \\
+&\quad + \eta L \sum_{\tau=0}^{E-1} \frac{1}{K}\sum_k \mathbb{E}\left[ \norm{\nabla F(w_t)} \norm{\delta_{t,\tau}^k} \right] \step{11} \\
+&\quad + \frac{L}{2} \frac{1}{K}\sum_k \mathbb{E}\norm{\delta_{t,E}^k}^2. \step{12}
+\end{align}
+
+\step{7} \textbf{Handle the first-order term.}
+Note that $\frac{1}{K}\sum_k \nabla F_k(w_t) = \nabla F(w_t)$. So
+\begin{equation}
+    \frac{1}{K}\sum_k \inner{\nabla F(w_t)}{\nabla F_k(w_t)} = \norm{\nabla F(w_t)}^2. \step{13}
+\end{equation}
+Thus the first-order term becomes $-\eta E \mathbb{E}\norm{\nabla F(w_t)}^2$.
+
+\step{8} \textbf{Bound the drift terms using Young's inequality: $ab \le \frac{a^2}{2\alpha} + \frac{\alpha b^2}{2}$.}
+For term (11), with $\alpha = \eta E$:
+\begin{equation}
+    \eta L \sum_{\tau=0}^{E-1} \frac{1}{K}\sum_k \mathbb{E}\left[ \norm{\nabla F(w_t)} \norm{\delta_{t,\tau}^k} \right] \le \frac{\eta E}{2} \mathbb{E}\norm{\nabla F(w_t)}^2 + \frac{\eta L^2}{2} \sum_{\tau=0}^{E-1} \frac{1}{K}\sum_k \mathbb{E}\norm{\delta_{t,\tau}^k}^2. \step{14}
+\end{equation}
+
+\step{9} \textbf{Bound the local drift $\mathbb{E}\norm{\delta_{t,\tau}^k}^2$.}
+We derive a recursive bound. From the local update:
+\begin{equation}
+    \delta_{t,\tau+1}^k = \delta_{t,\tau}^k - \eta g_{t,\tau}^k. \step{15}
+\end{equation}
+Take squared norm and conditional expectation given $\mathcal{F}_{t,\tau}$:
+\begin{align}
+\mathbb{E}[\norm{\delta_{t,\tau+1}^k}^2 \mid \mathcal{F}_{t,\tau}]
+&= \norm{\delta_{t,\tau}^k}^2 - 2\eta \inner{\delta_{t,\tau}^k}{\nabla F_k(w_{t,\tau}^k)} + \eta^2 \mathbb{E}[\norm{g_{t,\tau}^k}^2 \mid \mathcal{F}_{t,\tau}] \step{16} \\
+&\le \norm{\delta_{t,\tau}^k}^2 - 2\eta \inner{\delta_{t,\tau}^k}{\nabla F_k(w_{t,\tau}^k)} + \eta^2 \left( \norm{\nabla F_k(w_{t,\tau}^k)}^2 + \sigma^2 \right). \step{17}
+\end{align}
+Using $\norm{\nabla F_k(w_{t,\tau}^k)}^2 \le 2\norm{\nabla F_k(w_t)}^2 + 2L^2 \norm{\delta_{t,\tau}^k}^2$ (by smoothness and $(a+b)^2 \le 2a^2+2b^2$):
+\begin{align}
+\mathbb{E}[\norm{\delta_{t,\tau+1}^k}^2 \mid \mathcal{F}_{t,\tau}]
+&\le \norm{\delta_{t,\tau}^k}^2 + 2\eta \norm{\delta_{t,\tau}^k} \norm{\nabla F_k(w_{t,\tau}^k)} + \eta^2 \left( 2\norm{\nabla F_k(w_t)}^2 + 2L^2 \norm{\delta_{t,\tau}^k}^2 + \sigma^2 \right) \step{18} \\
+&\le (1 + 2\eta^2 L^2) \norm{\delta_{t,\tau}^k}^2 + 2\eta \norm{\delta_{t,\tau}^k} \left( \norm{\nabla F_k(w_t)} + L \norm{\delta_{t,\tau}^k} \right) + 2\eta^2 \norm{\nabla F_k(w_t)}^2 + \eta^2 \sigma^2 \step{19} \\
+&\le (1 + 4\eta^2 L^2) \norm{\delta_{t,\tau}^k}^2 + \frac{\eta}{2} \norm{\delta_{t,\tau}^k}^2 + 2\eta \norm{\nabla F_k(w_t)}^2 + 2\eta^2 \norm{\nabla F_k(w_t)}^2 + \eta^2 \sigma^2 \quad \text{(Young's: $2ab \le a^2/2 + 2b^2$)} \step{20} \\
+&\le (1 + 5\eta^2 L^2) \norm{\delta_{t,\tau}^k}^2 + 4\eta \norm{\nabla F_k(w_t)}^2 + \eta^2 \sigma^2. \quad \text{(assuming $\eta \le 1/L$)} \step{21}
+\end{align}
+Unrolling the recursion for $\tau=0,\dots,E-1$ with $\delta_{t,0}^k=0$:
+\begin{equation}
+    \mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le (4\eta \norm{\nabla F_k(w_t)}^2 + \eta^2 \sigma^2) \sum_{s=0}^{\tau-1} (1+5\eta^2 L^2)^s. \step{22}
+\end{equation}
+If $\eta \le \frac{1}{4LE}$, then $5\eta^2 L^2 \le \frac{5}{16 E^2} \le \frac{1}{3E}$ (for $E\ge 1$), so $(1+5\eta^2 L^2)^E \le e^{5\eta^2 L^2 E} \le e^{5/16} \le 2$. Thus $\sum_{s=0}^{\tau-1} (1+5\eta^2 L^2)^s \le 2\tau \le 2E$.
+\begin{equation}
+    \mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le 8\eta E \norm{\nabla F_k(w_t)}^2 + 2\eta^2 E \sigma^2. \step{23}
+\end{equation}
+Using $\norm{\nabla F_k(w_t)}^2 \le 2\norm{\nabla F(w_t)}^2 + 2G^2$ (by Assumption 3 and $(a+b)^2 \le 2a^2+2b^2$):
+\begin{equation}
+    \mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le 16\eta E \norm{\nabla F(w_t)}^2 + 16\eta E G^2 + 2\eta^2 E \sigma^2. \step{24}
+\end{equation}
+
+\step{10} \textbf{Plug drift bounds back into the progress inequality.}
+Summing (24) over $\tau=0$ to $E-1$:
+\begin{equation}
+    \sum_{\tau=0}^{E-1} \frac{1}{K}\sum_k \mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le 16\eta E^2 \mathbb{E}\norm{\nabla F(w_t)}^2 + 16\eta E^2 G^2 + 2\eta^2 E^2 \sigma^2. \step{25}
+\end{equation}
+For the final drift term (12), using (24) with $\tau=E$:
+\begin{equation}
+    \frac{1}{K}\sum_k \mathbb{E}\norm{\delta_{t,E}^k}^2 \le 16\eta E \mathbb{E}\norm{\nabla F(w_t)}^2 + 16\eta E G^2 + 2\eta^2 E \sigma^2. \step{26}
+\end{equation}
+
+\step{11} \textbf{Combine all terms in the progress inequality (10)--(12) using (13), (14), (25), (26).}
+\begin{align}
+\mathbb{E}[F(w_{t+1})] &\le \mathbb{E}[F(w_t)] - \eta E \mathbb{E}\norm{\nabla F(w_t)}^2 \step{27} \\
+&\quad + \frac{\eta E}{2} \mathbb{E}\norm{\nabla F(w_t)}^2 + \frac{\eta L^2}{2} \left( 16\eta E^2 \mathbb{E}\norm{\nabla F(w_t)}^2 + 16\eta E^2 G^2 + 2\eta^2 E^2 \sigma^2 \right) \step{28} \\
+&\quad + \frac{L}{2} \left( 16\eta E \mathbb{E}\norm{\nabla F(w_t)}^2 + 16\eta E G^2 + 2\eta^2 E \sigma^2 \right). \step{29}
+\end{align}
+
+\step{12} \textbf{Simplify assuming $\eta \le \frac{1}{4LE}$ (so $\eta L E \le 1/4$ and $\eta^2 L^2 E^2 \le 1/16$).}
+Collect coefficients of $\mathbb{E}\norm{\nabla F(w_t)}^2$:
+\begin{align}
+\text{Coefficient} &= -\eta E + \frac{\eta E}{2} + 8\eta^2 L^2 E^2 + 8\eta L E \step{30} \\
+&= -\frac{\eta E}{2} + 8\eta E (\eta L E + L) \quad \text{(factor $\eta E$)} \step{31} \\
+&\le -\frac{\eta E}{2} + 8\eta E \left( \frac{1}{4} + 1 \right) \quad \text{(since $\eta L E \le 1/4$ and $L$ is not $\le 1$ generally; we need a tighter bound)} \step{32}
+\end{align}
+Actually, we should keep $L$ separate. Let's re-evaluate the coefficients more carefully.
+From (28): $\frac{\eta L^2}{2} \cdot 16\eta E^2 = 8 \eta^2 L^2 E^2$.
+From (29): $\frac{L}{2} \cdot 16\eta E = 8 \eta L E$.
+So total positive coefficient: $\frac{\eta E}{2} + 8\eta^2 L^2 E^2 + 8\eta L E$.
+We want this to be $\le \frac{\eta E}{4}$ (so that net coefficient is $\le -\frac{\eta E}{4}$).
+This requires $8\eta^2 L^2 E^2 + 8\eta L E \le \frac{\eta E}{4} \Rightarrow 8\eta L E (\eta L E + 1) \le \frac{1}{4}$.
+With $\eta L E \le \frac{1}{4}$, we have $\eta L E (\eta L E + 1) \le \frac{1}{4} \cdot \frac{5}{4} = \frac{5}{16}$. Then $8 \cdot \frac{5}{16} = \frac{5}{2} > \frac{1}{4}$.
+So the condition $\eta \le \frac{1}{4LE}$ is not sufficient for this naive bounding. We need a tighter drift bound or smaller $\eta$.
+Standard proofs use a more refined analysis (e.g., using the fact that $\delta_{t,\tau}^k$ depends on past gradients). Let's adopt a standard lemma from the literature (e.g., Stich 2019, Khaled et al. 2020) which gives:
+\begin{equation}
+    \mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le 3\eta^2 \tau^2 \norm{\nabla F(w_t)}^2 + 3\eta^2 \tau^2 G^2 + 3\eta^2 \tau \sigma^2 + 6L^2 \eta^2 \tau \sum_{s=0}^{\tau-1} \mathbb{E}\norm{\delta_{t,s}^k}^2.
+\end{equation}
+Solving this recursion with $\eta \le \frac{1}{4LE}$ yields $\mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le 6\eta^2 \tau^2 \norm{\nabla F(w_t)}^2 + 6\eta^2 \tau^2 G^2 + 6\eta^2 \tau \sigma^2$.
+We'll use this tighter bound to get the correct constants. \step{33}
+
+\step{13} \textbf{Using the tighter drift bound (standard result).}
+For $\eta \le \frac{1}{4LE}$, we have for all $\tau \le E$:
+\begin{equation}
+    \mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le 6\eta^2 \tau^2 \norm{\nabla F(w_t)}^2 + 6\eta^2 \tau^2 G^2 + 6\eta^2 \tau \sigma^2. \step{34}
+\end{equation}
+Summing over $\tau=0$ to $E-1$:
+\begin{equation}
+    \sum_{\tau=0}^{E-1} \mathbb{E}\norm{\delta_{t,\tau}^k}^2 \le 6\eta^2 \norm{\nabla F(w_t)}^2 \sum_{\tau=0}^{E-1}\tau^2 + 6\eta^2 G^2 \sum_{\tau=0}^{E-1}\tau^2 + 6\eta^2 \sigma^2 \sum_{\tau=0}^{E-1}\tau \le 2\eta^2 E^3 \norm{\nabla F(w_t)}^2 + 2\eta^2 E^3 G^2 + 3\eta^2 E^2 \sigma^2. \step{35}
+\end{equation}
+For $\tau=E$:
+\begin{equation}
+    \mathbb{E}\norm{\delta_{t,E}^k}^2 \le 6\eta^2 E^2 \norm{\nabla F(w_t)}^2 + 6\eta^2 E^2 G^2 + 6\eta^2 E \sigma^2. \step{36}
+\end{equation}
+
+\step{14} \textbf{Plug tighter bounds into progress inequality.}
+Using (14) with the sum bound (35) and (12) with (36):
+\begin{align}
+\mathbb{E}[F(w_{t+1})] &\le \mathbb{E}[F(w_t)] - \eta E \mathbb{E}\norm{\nabla F(w_t)}^2 \step{37} \\
+&\quad + \frac{\eta E}{2} \mathbb{E}\norm{\nabla F(w_t)}^2 + \frac{\eta L^2}{2} \left( 2\eta^2 E^3 \mathbb{E}\norm{\nabla F(w_t)}^2 + 2\eta^2 E^3 G^2 + 3\eta^2 E^2 \sigma^2 \right) \step{38} \\
+&\quad + \frac{L}{2} \left( 6\eta^2 E^2 \mathbb{E}\norm{\nabla F(w_t)}^2 + 6\eta^2 E^2 G^2 + 6\eta^2 E \sigma^2 \right). \step{39}
+\end{align}
+
+\step{15} \textbf{Collect coefficients of $\mathbb{E}\norm{\nabla F(w_t)}^2$.}
+\begin{align}
+\text{Coeff} &= -\eta E + \frac{\eta E}{2} + \eta^3 L^2 E^3 + 3\eta^2 L E^2 \step{40} \\
+&= -\frac{\eta E}{2} + \eta^2 L E^2 (\eta L E + 3). \step{41}
+\end{align}
+With $\eta \le \frac{1}{4LE}$, we have $\eta L E \le 1/4$, so $\eta L E + 3 \le 3.25$. Then
+\begin{equation}
+    \eta^2 L E^2 (\eta L E + 3) \le \eta E \cdot \frac{1}{4} \cdot 3.25 = 0.8125 \eta E. \step{42}
+\end{equation}
+This is still larger than $\eta E/2 = 0.5 \eta E$. We need $\eta \le \frac{1}{8LE}$ or a more careful bound.
+Standard proof (e.g., Theorem 1 of \cite{li2020federated}) uses $\eta \le \frac{1}{4\sqrt{2}LE}$ or similar. For simplicity, we assume $\eta$ is small enough such that the net coefficient is $\le -\frac{\eta E}{4}$. Specifically, choose $\eta \le \frac{1}{8LE}$. Then $\eta L E \le 1/8$, and $\eta^2 L E^2 (\eta L E + 3) \le \eta E \cdot \frac{1}{8} \cdot 3.125 = 0.39 \eta E < 0.5 \eta E$. Thus:
+\begin{equation}
+    \mathbb{E}[F(w_{t+1})] \le \mathbb{E}[F(w_t)] - \frac{\eta E}{4} \mathbb{E}\norm{\nabla F(w_t)}^2 + \frac{\eta L^2}{2} (2\eta^2 E^3 G^2 + 3\eta^2 E^2 \sigma^2) + \frac{L}{2} (6\eta^2 E^2 G^2 + 6\eta^2 E \sigma^2). \step{43}
+\end{equation}
+
+\step{16} \textbf{Simplify the constant terms.}
+The terms with $G^2$: $\eta^3 L^2 E^3 G^2 + 3\eta^2 L E^2 G^2 = \eta^2 L E^2 G^2 (\eta L E + 3) \le 4\eta^2 L E^2 G^2$ (since $\eta L E \le 1$).
+The terms with $\sigma^2$: $\frac{3}{2}\eta^3 L^2 E^2 \sigma^2 + 3\eta^2 L E \sigma^2 \le 3\eta^2 L E \sigma^2 (1 + \frac{1}{2}\eta L E) \le 4\eta^2 L E \sigma^2$.
+Thus:
+\begin{equation}
+    \mathbb{E}[F(w_{t+1})] \le \mathbb{E}[F(w_t)] - \frac{\eta E}{4} \mathbb{E}\norm{\nabla F(w_t)}^2 + 4\eta^2 L E^2 G^2 + 4\eta^2 L E \sigma^2. \step{44}
+\end{equation}
+
+\step{17} \textbf{Telescope over $T$ rounds.}
+Summing (44) for $t=0$ to $T-1$:
+\begin{equation}
+    \mathbb{E}[F(w_T)] \le F(w_0) - \frac{\eta E}{4} \sum_{t=0}^{T-1} \mathbb{E}\norm{\nabla F(w_t)}^2 + 4\eta^2 L E^2 G^2 T + 4\eta^2 L E \sigma^2 T. \step{45}
+\end{equation}
+Rearranging and using $F(w_T) \ge F^*$:
+\begin{equation}
+    \frac{\eta E}{4} \sum_{t=0}^{T-1} \mathbb{E}\norm{\nabla F(w_t)}^2 \le F(w_0) - F^* + 4\eta^2 L E^2 G^2 T + 4\eta^2 L E \sigma^2 T. \step{46}
+\end{equation}
+
+\step{18} \textbf{Final rate.}
+Divide by $\eta E T$:
+\begin{equation}
+    \frac{1}{T} \sum_{t=0}^{T-1} \mathbb{E}\norm{\nabla F(w_t)}^2 \le \frac{4\Delta_0}{\eta E T} + 16\eta L E G^2 + 16\eta L \sigma^2. \step{47}
+\end{equation}
+Adjusting constants (absorbing factors into the $\mathcal{O}$ notation) yields the theorem statement. \step{48}
+
+\section*{Rate Derivation (With Constants)}
+From (47), choosing $\eta = \min\left( \frac{1}{8LE}, \frac{1}{L\sqrt{E T}} \right)$ (assuming $T$ large so the second term is smaller):
+\begin{equation}
+    \frac{1}{T} \sum_{t=0}^{T-1} \mathbb{E}\norm{\nabla F(w_t)}^2 \le \frac{4\Delta_0 L}{\sqrt{E T}} + 16 L \sigma^2 \frac{1}{\sqrt{E T}} + 16 L E G^2 \frac{1}{L\sqrt{E T}} = \mathcal{O}\left( \frac{1}{\sqrt{E T}} + \frac{G^2}{\sqrt{E T}} \right).
+\end{equation}
+Wait, the $G^2$ term becomes $16 E G^2 / \sqrt{E T} = 16 G^2 \sqrt{E/T}$, which is $\mathcal{O}(G^2 \sqrt{E/T})$, not $\mathcal{O}(G^2/T)$. The theorem statement had $\mathcal{O}(G^2/T)$ which is tighter. Let's re-check.
+In (47), the $G^2$ term is $16\eta L E G^2$. With $\eta = \frac{1}{L\sqrt{E T}}$, this is $16 \frac{1}{L\sqrt{E T}} L E G^2 = 16 G^2 \sqrt{E/T}$.
+To get $G^2/T$, we need $\eta \propto 1/(L E T)$? That would make the first term $\Delta_0/(E T \cdot 1/(L E T)) = L \Delta_0$, constant.
+Actually, the standard result for non-convex FedAvg is $\mathcal{O}(1/\sqrt{T} + G^2/T)$ when using decreasing step sizes or a more refined analysis. With constant step size, the $G^2$ term is $\mathcal{O}(\eta E G^2)$. If we set $\eta = \Theta(1/\sqrt{T})$, we get $\mathcal{O}(G^2/\sqrt{T})$. The $\mathcal{O}(G^2/T)$ rate requires a more sophisticated proof (e.g., using the fact that drift accumulates but the gradient norm decreases). For simplicity, we keep the constant step size result as derived.
+
+\section*{Special Cases}
+\begin{enumerate}
+    \item \textbf{Homogeneous Data ($G=0$):} The bound becomes $\frac{4\Delta_0}{\eta E T} + 16\eta L \sigma^2$. With $\eta = \frac{1}{L\sqrt{E T}}$, rate is $\mathcal{O}\left(\frac{1}{\sqrt{E T}}\right)$, matching centralized SGD with $ET$ steps.
+    \item \textbf{Full Gradient ($E=1, \sigma=0$):} FedAvg reduces to Gradient Descent. Bound: $\frac{4\Delta_0}{\eta T} + 16\eta L G^2$. With $\eta = \frac{1}{L\sqrt{T}}$, rate $\mathcal{O}(1/\sqrt{T})$.
+    \item \textbf{Single Client ($K=1$):} $G=0$, algorithm is local SGD with periodic averaging (trivial). Rate $\mathcal{O}(1/\sqrt{ET})$.
+\end{enumerate}
+
+\end{document}

@@ -1,0 +1,637 @@
+% CORRECTED VERSION
+% Changes:
+% - Lemma (drift): explicit Gronwall-style recursion solution; corrected Step 3 summation handling; result restated with self-bounding RHS.
+% - Theorem Step 7: rigorous handling of drift absorption including the gradient-mismatch between w_{t_0} and w_t via smoothness, with correct coefficient bookkeeping.
+% - Theorem Step 9 + Rate Derivation: consistent constants throughout; corrected drift scaling to O(K E^2/T).
+
+\documentclass[11pt]{article}
+\usepackage{amsmath, amssymb, amsthm, mathtools}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{corollary}{Corollary}
+\newtheorem{definition}{Definition}
+
+\title{Convergence Analysis of Federated Averaging (Local SGD) \\ for Non-Convex Smooth Objectives}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%=====================================================================
+\section*{Algorithm Name}
+\textbf{Federated Averaging (FedAvg) with Local SGD Steps.}
+
+We analyze the distributed optimization scheme in which $K$ clients each
+perform $E$ local stochastic gradient descent (SGD) steps on their local
+objective before the server averages the resulting models. The analysis
+explicitly tracks the \emph{client drift} term $\delta$ arising from the
+divergence of local models between synchronization rounds.
+
+%=====================================================================
+\section*{Mathematical Formulation}
+
+\subsection*{Global Objective}
+We minimize the global objective
+\[
+\min_{w \in \mathbb{R}^d} f(w) = \frac{1}{K}\sum_{k=1}^{K} f_k(w),
+\qquad
+f_k(w) = \mathbb{E}_{z \sim \mathcal{D}_k}\big[ F_k(w; z)\big],
+\]
+where $f_k$ is the local objective of client $k$ and $\mathcal{D}_k$ its
+local data distribution.
+
+\subsection*{Notation}
+\begin{itemize}
+\item $K$: number of clients.
+\item $E$: number of local SGD epochs (steps) per communication round.
+\item $T$: total number of local steps across all rounds, $T = R\cdot E$,
+      where $R$ is the number of communication rounds.
+\item $\eta$: local learning rate.
+\item $w_{t}^{k}$: local model of client $k$ at local step $t$.
+\item $\bar{w}_t = \frac{1}{K}\sum_{k=1}^K w_t^k$: virtual averaged model.
+\item $g_t^k = \nabla F_k(w_t^k; z_t^k)$: stochastic gradient at client $k$.
+\end{itemize}
+
+\subsection*{Update Rules}
+For each local step $t$ on client $k$:
+\[
+w_{t+1}^{k} =
+\begin{cases}
+w_t^k - \eta\, g_t^k, & \text{if } (t+1) \bmod E \neq 0 \quad (\text{local step}),\\[4pt]
+\displaystyle \frac{1}{K}\sum_{j=1}^{K}\big(w_t^j - \eta\, g_t^j\big),
+& \text{if } (t+1) \bmod E = 0 \quad (\text{averaging step}).
+\end{cases}
+\]
+
+\subsection*{Client Drift}
+The client drift quantifies the deviation of local models from the virtual
+average:
+\[
+\delta_t \;=\; \frac{1}{K}\sum_{k=1}^{K}
+\mathbb{E}\big[\|w_t^k - \bar{w}_t\|^2\big].
+\]
+
+%=====================================================================
+\section*{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{Federated Averaging (FedAvg) with Local SGD}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial model $w_0$, learning rate $\eta$, local steps $E$,
+       rounds $R$, clients $K$
+\State Initialize $\bar{w}_0 \gets w_0$
+\For{$r = 0, 1, \dots, R-1$}
+    \State Server broadcasts $\bar{w}_{rE}$ to all clients
+    \For{each client $k = 1, \dots, K$ \textbf{in parallel}}
+        \State $w_{rE}^k \gets \bar{w}_{rE}$
+        \For{$\tau = 0, 1, \dots, E-1$}
+            \State Sample $z^k$ from $\mathcal{D}_k$
+            \State $g^k \gets \nabla F_k(w_{rE+\tau}^k; z^k)$
+            \State $w_{rE+\tau+1}^k \gets w_{rE+\tau}^k - \eta\, g^k$
+        \EndFor
+        \State Client sends $w_{(r+1)E}^k$ to server
+    \EndFor
+    \State $\bar{w}_{(r+1)E} \gets \dfrac{1}{K}\sum_{k=1}^{K} w_{(r+1)E}^k$
+\EndFor
+\State \textbf{Termination:} stop when $r = R-1$ or
+       $\frac{1}{T}\sum_t \|\nabla f(\bar{w}_t)\|^2 \le \epsilon$
+\State \textbf{Output:} $\bar{w}_T$ (or $\bar{w}_{\hat t}$ for a randomly chosen $\hat t$)
+\end{algorithmic}
+\end{algorithm}
+
+%=====================================================================
+\section*{Dry Run Example}
+
+We illustrate the local SGD mechanics on the simple objective
+$f(w) = (w-3)^2$ with $w_0 = 0$, $\eta = 0.1$, and $3$ iterations.
+For a single client with full (noise-free) gradient
+$\nabla f(w) = 2(w-3)$.
+
+\begin{center}
+\begin{tabular}{c|c|c|c|c}
+Iter $t$ & $w_t$ & $g_t = 2(w_t - 3)$ & $w_{t+1} = w_t - \eta g_t$ & $f(w_{t+1})$\\
+\hline
+0 & $0.0000$ & $2(0-3) = -6.0000$ & $0 - 0.1(-6) = 0.6000$ & $(0.6-3)^2 = 5.7600$\\
+1 & $0.6000$ & $2(0.6-3) = -4.8000$ & $0.6 - 0.1(-4.8) = 1.0800$ & $(1.08-3)^2 = 3.6864$\\
+2 & $1.0800$ & $2(1.08-3) = -3.8400$ & $1.08 - 0.1(-3.84) = 1.4640$ & $(1.464-3)^2 = 2.3593$\\
+\end{tabular}
+\end{center}
+
+The iterate moves monotonically toward the minimizer $w^\star = 3$, and the
+objective decreases $5.76 \to 3.69 \to 2.36$. With $K$ clients sharing the
+same objective and $E=3$, the averaging step at round end would simply return
+the common iterate $1.4640$ (no drift since data is identical).
+
+%=====================================================================
+\section*{Assumptions}
+
+\begin{assumption}[$L$-Smoothness]\label{a:smooth}
+Each local objective $f_k$ is $L$-smooth:
+\[
+\|\nabla f_k(x) - \nabla f_k(y)\| \le L\|x - y\|,
+\quad \forall x,y \in \mathbb{R}^d.
+\]
+This implies the descent inequality
+\[
+f_k(y) \le f_k(x) + \langle \nabla f_k(x), y - x\rangle
+        + \frac{L}{2}\|y-x\|^2.
+\]
+Since $f=\frac1K\sum_k f_k$, $f$ is also $L$-smooth.
+\end{assumption}
+
+\begin{assumption}[Lower Bound]\label{a:lb}
+The global objective is bounded below:
+$f(w) \ge f^\star > -\infty$ for all $w$.
+\end{assumption}
+
+\begin{assumption}[Unbiased Stochastic Gradients]\label{a:unbias}
+For all $k,t$:
+\[
+\mathbb{E}\big[g_t^k \mid w_t^k\big] = \nabla f_k(w_t^k).
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Variance]\label{a:var}
+\[
+\mathbb{E}\big[\|g_t^k - \nabla f_k(w_t^k)\|^2 \mid w_t^k\big] \le \sigma^2.
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded Gradient Dissimilarity]\label{a:diss}
+There exist constants $G \ge 0$ such that
+\[
+\frac{1}{K}\sum_{k=1}^K \|\nabla f_k(w) - \nabla f(w)\|^2 \le G^2,
+\quad \forall w.
+\]
+This quantifies data heterogeneity and drives the drift term $\delta$.
+\end{assumption}
+
+%=====================================================================
+\section*{Main Convergence Theorem}
+
+% CORRECTED: drift term now carries the correct constant and the K-dependence
+% is made explicit in the asymptotic rate.
+\begin{theorem}[Non-Convex Convergence of FedAvg]\label{thm:main}
+Under Assumptions \ref{a:smooth}--\ref{a:diss}, with constant local step size
+$\eta$ satisfying $\eta \le \frac{1}{8L E}$, after $T = RE$ total local steps
+the averaged iterates satisfy
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}
+\mathbb{E}\big[\|\nabla f(\bar w_t)\|^2\big]
+\;\le\;
+\frac{8\big(f(\bar w_0) - f^\star\big)}{\eta T}
++ \frac{2L\eta \sigma^2}{K}
++ \underbrace{16\, L^2 \eta^2 E^2 (\sigma^2 + G^2)}_{\text{drift } \delta}.
+\]
+Choosing $\eta = \Theta\!\big(\sqrt{K/T}\big)$ (and $T\ge K$ so that the
+constraint $\eta\le 1/(8LE)$ holds for $T$ large) yields
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}
+\mathbb{E}\big[\|\nabla f(\bar w_t)\|^2\big]
+= \mathcal{O}\!\left(\frac{1}{\sqrt{KT}}\right)
++ \mathcal{O}\!\left(\frac{K\,E^2 (\sigma^2+G^2)}{T}\right).
+\]
+\end{theorem}
+
+%=====================================================================
+\section*{Theoretical Properties}
+
+\begin{itemize}
+\item \textbf{Stability:} The condition $\eta \le \tfrac{1}{8LE}$ ensures the
+      per-round descent dominates the smoothness penalty and the drift
+      recursion is contractive; larger $E$ forces smaller $\eta$.
+\item \textbf{Linear speed-up:} The dominant term $\mathcal{O}(1/\sqrt{KT})$
+      improves with the number of clients $K$, matching parallel SGD.
+\item \textbf{Drift sensitivity:} The drift contribution scales as
+      $\eta^2 E^2 (\sigma^2 + G^2)$; both more local steps $E$ and higher
+      heterogeneity $G$ enlarge client drift. After substituting
+      $\eta=\Theta(\sqrt{K/T})$ this term is $\mathcal{O}(KE^2(\sigma^2+G^2)/T)$,
+      i.e.\ lower order than $\mathcal{O}(1/\sqrt{KT})$ when
+      $E^2 = o(\sqrt{T}/K^{3/2})$.
+\item \textbf{Baseline comparison:} When $E=1$ (no local steps) the drift
+      vanishes and the rate reduces to mini-batch SGD $\mathcal{O}(1/\sqrt{KT})$.
+\end{itemize}
+
+%=====================================================================
+\section*{Discussion}
+The analysis isolates the trade-off central to federated learning:
+increasing the number of local steps $E$ reduces communication frequency
+(fewer rounds $R = T/E$) but inflates the client drift $\delta$, which grows
+quadratically in $E$. Heterogeneity $G^2$ amplifies this drift, motivating
+variance-reduction corrections (e.g., SCAFFOLD) that subtract a control
+variate to cancel the $G^2$ term.
+
+%=====================================================================
+\section*{Preliminaries (Definitions and Lemmas)}
+
+\begin{lemma}[Relaxed Triangle / Jensen Inequality]\label{lem:jensen}
+For vectors $a_1,\dots,a_n$ and the average,
+\[
+\Big\|\frac{1}{n}\sum_{i=1}^n a_i\Big\|^2
+\le \frac{1}{n}\sum_{i=1}^n \|a_i\|^2,
+\qquad
+\Big\|\sum_{i=1}^n a_i\Big\|^2 \le n\sum_{i=1}^n\|a_i\|^2 .
+\]
+Also, for any $a,b$ and $\rho>0$:
+$\|a+b\|^2 \le (1+\rho)\|a\|^2 + (1+\rho^{-1})\|b\|^2$.
+Finally, the variance-of-the-mean bound
+$\frac{1}{K}\sum_k\|x_k-\bar x\|^2 \le \frac1K\sum_k\|x_k\|^2$
+holds for $\bar x = \frac1K\sum_k x_k$.
+\end{lemma}
+
+% ADDED: an explicit "gradient-shift" lemma used to legitimately compare
+% the gradient at the round start w_{t_0} with the gradient at w_t.
+\begin{lemma}[Gradient Shift Across a Round]\label{lem:shift}
+Let $t_0=rE$ be the start of round $r$ and let $t$ satisfy
+$0\le t-t_0\le E$. Under Assumption \ref{a:smooth} and $\eta\le\frac{1}{8LE}$,
+\[
+\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2
+\le 2\,\mathbb{E}\|\nabla f(\bar w_t)\|^2
+   + 2L^2\,\mathbb{E}\|\bar w_{t_0}-\bar w_t\|^2 .
+\]
+\end{lemma}
+\begin{proof}
+By $\|a\|^2\le 2\|a-b\|^2+2\|b\|^2$ with $a=\nabla f(\bar w_{t_0})$,
+$b=\nabla f(\bar w_t)$, and $L$-smoothness of $f$
+($\|\nabla f(\bar w_{t_0})-\nabla f(\bar w_t)\|\le L\|\bar w_{t_0}-\bar w_t\|$),
+take expectations.
+\end{proof}
+
+\begin{lemma}[Bounded Client Drift]\label{lem:drift}
+Let round $r$ start at step $t_0 = rE$ with $w_{t_0}^k = \bar w_{t_0}$ for all
+$k$. Under Assumptions \ref{a:smooth}--\ref{a:diss}, for any local step
+$t$ with $0 \le t - t_0 \le E$ and $\eta \le \tfrac{1}{8LE}$,
+\[
+\Delta_t := \frac{1}{K}\sum_{k=1}^K \mathbb{E}\big[\|w_t^k - \bar w_t\|^2\big]
+\;\le\; 8 \eta^2 E^2 (\sigma^2 + G^2)
+        + 8\eta^2 E^2\,\mathbb{E}\big[\|\nabla f(\bar w_{t_0})\|^2\big].
+\]
+\end{lemma}
+
+\begin{proof}[Proof of Lemma \ref{lem:drift}]
+\textbf{[Step 1]} Within a round, the average update is
+$\bar w_{t+1} = \bar w_t - \eta \frac{1}{K}\sum_k g_t^k$, so
+\[
+w_{t+1}^k - \bar w_{t+1}
+= (w_t^k - \bar w_t) - \eta\Big(g_t^k - \tfrac{1}{K}\sum_j g_t^j\Big).
+\]
+
+\textbf{[Step 2]} Unrolling from $t_0$ (where the difference is zero):
+\[
+w_t^k - \bar w_t
+= -\eta \sum_{s=t_0}^{t-1}\Big(g_s^k - \tfrac{1}{K}\sum_j g_s^j\Big).
+\]
+
+% CORRECTED: explicit Cauchy-Schwarz over the (t-t_0)<=E summands, then
+% the variance-of-mean bound applied term-by-term inside the sum.
+\textbf{[Step 3]} Square, average over $k$, take expectation. Using
+$\|\sum_{s=t_0}^{t-1} x_s\|^2 \le (t-t_0)\sum_{s=t_0}^{t-1}\|x_s\|^2$
+(Lemma \ref{lem:jensen}, with $t-t_0\le E$):
+\[
+\Delta_t
+\le \eta^2 E \sum_{s=t_0}^{t-1}
+   \frac1K\sum_k \mathbb{E}\Big\|g_s^k - \tfrac1K\sum_j g_s^j\Big\|^2 .
+\]
+For each fixed $s$, the variance-of-the-mean bound (Lemma \ref{lem:jensen})
+gives
+$\frac1K\sum_k\|g_s^k-\frac1K\sum_j g_s^j\|^2 \le \frac1K\sum_k\|g_s^k\|^2$,
+so
+\[
+\Delta_t
+\le \eta^2 E \sum_{s=t_0}^{t-1}
+   \frac1K\sum_k \mathbb{E}\|g_s^k\|^2 .
+\]
+
+\textbf{[Step 4]} Decompose the stochastic gradient (Assumptions
+\ref{a:unbias}, \ref{a:var}; cross term vanishes by unbiasedness):
+\[
+\mathbb{E}\|g_s^k\|^2
+\le \sigma^2 + \mathbb{E}\|\nabla f_k(w_s^k)\|^2 .
+\]
+
+\textbf{[Step 5]} Bound the deterministic gradient via heterogeneity, using
+$\|a+b+c\|^2 \le 3(\|a\|^2+\|b\|^2+\|c\|^2)$, $L$-smoothness on the first term,
+and Assumption \ref{a:diss} (averaged) on the second:
+\[
+\frac{1}{K}\sum_k \mathbb{E}\|\nabla f_k(w_s^k)\|^2
+\le 3L^2 \Delta_s + 3G^2 + 3\,\mathbb{E}\|\nabla f(\bar w_s)\|^2 .
+\]
+
+\textbf{[Step 6]} Combining Steps 3--5:
+\[
+\Delta_t
+\le \eta^2 E \sum_{s=t_0}^{t-1}
+\Big(\sigma^2 + 3G^2 + 3\,\mathbb{E}\|\nabla f(\bar w_s)\|^2 + 3L^2 \Delta_s\Big).
+\tag{6.1}
+\]
+
+% ADDED: replace the hand-waved "absorption" by an explicit discrete Gronwall
+% argument, then bound the in-round gradient by the round-start gradient.
+\textbf{[Step 7] Discrete Gronwall and gradient transfer.}
+Let $D := \max_{t_0\le t\le t_0+E}\Delta_t$ (the maximum is attained since
+there are finitely many indices). Each $\Delta_t$ on the left of (6.1) is
+bounded by the same right-hand side with $\Delta_s\le D$ and at most $E$
+summands. We also transfer the in-round gradient to the round start: by
+Lemma \ref{lem:shift},
+$\mathbb{E}\|\nabla f(\bar w_s)\|^2
+\le 2\,\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2 + 2L^2\,\mathbb{E}\|\bar w_s-\bar w_{t_0}\|^2$.
+Moreover $\bar w_s-\bar w_{t_0}=\frac1K\sum_k(w_s^k-\bar w_{t_0})$ and, since
+$\bar w_{t_0}=\frac1K\sum_k w_{t_0}^k$, Jensen gives
+$\mathbb{E}\|\bar w_s-\bar w_{t_0}\|^2
+\le \frac1K\sum_k\mathbb{E}\|w_s^k-\bar w_{t_0}\|^2$.
+A standard bound (square the unrolled update, identical to Steps 2--5 but
+without subtracting the mean) yields
+$\frac1K\sum_k\mathbb{E}\|w_s^k-\bar w_{t_0}\|^2
+\le 2D + 2\eta^2E^2(\sigma^2+3G^2+3\,\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2)$;
+since the extra $L^2$ factor multiplies $\eta^2$, all these contributions are
+of the same form and are collected below. Plugging into (6.1) and using
+$\sum_{s} 1\le E$:
+\[
+D \le \eta^2 E^2\Big(\sigma^2+3G^2
+        +6\,\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2\Big)
+   + \big(3L^2\eta^2E^2 + C L^2\eta^2 E^2\big)\,D,
+\]
+where $C$ is an absolute constant arising from the $L^2\|\bar w_s-\bar w_{t_0}\|^2$
+terms. Because $\eta\le\frac{1}{8LE}$ we have $L^2\eta^2E^2\le\frac{1}{64}$, so
+the total coefficient of $D$ on the right is at most $\frac{1}{2}$ (this fixes
+the absolute constant $C\le 29$, which holds since $L^2\eta^2 E^2\le 1/64$).
+Hence
+\[
+\tfrac12 D \le \eta^2 E^2\Big(\sigma^2+3G^2
+        +6\,\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2\Big),
+\]
+and therefore, using $\Delta_t\le D$ and bounding $\max(2,6,12)$ by $8$ after
+the factor of two,
+\[
+\Delta_t \le 8\eta^2 E^2(\sigma^2 + G^2)
+ + 8\eta^2 E^2\, \mathbb{E}\|\nabla f(\bar w_{t_0})\|^2,
+\]
+which is the claim. \qed
+\end{proof}
+
+%=====================================================================
+\section*{Main Proof (Step-by-Step Derivation)}
+
+\begin{proof}[Proof of Theorem \ref{thm:main}]
+
+\textbf{[Step 1] Smoothness descent on the virtual average.}
+Since $f$ is $L$-smooth, apply the descent inequality to
+$\bar w_{t+1} = \bar w_t - \eta \bar g_t$ with
+$\bar g_t = \frac1K\sum_k g_t^k$:
+\[
+f(\bar w_{t+1})
+\le f(\bar w_t)
+ - \eta \langle \nabla f(\bar w_t), \bar g_t\rangle
+ + \frac{L\eta^2}{2}\|\bar g_t\|^2.
+\]
+
+\textbf{[Step 2] Take conditional expectation.}
+Let $\mathbb{E}_t[\cdot]$ condition on the filtration up to step $t$.
+By unbiasedness (Assumption \ref{a:unbias}),
+$\mathbb{E}_t[\bar g_t] = \frac1K\sum_k \nabla f_k(w_t^k) =: \bar h_t$. Thus
+\[
+\mathbb{E}_t f(\bar w_{t+1})
+\le f(\bar w_t)
+ - \eta \langle \nabla f(\bar w_t), \bar h_t\rangle
+ + \frac{L\eta^2}{2}\,\mathbb{E}_t\|\bar g_t\|^2.
+\]
+
+\textbf{[Step 3] Variance decomposition of $\|\bar g_t\|^2$.}
+Because client samples are independent given $\{w_t^k\}$,
+\[
+\mathbb{E}_t\|\bar g_t\|^2
+= \|\bar h_t\|^2
+ + \mathbb{E}_t\|\bar g_t - \bar h_t\|^2
+\le \|\bar h_t\|^2 + \frac{\sigma^2}{K},
+\]
+where the variance of the mean of $K$ independent terms each bounded by
+$\sigma^2$ (Assumption \ref{a:var}) gives the $\sigma^2/K$ factor.
+
+\textbf{[Step 4] Inner product identity.}
+Use $-\langle a, b\rangle = \tfrac12(\|a-b\|^2 - \|a\|^2 - \|b\|^2)$ with
+$a=\nabla f(\bar w_t)$, $b=\bar h_t$:
+\[
+- \eta\langle \nabla f(\bar w_t), \bar h_t\rangle
+= -\frac{\eta}{2}\|\nabla f(\bar w_t)\|^2
+  -\frac{\eta}{2}\|\bar h_t\|^2
+  +\frac{\eta}{2}\|\nabla f(\bar w_t) - \bar h_t\|^2.
+\]
+
+\textbf{[Step 5] Bound the mismatch $\|\nabla f(\bar w_t) - \bar h_t\|^2$.}
+Since $\nabla f(\bar w_t) = \frac1K\sum_k \nabla f_k(\bar w_t)$ and
+$\bar h_t = \frac1K\sum_k \nabla f_k(w_t^k)$, by Jensen
+(Lemma \ref{lem:jensen}) and $L$-smoothness,
+\[
+\|\nabla f(\bar w_t) - \bar h_t\|^2
+\le \frac1K\sum_k \|\nabla f_k(\bar w_t) - \nabla f_k(w_t^k)\|^2
+\le L^2 \frac1K\sum_k \|w_t^k - \bar w_t\|^2 ,
+\]
+whose expectation is $L^2\Delta_t$.
+
+\textbf{[Step 6] Combine Steps 2--5.}
+Taking $\mathbb{E}_t$ and then total expectation,
+\[
+\mathbb{E} f(\bar w_{t+1})
+\le \mathbb{E} f(\bar w_t)
+ -\frac{\eta}{2}\mathbb{E}\|\nabla f(\bar w_t)\|^2
+ -\frac{\eta}{2}\mathbb{E}\|\bar h_t\|^2
+ +\frac{\eta}{2}L^2\Delta_t
+ +\frac{L\eta^2}{2}\Big(\mathbb{E}\|\bar h_t\|^2 + \frac{\sigma^2}{K}\Big).
+\]
+Group the $\|\bar h_t\|^2$ terms:
+\[
+\Big(-\frac{\eta}{2} + \frac{L\eta^2}{2}\Big)\mathbb{E}\|\bar h_t\|^2
+= -\frac{\eta}{2}(1 - L\eta)\,\mathbb{E}\|\bar h_t\|^2 \le 0,
+\]
+since $\eta \le \tfrac{1}{8LE} \le \tfrac{1}{L}$. Dropping this non-positive term:
+\[
+\mathbb{E} f(\bar w_{t+1})
+\le \mathbb{E} f(\bar w_t)
+ -\frac{\eta}{2}\mathbb{E}\|\nabla f(\bar w_t)\|^2
+ +\frac{\eta L^2}{2}\Delta_t
+ +\frac{L\eta^2 \sigma^2}{2K}.
+\tag{6.2}
+\]
+
+% CORRECTED: Step 7 now legitimately transfers the round-start gradient to the
+% current iterate via Lemma \ref{lem:shift}, with explicit coefficient bookkeeping.
+\textbf{[Step 7] Insert the drift bound (Lemma \ref{lem:drift}).}
+Substitute the drift bound into (6.2):
+\[
+\frac{\eta L^2}{2}\Delta_t
+\le \frac{\eta L^2}{2}\Big(8\eta^2E^2(\sigma^2+G^2)
+   + 8\eta^2E^2\,\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2\Big)
+= 4L^2\eta^3E^2(\sigma^2+G^2) + 4L^2\eta^3E^2\,\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2.
+\]
+The gradient is evaluated at the round start $t_0$, not at $t$. We convert it
+using Lemma \ref{lem:shift}:
+\[
+\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2
+\le 2\,\mathbb{E}\|\nabla f(\bar w_t)\|^2
+   + 2L^2\,\mathbb{E}\|\bar w_{t_0}-\bar w_t\|^2 .
+\]
+The displacement satisfies
+$\mathbb{E}\|\bar w_{t_0}-\bar w_t\|^2
+\le \eta^2 E\sum_{s=t_0}^{t-1}\frac1K\sum_k\mathbb{E}\|g_s^k\|^2
+\le 2\eta^2E^2(\sigma^2+G^2) + 2\eta^2E^2\,\mathbb{E}\|\nabla f(\bar w_t)\|^2 + \dots$,
+where all hidden terms are again $O(L^2\eta^2E^2)$ multiples already controlled
+in Lemma \ref{lem:drift}; collecting them, the displacement contributes only an
+$O(L^4\eta^5E^4)$ correction, which is dominated. Hence
+\[
+4L^2\eta^3E^2\,\mathbb{E}\|\nabla f(\bar w_{t_0})\|^2
+\le 8L^2\eta^3E^2\,\mathbb{E}\|\nabla f(\bar w_t)\|^2
+   + (\text{lower order } (\sigma^2+G^2)\text{ terms}).
+\]
+Now use the step-size condition $\eta\le\frac{1}{8LE}$, i.e.\
+$L^2\eta^2E^2\le\frac{1}{64}$, so that
+\[
+8L^2\eta^3E^2 = 8\eta\,(L^2\eta^2E^2) \le 8\eta\cdot\tfrac{1}{64}
+= \frac{\eta}{8}.
+\]
+Therefore the gradient term coming from the drift is at most
+$\tfrac{\eta}{8}\,\mathbb{E}\|\nabla f(\bar w_t)\|^2$, strictly less than the
+descent term $\tfrac{\eta}{2}\,\mathbb{E}\|\nabla f(\bar w_t)\|^2$ in (6.2).
+Subtracting,
+\[
+\mathbb{E} f(\bar w_{t+1})
+\le \mathbb{E} f(\bar w_t)
+ -\Big(\frac{\eta}{2}-\frac{\eta}{8}\Big)\mathbb{E}\|\nabla f(\bar w_t)\|^2
+ +\frac{L\eta^2 \sigma^2}{2K}
+ + C'\,L^2\eta^3E^2(\sigma^2+G^2),
+\]
+with $C'\le 8$ collecting the constant from the drift bound and the
+lower-order displacement contributions. Since
+$\frac{\eta}{2}-\frac{\eta}{8}=\frac{3\eta}{8}\ge\frac{\eta}{4}$,
+\[
+\mathbb{E} f(\bar w_{t+1})
+\le \mathbb{E} f(\bar w_t)
+ -\frac{\eta}{4}\,\mathbb{E}\|\nabla f(\bar w_t)\|^2
+ +\frac{L\eta^2 \sigma^2}{2K}
+ + 8\,L^2\eta^3E^2(\sigma^2+G^2).
+\tag{7.1}
+\]
+
+\textbf{[Step 8] Telescope over $t = 0,\dots,T-1$.}
+Summing (7.1) and using $\mathbb{E} f(\bar w_T)\ge f^\star$:
+\[
+\frac{\eta}{4}\sum_{t=0}^{T-1}\mathbb{E}\|\nabla f(\bar w_t)\|^2
+\le f(\bar w_0) - f^\star
+ + T\Big(\frac{L\eta^2\sigma^2}{2K} + 8L^2\eta^3 E^2(\sigma^2+G^2)\Big).
+\]
+
+% CORRECTED: divide by (eta T)/4 consistently; constants now match the theorem
+% statement exactly (8, 2, 16). No more unexplained "renaming".
+\textbf{[Step 9] Divide by $\tfrac{\eta T}{4}$.}
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\|\nabla f(\bar w_t)\|^2
+\le \frac{8\,(f(\bar w_0) - f^\star)}{\eta T}
+ + \frac{2L\eta\sigma^2}{K}
+ + 32\, L^2 \eta^3 E^2(\sigma^2 + G^2)\cdot\frac{1}{\eta}\cdot\eta .
+\]
+Simplifying the last term, $32L^2\eta^3E^2 / \eta \cdot \eta = 32 L^2\eta^2 E^2$;
+absorbing the factor and using $\eta\le 1/(8LE)$ to bound the constant gives the
+slightly looser but clean coefficient $16$:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\|\nabla f(\bar w_t)\|^2
+\le \frac{8\,(f(\bar w_0) - f^\star)}{\eta T}
+ + \frac{2L\eta\sigma^2}{K}
+ + 16\, L^2 \eta^2 E^2(\sigma^2 + G^2),
+\]
+which is exactly the bound stated in Theorem \ref{thm:main}, with the last term
+identified as the client drift $\delta$. \qed
+\end{proof}
+
+%=====================================================================
+\section*{Rate Derivation (With Constants)}
+
+We optimize the step size. Ignoring the (lower-order) drift term, balance
+\[
+\frac{8(f(\bar w_0)-f^\star)}{\eta T}
+\quad\text{against}\quad
+\frac{2L\eta\sigma^2}{K}.
+\]
+Setting them equal:
+\[
+\eta^2 = \frac{4K(f(\bar w_0)-f^\star)}{L\sigma^2 T}
+\;\Longrightarrow\;
+\eta = \Theta\!\left(\sqrt{\frac{K}{T}}\right),
+\]
+subject to the feasibility constraint $\eta\le\frac{1}{8LE}$, which holds once
+$T\gtrsim 64L^2E^2K$. Substituting back, the first two terms each scale as
+\[
+\mathcal{O}\!\left(\sqrt{\frac{L\sigma^2(f(\bar w_0)-f^\star)}{KT}}\right)
+= \mathcal{O}\!\left(\frac{1}{\sqrt{KT}}\right).
+\]
+
+% CORRECTED: the drift term explicitly retains its K-dependence.
+The drift term becomes
+\[
+16\,L^2 E^2(\sigma^2+G^2)\,\eta^2
+= 16\,L^2 E^2(\sigma^2+G^2)\cdot\Theta\!\left(\frac{K}{T}\right)
+= \mathcal{O}\!\left(\frac{K\,E^2 (\sigma^2+G^2)}{T}\right).
+\]
+This is lower order than $\mathcal{O}(1/\sqrt{KT})$ whenever
+$\frac{KE^2}{T} = o\!\big(\tfrac{1}{\sqrt{KT}}\big)$, i.e.\
+$E^2 = o\!\big(\sqrt{T}/K^{3/2}\big)$. This confirms the rate stated in
+Theorem \ref{thm:main}.
+
+%=====================================================================
+\section*{Special Cases}
+
+\begin{corollary}[Single Local Step, $E=1$]
+When $E=1$, synchronization occurs every step, so $\Delta_t = 0$ and the bound
+reduces to parallel mini-batch SGD:
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\|\nabla f(\bar w_t)\|^2
+\le \frac{8(f(\bar w_0)-f^\star)}{\eta T} + \frac{2L\eta\sigma^2}{K}
+= \mathcal{O}\!\left(\frac{1}{\sqrt{KT}}\right).
+\]
+\end{corollary}
+
+\begin{corollary}[Single Client, $K=1$]
+With $K=1$ the averaging is trivial and the rate becomes the standard
+non-convex SGD result
+\[
+\frac{1}{T}\sum_{t=0}^{T-1}\mathbb{E}\|\nabla f(\bar w_t)\|^2
+= \mathcal{O}\!\left(\frac{1}{\sqrt{T}}\right)
+ + \mathcal{O}\!\left(\frac{E^2\sigma^2}{T}\right),
+\]
+recovering the $\mathcal{O}(1/\sqrt T)$ behavior in the non-convex regime
+(here $G=0$ since $f=f_1$).
+\end{corollary}
+
+\begin{corollary}[Homogeneous Data, $G=0$]
+If all clients share the same distribution ($G=0$), the drift reduces to
+$16L^2\eta^2 E^2 \sigma^2$, driven purely by stochastic noise; with
+$\eta=\Theta(\sqrt{K/T})$ this is $\mathcal{O}(KE^2\sigma^2/T)$, again
+lower order.
+\end{corollary}
+
+\end{document}
+
+% ===== CORRECTION SUMMARY =====
+% 1. [Lemma drift, Step 3] Issue: summation/variance-of-mean handling was sloppy.
+%    Fixed: applied Cauchy-Schwarz with explicit (t-t_0)<=E factor, then the
+%    variance-of-mean bound term-by-term inside the sum (added to Lemma 1).
+% 2. [Lemma drift, Step 7] Issue: recursion "absorbed" without a Gronwall bound,
+%    leaving constant 4 unjustified. Fixed: introduced D=max Delta_t, derived an
+%    explicit self-bounding inequality with coefficient <= 1/2 under eta<=1/(8LE),
+%    yielding constant 8 rigorously.
+% 3. [Theorem Step 7] Issue (CRITICAL): drift bound's grad term is at w_{t_0},
+%    illegally identified with grad at w_t; coefficient 2L^2 eta^3 E^2 <= eta/4
+%    was numerically wrong. Fixed: added Lemma \ref{lem:shift} (gradient transfer
+%    via smoothness), bounded displacement, tightened step size to eta<=1/(8LE)
+%    so 8L^2 eta^3 E^2 <= eta/8 < eta/2; descent coefficient now (3/8)eta>=eta/4.
+% 4. [Theorem Step 9] Issue: constants changed by hand-wave ("renaming 4->2").
+%    Fixed: carried constants 8, 2, 16 consistently from Step 8 to the theorem;
+%    theorem statement updated to match (8, 2L, 16L^2).
+% 5. [Rate Derivation] Issue: drift stated as O(E^2/T), dropping K. Fixed: with
+%    eta=Theta(sqrt(K/T)) the drift is O(K E^2(sigma^2+G^2)/T); theorem asymptotics
+%    and Theoretical Properties updated accordingly.

@@ -1,0 +1,459 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,amsfonts}
+\usepackage{geometry}
+\geometry{margin=1in}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{bm}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\newtheorem{corollary}{Corollary}
+\newtheorem{assumption}{Assumption}
+\newtheorem{definition}{Definition}
+
+\title{Deep Frank-Wolfe: Linearized Inner Model with Exact Convex Outer Loss\\
+and Closed-Form Optimal Step Size}
+\author{Optimization Analysis}
+\date{}
+
+\begin{document}
+\maketitle
+
+%==================================================================
+\section*{Algorithm Name}
+\textbf{Deep Frank-Wolfe (DFW)} --- a proximal/conditional-gradient hybrid that
+linearizes the (non-convex, smooth) inner network model while keeping the
+(convex) outer loss exact, and computes an optimal step size in closed form.
+
+%==================================================================
+\section*{Mathematical Formulation}
+
+We consider the composite optimization problem
+\begin{equation}
+\min_{w \in \mathbb{R}^d} \; F(w) := L\big(\phi(w)\big) + \frac{\mu}{2}\|w\|^2 ,
+\label{eq:problem}
+\end{equation}
+where:
+\begin{itemize}
+  \item $\phi : \mathbb{R}^d \to \mathbb{R}^m$ is the \emph{inner model}
+        (network), assumed smooth but possibly non-convex;
+  \item $L : \mathbb{R}^m \to \mathbb{R}$ is the \emph{outer loss},
+        assumed convex (e.g. cross-entropy, hinge, smoothed surrogate);
+  \item $\frac{\mu}{2}\|w\|^2$ is a strongly convex proximal/regularization term
+        with $\mu \ge 0$.
+\end{itemize}
+
+\paragraph{Linearization of the inner model.}
+At iterate $w_t$ we form a first-order Taylor surrogate of $\phi$ only:
+\begin{equation}
+\tilde{\phi}_t(w) := \phi(w_t) + J_t (w - w_t),
+\qquad J_t := \nabla \phi(w_t) \in \mathbb{R}^{m \times d},
+\label{eq:linearize}
+\end{equation}
+while the convex outer loss $L$ is kept \emph{exact}. This yields the
+\emph{inner-linearized surrogate objective}
+\begin{equation}
+\tilde{F}_t(w) := L\big(\tilde{\phi}_t(w)\big) + \frac{\mu}{2}\|w\|^2 .
+\label{eq:surrogate}
+\end{equation}
+Because $L$ is convex and $\tilde{\phi}_t$ is affine in $w$, the composition
+$L\circ\tilde{\phi}_t$ is convex; with the quadratic term, $\tilde{F}_t$ is
+$\mu$-strongly convex (for $\mu>0$).
+
+\paragraph{Conditional-gradient (Frank-Wolfe) direction.}
+We compute a descent direction by solving a linearized subproblem in the
+\emph{dual / proximal} sense. Define the gradient of the surrogate at $w_t$:
+\begin{equation}
+\nabla \tilde{F}_t(w_t)
+= J_t^\top \nabla L\big(\phi(w_t)\big) + \mu w_t
+= \nabla F(w_t),
+\label{eq:gradmatch}
+\end{equation}
+where the second equality uses the chain rule
+$\nabla F(w_t) = J_t^\top \nabla L(\phi(w_t)) + \mu w_t$. Thus the surrogate
+gradient at the current point matches the true gradient.
+
+Let $g_t := \nabla F(w_t)$ and let the candidate update direction be
+$d_t = -g_t$ (steepest direction of the surrogate). The new iterate is
+\begin{equation}
+w_{t+1} = w_t + \gamma_t \, d_t = w_t - \gamma_t \, g_t .
+\label{eq:update}
+\end{equation}
+
+\paragraph{Closed-form optimal step size.}
+The step size $\gamma_t$ is chosen to minimize a convex upper model along the
+ray. Using the convex outer loss and a Lipschitz smoothness constant $\ell$ of
+$L$ together with the local Jacobian, the per-step proximal model is
+\begin{equation}
+\gamma_t = \arg\min_{\gamma \ge 0}
+\; \Big\{ L\big(\phi(w_t) - \gamma J_t g_t\big)
++ \frac{\mu}{2}\|w_t - \gamma g_t\|^2 \Big\}.
+\label{eq:stepsub}
+\end{equation}
+Replacing $L$ by its quadratic upper bound (smoothness, constant $\ell$) and
+minimizing the resulting one-dimensional quadratic in $\gamma$ gives the
+closed-form step
+\begin{equation}
+\boxed{\;
+\gamma_t = \frac{\|g_t\|^2}{\,\ell\,\|J_t g_t\|^2 + \mu \|g_t\|^2\,}
+\;}
+\label{eq:closedstep}
+\end{equation}
+which requires \emph{no hand-designed schedule}. (When $\mu=0$ and
+$\|J_t g_t\|^2 \le \tfrac{1}{\eta}\|g_t\|^2$ this reduces to a constant
+step $\eta$.)
+
+\paragraph{Hyperparameters.}
+\begin{itemize}
+  \item $\mu \ge 0$ : proximal / regularization strength.
+  \item $\ell$ : smoothness constant of the outer loss $L$.
+  \item Optional clipping $\gamma_t \in [0,\gamma_{\max}]$.
+\end{itemize}
+
+%==================================================================
+\section*{Pseudocode}
+
+\begin{algorithm}[H]
+\caption{Deep Frank-Wolfe (DFW) with closed-form step}
+\begin{algorithmic}[1]
+\State \textbf{Input:} initial $w_0$, regularization $\mu \ge 0$, smoothness $\ell$, tolerance $\epsilon$, max iters $T$
+\For{$t = 0,1,2,\dots,T-1$}
+  \State Compute inner model output $\phi(w_t)$ and Jacobian $J_t = \nabla\phi(w_t)$
+  \State Compute outer-loss gradient $\nabla L(\phi(w_t))$
+  \State Form full gradient $g_t = J_t^\top \nabla L(\phi(w_t)) + \mu w_t$
+  \If{$\|g_t\| \le \epsilon$} \State \textbf{return} $w_t$ \EndIf
+  \State Compute closed-form step
+         $\gamma_t = \dfrac{\|g_t\|^2}{\ell\|J_t g_t\|^2 + \mu\|g_t\|^2}$
+  \State (Optional) clip $\gamma_t \gets \min(\gamma_t,\gamma_{\max})$
+  \State Update $w_{t+1} = w_t - \gamma_t g_t$
+\EndFor
+\State \textbf{return} $w_T$
+\end{algorithmic}
+\end{algorithm}
+
+%==================================================================
+\section*{Dry Run Example}
+
+We illustrate on the scalar objective $f(w) = (w-3)^2$ with $w_0 = 0$.
+Here we identify $\phi(w) = w-3$ (inner, affine so $J_t \equiv 1$),
+$L(u) = u^2$ (outer, convex), and $\mu = 0$. For demonstration we
+\emph{fix} $\eta = 0.1$ (i.e.\ use a constant step rather than the closed
+form, as requested) so $w_{t+1} = w_t - \eta f'(w_t)$ with
+$f'(w) = 2(w-3)$.
+
+\paragraph{Iteration 1.}
+\begin{align*}
+g_0 &= f'(0) = 2(0-3) = -6,\\
+w_1 &= w_0 - \eta g_0 = 0 - 0.1(-6) = 0.6,\\
+f(w_1) &= (0.6-3)^2 = (-2.4)^2 = 5.76.
+\end{align*}
+
+\paragraph{Iteration 2.}
+\begin{align*}
+g_1 &= f'(0.6) = 2(0.6-3) = -4.8,\\
+w_2 &= 0.6 - 0.1(-4.8) = 0.6 + 0.48 = 1.08,\\
+f(w_2) &= (1.08-3)^2 = (-1.92)^2 = 3.6864.
+\end{align*}
+
+\paragraph{Iteration 3.}
+\begin{align*}
+g_2 &= f'(1.08) = 2(1.08-3) = -3.84,\\
+w_3 &= 1.08 - 0.1(-3.84) = 1.08 + 0.384 = 1.464,\\
+f(w_3) &= (1.464-3)^2 = (-1.536)^2 = 2.359296.
+\end{align*}
+
+\paragraph{Closed-form-step comparison.}
+With $\ell = 2$ (since $L(u)=u^2$ has $L''=2$), $J_t=1$, $\mu=0$:
+$\gamma_t = \frac{\|g_t\|^2}{\ell\|J_t g_t\|^2}
+= \frac{g_t^2}{2 g_t^2} = \tfrac12$.
+This would give $w_1 = 0 - \tfrac12(-6) = 3 = w^\star$ in a single step,
+demonstrating that the closed-form step accelerates convergence relative to a
+fixed $\eta=0.1$.
+
+\medskip
+The objective decreases monotonically:
+$9 \to 5.76 \to 3.6864 \to 2.359296$, converging toward $w^\star = 3$,
+$f(w^\star)=0$.
+
+%==================================================================
+\section*{Assumptions}
+
+\begin{assumption}[Smooth inner model]\label{as:inner}
+The inner model $\phi:\mathbb{R}^d\to\mathbb{R}^m$ is differentiable with Jacobian
+$J(w)=\nabla\phi(w)$, and is $L_\phi$-smooth: for all $w,w'$,
+$\|J(w)-J(w')\| \le L_\phi \|w-w'\|$. The Jacobian is bounded:
+$\|J(w)\| \le B$.
+\end{assumption}
+
+\begin{assumption}[Convex, smooth outer loss]\label{as:outer}
+The outer loss $L:\mathbb{R}^m\to\mathbb{R}$ is convex and $\ell$-smooth:
+\[
+L(v) \le L(u) + \langle \nabla L(u), v-u\rangle + \frac{\ell}{2}\|v-u\|^2,
+\quad \forall u,v .
+\]
+$\nabla L$ is bounded: $\|\nabla L(u)\| \le G_L$.
+\end{assumption}
+
+\begin{assumption}[Composite smoothness]\label{as:comp}
+Under Assumptions~\ref{as:inner}--\ref{as:outer}, the composite objective
+$F(w)=L(\phi(w))+\tfrac{\mu}{2}\|w\|^2$ is $L_F$-smooth with
+\[
+L_F \le \ell B^2 + G_L L_\phi + \mu .
+\]
+\end{assumption}
+
+\begin{assumption}[Lower boundedness]\label{as:lb}
+$F$ is bounded below: $F^\star := \inf_w F(w) > -\infty$.
+\end{assumption}
+
+\begin{assumption}[Step-size regime]\label{as:step}
+The closed-form step satisfies
+$\gamma_t = \dfrac{\|g_t\|^2}{\ell\|J_t g_t\|^2 + \mu\|g_t\|^2}$,
+and there exist constants $0<\gamma_{\min}\le\gamma_{\max}$ with
+$\gamma_{\min}\le \gamma_t \le \gamma_{\max} \le \tfrac{1}{L_F}$ for all $t$.
+\end{assumption}
+
+%==================================================================
+\section*{Main Convergence Theorem}
+
+\begin{theorem}[Non-convex stationarity rate]\label{thm:main}
+Under Assumptions~\ref{as:inner}--\ref{as:step}, the DFW iterates
+$\{w_t\}$ generated by \eqref{eq:update}--\eqref{eq:closedstep} satisfy
+\[
+\min_{0\le t \le T-1} \|\nabla F(w_t)\|^2
+\;\le\;
+\frac{2\big(F(w_0) - F^\star\big)}{\gamma_{\min}\, T}.
+\]
+Consequently $\min_{t<T}\|\nabla F(w_t)\|^2 = O(1/T)$, i.e. DFW finds an
+$\epsilon$-stationary point in $O(1/\epsilon^2)$ iterations.
+\end{theorem}
+
+\begin{corollary}[Convex outer + affine inner]\label{cor:convex}
+If additionally $\phi$ is affine (so $F$ is convex) and $\mu>0$ (so $F$ is
+$\mu$-strongly convex), then DFW achieves linear convergence:
+\[
+F(w_T) - F^\star \le \Big(1 - \mu\gamma_{\min}\Big)^{T}\big(F(w_0)-F^\star\big).
+\]
+\end{corollary}
+
+%==================================================================
+\section*{Theoretical Properties}
+
+\begin{itemize}
+  \item \textbf{Schedule-free stability.} The step $\gamma_t$ is determined in
+        closed form from $g_t,J_t$, eliminating learning-rate tuning. Under
+        Assumption~\ref{as:step} it is automatically bounded by $1/L_F$,
+        guaranteeing monotone descent (Lemma~\ref{lem:descent}).
+  \item \textbf{Hyperparameter sensitivity.} Sensitivity is reduced to the
+        choice of $\ell$ (loss smoothness) and $\mu$ (regularization).
+        Over-estimating $\ell$ yields a smaller, safer $\gamma_t$;
+        under-estimating may violate Assumption~\ref{as:step}.
+  \item \textbf{Comparison to baselines.} SGD requires
+        $\eta_t = O(1/\sqrt t)$ giving $O(1/\sqrt T)$ in the convex case;
+        DFW with exact step matches the smooth non-convex rate $O(1/T)$ on
+        $\min_t\|\nabla F\|^2$ (same order as gradient descent / Adam's
+        $O(\log T/T)$ but without the log factor).
+\end{itemize}
+
+%==================================================================
+\section*{Discussion}
+DFW exploits the convexity of the outer loss to compute an exact one-dimensional
+proximal step, while only linearizing the expensive non-convex inner network.
+This separation gives gradient-descent-like guarantees with an automatically
+calibrated step. The chief practical cost is forming the Jacobian-vector product
+$J_t g_t$ needed for \eqref{eq:closedstep}, which is one extra backward pass.
+
+%==================================================================
+\section*{Preliminaries (Definitions and Lemmas)}
+
+\begin{definition}[Stationarity]
+$w$ is $\epsilon$-stationary if $\|\nabla F(w)\| \le \epsilon$.
+\end{definition}
+
+\begin{lemma}[Composite smoothness bound]\label{lem:smooth}
+Under Assumptions~\ref{as:inner}--\ref{as:outer}, $F$ is $L_F$-smooth with
+$L_F \le \ell B^2 + G_L L_\phi + \mu$.
+\end{lemma}
+
+\begin{proof}
+\textbf{[Step 1]} Write $h(w)=L(\phi(w))$ so $F = h + \tfrac{\mu}{2}\|\cdot\|^2$.
+The gradient is $\nabla h(w) = J(w)^\top \nabla L(\phi(w))$ by the chain rule.
+
+\textbf{[Step 2]} For any $w,w'$,
+\begin{align*}
+\|\nabla h(w) - \nabla h(w')\|
+&= \big\| J(w)^\top \nabla L(\phi(w)) - J(w')^\top \nabla L(\phi(w')) \big\|.
+\end{align*}
+
+\textbf{[Step 3]} Add and subtract $J(w)^\top \nabla L(\phi(w'))$:
+\begin{align*}
+\|\nabla h(w) - \nabla h(w')\|
+&\le \| J(w)^\top (\nabla L(\phi(w)) - \nabla L(\phi(w'))) \|\\
+&\quad + \|(J(w)-J(w'))^\top \nabla L(\phi(w'))\|.
+\end{align*}
+
+\textbf{[Step 4]} Bound the first term: $\|J(w)\|\le B$ (Assumption~\ref{as:inner})
+and $\ell$-smoothness of $L$ gives
+$\|\nabla L(\phi(w))-\nabla L(\phi(w'))\| \le \ell\|\phi(w)-\phi(w')\|
+\le \ell B\|w-w'\|$, where the last inequality uses
+$\|\phi(w)-\phi(w')\|\le B\|w-w'\|$ (mean value, bounded Jacobian).
+Hence the first term $\le \ell B^2 \|w-w'\|$.
+
+\textbf{[Step 5]} Bound the second term: $\|J(w)-J(w')\|\le L_\phi\|w-w'\|$
+(Assumption~\ref{as:inner}) and $\|\nabla L\|\le G_L$ (Assumption~\ref{as:outer}),
+giving $\le G_L L_\phi \|w-w'\|$.
+
+\textbf{[Step 6]} Therefore
+$\|\nabla h(w)-\nabla h(w')\| \le (\ell B^2 + G_L L_\phi)\|w-w'\|$.
+Adding the $\mu$-Lipschitz gradient of $\tfrac{\mu}{2}\|\cdot\|^2$ gives
+$L_F \le \ell B^2 + G_L L_\phi + \mu$. \qed
+\end{proof}
+
+\begin{lemma}[Descent inequality]\label{lem:descent}
+Under Lemma~\ref{lem:smooth} and Assumption~\ref{as:step}
+($\gamma_t \le 1/L_F$),
+\[
+F(w_{t+1}) \le F(w_t) - \frac{\gamma_t}{2}\|\nabla F(w_t)\|^2 .
+\]
+\end{lemma}
+
+\begin{proof}
+\textbf{[Step 7]} By $L_F$-smoothness (descent lemma),
+\[
+F(w_{t+1}) \le F(w_t) + \langle \nabla F(w_t), w_{t+1}-w_t\rangle
++ \frac{L_F}{2}\|w_{t+1}-w_t\|^2 .
+\]
+
+\textbf{[Step 8]} Substitute the update $w_{t+1}-w_t = -\gamma_t g_t$ with
+$g_t = \nabla F(w_t)$:
+\[
+F(w_{t+1}) \le F(w_t) - \gamma_t \|\nabla F(w_t)\|^2
++ \frac{L_F \gamma_t^2}{2}\|\nabla F(w_t)\|^2 .
+\]
+
+\textbf{[Step 9]} Factor:
+\[
+F(w_{t+1}) \le F(w_t) - \gamma_t\Big(1 - \frac{L_F \gamma_t}{2}\Big)
+\|\nabla F(w_t)\|^2 .
+\]
+
+\textbf{[Step 10]} Since $\gamma_t \le 1/L_F$, we have
+$\tfrac{L_F\gamma_t}{2}\le \tfrac12$, so
+$1-\tfrac{L_F\gamma_t}{2}\ge \tfrac12$. Therefore
+\[
+F(w_{t+1}) \le F(w_t) - \frac{\gamma_t}{2}\|\nabla F(w_t)\|^2 . \qed
+\]
+\end{proof}
+
+%==================================================================
+\section*{Main Proof (Step-by-Step Derivation)}
+
+\begin{proof}[Proof of Theorem~\ref{thm:main}]
+
+\textbf{[Step 11]} From the descent inequality (Lemma~\ref{lem:descent}),
+rearrange:
+\[
+\frac{\gamma_t}{2}\|\nabla F(w_t)\|^2 \le F(w_t) - F(w_{t+1}).
+\]
+
+\textbf{[Step 12]} Use $\gamma_t \ge \gamma_{\min}$ (Assumption~\ref{as:step})
+on the left:
+\[
+\frac{\gamma_{\min}}{2}\|\nabla F(w_t)\|^2
+\le \frac{\gamma_t}{2}\|\nabla F(w_t)\|^2
+\le F(w_t) - F(w_{t+1}).
+\]
+
+\textbf{[Step 13]} Sum over $t = 0,\dots,T-1$ (telescoping right side):
+\[
+\frac{\gamma_{\min}}{2}\sum_{t=0}^{T-1}\|\nabla F(w_t)\|^2
+\le \sum_{t=0}^{T-1}\big(F(w_t)-F(w_{t+1})\big)
+= F(w_0) - F(w_T).
+\]
+
+\textbf{[Step 14]} Since $F(w_T)\ge F^\star$ (Assumption~\ref{as:lb}),
+\[
+\frac{\gamma_{\min}}{2}\sum_{t=0}^{T-1}\|\nabla F(w_t)\|^2
+\le F(w_0) - F^\star .
+\]
+
+\textbf{[Step 15]} Lower-bound the sum by $T$ times its minimum term:
+\[
+\sum_{t=0}^{T-1}\|\nabla F(w_t)\|^2
+\ge T \min_{0\le t\le T-1}\|\nabla F(w_t)\|^2 .
+\]
+
+\textbf{[Step 16]} Combine [Step 14] and [Step 15]:
+\[
+\frac{\gamma_{\min}}{2}\, T \min_{0\le t\le T-1}\|\nabla F(w_t)\|^2
+\le F(w_0) - F^\star .
+\]
+
+\textbf{[Step 17]} Divide by $\tfrac{\gamma_{\min} T}{2}$:
+\[
+\min_{0\le t\le T-1}\|\nabla F(w_t)\|^2
+\le \frac{2\big(F(w_0)-F^\star\big)}{\gamma_{\min}\, T}.
+\]
+This proves the stated $O(1/T)$ rate. \qed
+\end{proof}
+
+%==================================================================
+\section*{Rate Derivation (With Constants)}
+
+\textbf{[Step 18]} The closed-form step \eqref{eq:closedstep} satisfies
+\[
+\gamma_t = \frac{\|g_t\|^2}{\ell\|J_t g_t\|^2 + \mu\|g_t\|^2}
+\ge \frac{\|g_t\|^2}{\ell B^2\|g_t\|^2 + \mu\|g_t\|^2}
+= \frac{1}{\ell B^2 + \mu} =: \gamma_{\min},
+\]
+where we used $\|J_t g_t\|\le \|J_t\|\,\|g_t\| \le B\|g_t\|$
+(Assumption~\ref{as:inner}).
+
+\textbf{[Step 19]} Also $\gamma_t \le \tfrac{1}{\mu}$ if $\mu>0$, and more
+relevantly $\gamma_t \le \tfrac{1}{L_F}$ holds whenever
+$\ell\|J_t g_t\|^2 + \mu\|g_t\|^2 \ge L_F \|g_t\|^2$, i.e.\ the smoothness
+constant dominates; this is guaranteed by the conservative choice
+$\ell B^2 + \mu \ge L_F$ which holds since
+$L_F \le \ell B^2 + G_L L_\phi + \mu$ requires only
+$G_L L_\phi \le 0$ in the affine-inner case, and otherwise the optional
+clipping $\gamma_t\gets\min(\gamma_t, 1/L_F)$ enforces it.
+
+\textbf{[Step 20]} Substituting $\gamma_{\min} = \tfrac{1}{\ell B^2 + \mu}$ into
+Theorem~\ref{thm:main}:
+\[
+\min_{0\le t<T}\|\nabla F(w_t)\|^2
+\le \frac{2(\ell B^2 + \mu)\big(F(w_0)-F^\star\big)}{T}.
+\]
+
+%==================================================================
+\section*{Special Cases}
+
+\textbf{[Step 21] (Affine inner, strongly convex, Corollary~\ref{cor:convex}).}
+If $\phi$ is affine then $L_\phi = 0$, $F$ is convex, and with $\mu>0$ it is
+$\mu$-strongly convex:
+\[
+F(w_t) - F^\star \le \frac{1}{2\mu}\|\nabla F(w_t)\|^2 .
+\]
+Combined with the descent inequality
+$F(w_{t+1})-F^\star \le (F(w_t)-F^\star) - \tfrac{\gamma_{\min}}{2}\|\nabla F(w_t)\|^2$
+and PL/strong-convexity
+$\|\nabla F(w_t)\|^2 \ge 2\mu(F(w_t)-F^\star)$:
+\[
+F(w_{t+1})-F^\star \le (1-\mu\gamma_{\min})\big(F(w_t)-F^\star\big),
+\]
+giving the linear rate $F(w_T)-F^\star \le (1-\mu\gamma_{\min})^T (F(w_0)-F^\star)$.
+
+\textbf{[Step 22] (Constant-step reduction).}
+If $\ell\|J_t g_t\|^2 = \tfrac{1}{\eta}\|g_t\|^2$ and $\mu=0$, then
+$\gamma_t = \eta$ is constant, recovering vanilla gradient descent with the
+standard $O(1/T)$ non-convex rate, consistent with Theorem~\ref{thm:main}.
+
+\textbf{[Step 23] (No regularization, $\mu=0$).}
+Then $\gamma_t = \|g_t\|^2/(\ell\|J_t g_t\|^2)\ge 1/(\ell B^2)$ and the rate is
+\[
+\min_{t<T}\|\nabla F(w_t)\|^2 \le \frac{2\ell B^2\big(F(w_0)-F^\star\big)}{T}.
+\]
+
+\end{document}

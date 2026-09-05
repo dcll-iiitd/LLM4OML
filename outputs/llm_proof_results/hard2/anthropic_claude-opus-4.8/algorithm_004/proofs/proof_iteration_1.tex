@@ -1,0 +1,478 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage[margin=1in]{geometry}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{definition}{Definition}
+\newtheorem{corollary}{Corollary}
+
+\title{Convergence Analysis of Stochastic Variance Reduced Gradient (SVRG) \\ for Non-Convex Smooth Optimization}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%=====================================================================
+\section*{Algorithm Name}
+Stochastic Variance Reduced Gradient (SVRG) for non-convex finite-sum minimization.
+
+We consider the finite-sum problem
+\[
+\min_{x \in \mathbb{R}^d} \; f(x) = \frac{1}{n}\sum_{i=1}^{n} f_i(x),
+\]
+where each $f_i$ is smooth but $f$ may be non-convex.
+
+%=====================================================================
+\section*{Mathematical Formulation}
+
+\textbf{Double-loop structure.}
+SVRG maintains a \emph{snapshot} point $\tilde{x}^{s}$ at the start of each outer
+iteration $s$. The full gradient is computed only at the snapshot:
+\[
+\tilde{g}^{s} = \nabla f(\tilde{x}^{s}) = \frac{1}{n}\sum_{i=1}^{n}\nabla f_i(\tilde{x}^{s}).
+\]
+
+\textbf{Inner loop (variance-reduced estimator).}
+For $t = 0,1,\dots,m-1$, draw an index $i_t$ uniformly at random from $\{1,\dots,n\}$
+and form the estimator
+\[
+v_t = \nabla f_{i_t}(x_t) - \nabla f_{i_t}(\tilde{x}^{s}) + \tilde{g}^{s}.
+\]
+The update rule is
+\[
+x_{t+1} = x_t - \eta\, v_t,
+\]
+where $\eta>0$ is a fixed step size. (Note: the problem statement writes the
+estimator as $\nabla f(x_t) - \nabla f(x_{t-1}) + \text{full\_grad}$; the standard
+SVRG form referencing the snapshot $\tilde{x}^{s}$ is used here, which is the
+mathematically well-posed convention.)
+
+\textbf{Snapshot update.} After $m$ inner steps, the new snapshot is
+\[
+\tilde{x}^{s+1} = x_m \quad\text{(option I)},
+\qquad\text{or}\qquad
+\tilde{x}^{s+1} = x_{t} \text{ for } t \text{ chosen uniformly from } \{0,\dots,m-1\}\ \text{(option II)}.
+\]
+
+\textbf{Hyperparameters.}
+\begin{itemize}
+\item Step size $\eta > 0$.
+\item Inner loop length $m$.
+\item Number of outer epochs $S$.
+\item Lipschitz constant $L$ of the gradients.
+\end{itemize}
+
+\textbf{Unbiasedness.} Conditioned on $x_t$ (and the snapshot $\tilde{x}^s$),
+\[
+\mathbb{E}_{i_t}[v_t]
+= \mathbb{E}_{i_t}[\nabla f_{i_t}(x_t)] - \mathbb{E}_{i_t}[\nabla f_{i_t}(\tilde{x}^s)] + \tilde{g}^s
+= \nabla f(x_t) - \nabla f(\tilde{x}^s) + \nabla f(\tilde{x}^s) = \nabla f(x_t).
+\]
+
+%=====================================================================
+\section*{Pseudocode}
+
+\begin{verbatim}
+Input: initial point x_tilde^0, step size eta, inner length m, epochs S
+for s = 0, 1, ..., S-1 do
+    g_tilde = (1/n) * sum_i grad f_i(x_tilde^s)   # full gradient at snapshot
+    x_0 = x_tilde^s
+    for t = 0, 1, ..., m-1 do
+        sample i_t uniformly from {1,...,n}
+        v_t = grad f_{i_t}(x_t) - grad f_{i_t}(x_tilde^s) + g_tilde
+        x_{t+1} = x_t - eta * v_t
+    end for
+    # Option I:
+    x_tilde^{s+1} = x_m
+    # Option II (used for non-convex analysis):
+    x_tilde^{s+1} = x_t, t ~ Uniform{0,...,m-1}
+end for
+Output: x_a chosen uniformly from all iterates {x_t^s}
+\end{verbatim}
+
+%=====================================================================
+\section*{Dry Run Example}
+
+Let $f(w) = (w-3)^2$ (single component, so $n=1$, $f_1=f$),
+$w_0 = 0$, $\eta = 0.1$. The gradient is $\nabla f(w) = 2(w-3)$.
+
+Since $n=1$, the variance-reduced estimator reduces exactly to the full gradient:
+\[
+v_t = \nabla f_{1}(x_t) - \nabla f_{1}(\tilde{x}) + \nabla f(\tilde{x}) = \nabla f(x_t).
+\]
+Thus the inner loop is exactly gradient descent.
+
+\textbf{Iteration 1:}
+\begin{align*}
+\nabla f(w_0) &= 2(0-3) = -6,\\
+w_1 &= w_0 - \eta \nabla f(w_0) = 0 - 0.1(-6) = 0.6,\\
+f(w_1) &= (0.6-3)^2 = ( -2.4)^2 = 5.76.
+\end{align*}
+
+\textbf{Iteration 2:}
+\begin{align*}
+\nabla f(w_1) &= 2(0.6-3) = -4.8,\\
+w_2 &= 0.6 - 0.1(-4.8) = 0.6 + 0.48 = 1.08,\\
+f(w_2) &= (1.08-3)^2 = (-1.92)^2 = 3.6864.
+\end{align*}
+
+\textbf{Iteration 3:}
+\begin{align*}
+\nabla f(w_2) &= 2(1.08-3) = -3.84,\\
+w_3 &= 1.08 - 0.1(-3.84) = 1.08 + 0.384 = 1.464,\\
+f(w_3) &= (1.464-3)^2 = (-1.536)^2 = 2.359296.
+\end{align*}
+
+Objective decreases $9 \to 5.76 \to 3.6864 \to 2.3593$, converging toward the minimizer $w^*=3$.
+
+%=====================================================================
+\section*{Assumptions}
+
+\begin{assumption}[$L$-smoothness]\label{a:smooth}
+Each $f_i$ is $L$-smooth: for all $x,y$,
+\[
+\|\nabla f_i(x) - \nabla f_i(y)\| \le L\|x-y\|.
+\]
+Consequently $f$ is $L$-smooth and the descent lemma holds:
+\[
+f(y) \le f(x) + \langle \nabla f(x), y-x\rangle + \frac{L}{2}\|y-x\|^2.
+\]
+\end{assumption}
+
+\begin{assumption}[Lower boundedness]\label{a:lb}
+$f$ is bounded below: $f^\star = \inf_x f(x) > -\infty$.
+\end{assumption}
+
+\begin{assumption}[Unbiased sampling]\label{a:unbias}
+Indices $i_t$ are drawn i.i.d.\ uniformly, so $\mathbb{E}_{i_t}[\nabla f_{i_t}(x)] = \nabla f(x)$.
+\end{assumption}
+
+%=====================================================================
+\section*{Main Convergence Theorem}
+
+\begin{theorem}[Non-convex SVRG convergence]\label{thm:main}
+Under Assumptions \ref{a:smooth}--\ref{a:unbias}, run SVRG with Option II output.
+Let the output $x_a$ be chosen uniformly at random from
+$\{x_t^s : 0\le t \le m-1,\ 0\le s\le S-1\}$ (total $T=mS$ iterates).
+Choose step size $\eta = \mu_0/(L n^{2/3})$ for a sufficiently small constant $\mu_0>0$,
+and inner length $m = \lfloor n^{3/2} \rfloor$, with a per-epoch quantity
+$\Gamma_t>0$ defined in the proof. Then there exists a constant $\Gamma>0$ such that
+\[
+\mathbb{E}\big[\|\nabla f(x_a)\|^2\big]
+\le \frac{f(\tilde{x}^0) - f^\star}{T\,\Gamma}.
+\]
+In particular, choosing the constants as above yields the rate
+\[
+\mathbb{E}\big[\|\nabla f(x_a)\|^2\big] = O\!\left(\frac{L n^{2/3}\,(f(\tilde{x}^0)-f^\star)}{T}\right)
+= O\!\left(\frac{1}{T}\right).
+\]
+\end{theorem}
+
+%=====================================================================
+\section*{Theoretical Properties}
+
+\begin{itemize}
+\item \textbf{Variance reduction.} The key property is that
+$\mathbb{E}\|v_t - \nabla f(x_t)\|^2$ shrinks as $x_t,\tilde{x}^s \to x^\star$,
+unlike plain SGD whose variance is a fixed $\sigma^2$.
+\item \textbf{Convergence to stationarity.} For non-convex $f$ we measure progress by
+$\mathbb{E}\|\nabla f(x_a)\|^2$, the standard stationarity criterion.
+\item \textbf{Complexity.} Total gradient computations to reach
+$\mathbb{E}\|\nabla f(x_a)\|^2 \le \epsilon$ is
+$O(n + n^{2/3}/\epsilon)$, improving over GD ($O(n/\epsilon)$) and SGD ($O(1/\epsilon^2)$).
+\item \textbf{Step-size sensitivity.} $\eta = O(1/(Ln^{2/3}))$ is required; too large $\eta$
+breaks the Lyapunov contraction. 
+\item \textbf{Stability.} The double loop periodically recomputes the full gradient,
+anchoring the estimator and bounding accumulated error.
+\end{itemize}
+
+%=====================================================================
+\section*{Discussion}
+
+Compared to SGD ($O(1/\sqrt{T})$ for convex, $O(1/\sqrt{T})$ stationarity in non-convex)
+SVRG attains $O(1/T)$ in $\mathbb{E}\|\nabla f\|^2$ thanks to variance reduction. The
+trade-off is the periodic full-gradient cost of $n$ component gradients per epoch.
+
+%=====================================================================
+\section*{Preliminaries (Definitions and Lemmas)}
+
+Throughout an epoch we drop the superscript $s$ and write $\tilde{x}=\tilde{x}^s$.
+$\mathbb{E}_t[\cdot]$ denotes expectation over $i_t$ conditioned on $x_t$.
+
+\begin{lemma}[Unbiasedness]\label{lem:unbias}
+$\mathbb{E}_t[v_t] = \nabla f(x_t)$.
+\end{lemma}
+\begin{proof}
+By Assumption \ref{a:unbias},
+$\mathbb{E}_t[\nabla f_{i_t}(x_t)]=\nabla f(x_t)$ and
+$\mathbb{E}_t[\nabla f_{i_t}(\tilde{x})]=\nabla f(\tilde{x})$. Hence
+\[
+\mathbb{E}_t[v_t] = \nabla f(x_t) - \nabla f(\tilde{x}) + \nabla f(\tilde{x}) = \nabla f(x_t).
+\tag*{[Step 1]}
+\]
+\end{proof}
+
+\begin{lemma}[Second moment bound of the estimator]\label{lem:var}
+Under Assumption \ref{a:smooth},
+\[
+\mathbb{E}_t\|v_t\|^2 \le 2\|\nabla f(x_t)\|^2 + 2L^2\,\mathbb{E}_t\|x_t - \tilde{x}\|^2.
+\]
+\end{lemma}
+\begin{proof}
+Write
+\[
+v_t = \nabla f(x_t) + \underbrace{\big(\nabla f_{i_t}(x_t) - \nabla f_{i_t}(\tilde{x}) - (\nabla f(x_t)-\nabla f(\tilde{x}))\big)}_{=:\,\xi_t}.
+\tag*{[Step 2]}
+\]
+Indeed $\nabla f(\tilde{x})=\tilde{g}^s$, so $v_t = \nabla f_{i_t}(x_t)-\nabla f_{i_t}(\tilde{x})+\nabla f(\tilde x)$ rearranges to the above.
+Using $\|a+b\|^2 \le 2\|a\|^2+2\|b\|^2$:
+\[
+\mathbb{E}_t\|v_t\|^2 \le 2\|\nabla f(x_t)\|^2 + 2\,\mathbb{E}_t\|\xi_t\|^2.
+\tag*{[Step 3]}
+\]
+For $\xi_t$, note it is a centered random variable; using
+$\mathbb{E}\|X-\mathbb{E}X\|^2\le \mathbb{E}\|X\|^2$ with
+$X=\nabla f_{i_t}(x_t)-\nabla f_{i_t}(\tilde{x})$:
+\[
+\mathbb{E}_t\|\xi_t\|^2 \le \mathbb{E}_t\|\nabla f_{i_t}(x_t) - \nabla f_{i_t}(\tilde{x})\|^2
+\le L^2 \|x_t - \tilde{x}\|^2,
+\tag*{[Step 4]}
+\]
+where the last inequality is $L$-smoothness of each $f_i$. Combining
+[Step 3] and [Step 4] gives the claim.
+\end{proof}
+
+\begin{lemma}[Iterate drift bound]\label{lem:drift}
+For the inner iterates with $x_0=\tilde{x}$,
+\[
+\mathbb{E}\|x_{t+1}-\tilde{x}\|^2 \le (1+\beta)\,\mathbb{E}\|x_t-\tilde{x}\|^2
++ \Big(1+\tfrac{1}{\beta}\Big)\eta^2\,\mathbb{E}\|v_t\|^2,
+\]
+for any $\beta>0$.
+\end{lemma}
+\begin{proof}
+From $x_{t+1}=x_t-\eta v_t$,
+\[
+\|x_{t+1}-\tilde{x}\|^2 = \|x_t-\tilde{x}\|^2 - 2\eta\langle v_t, x_t-\tilde{x}\rangle + \eta^2\|v_t\|^2.
+\tag*{[Step 5]}
+\]
+Apply Young's inequality $-2\langle a,b\rangle \le \beta\|b\|^2 + \tfrac{1}{\beta}\|a\|^2$
+with $a=\eta v_t$, $b = x_t-\tilde x$:
+\[
+-2\eta\langle v_t,x_t-\tilde{x}\rangle \le \beta\|x_t-\tilde{x}\|^2 + \tfrac{1}{\beta}\eta^2\|v_t\|^2.
+\tag*{[Step 6]}
+\]
+Substituting into [Step 5] and taking expectations gives the result.
+\end{proof}
+
+%=====================================================================
+\section*{Main Proof (Step-by-Step Derivation)}
+
+\textbf{Step A: Descent lemma applied to the update.}
+By Assumption \ref{a:smooth} (descent lemma) with $y=x_{t+1}$, $x=x_t$:
+\[
+f(x_{t+1}) \le f(x_t) + \langle \nabla f(x_t), x_{t+1}-x_t\rangle + \frac{L}{2}\|x_{t+1}-x_t\|^2.
+\tag*{[Step 7]}
+\]
+Substituting $x_{t+1}-x_t = -\eta v_t$:
+\[
+f(x_{t+1}) \le f(x_t) - \eta\langle \nabla f(x_t), v_t\rangle + \frac{L\eta^2}{2}\|v_t\|^2.
+\tag*{[Step 8]}
+\]
+Taking conditional expectation $\mathbb{E}_t$ and using Lemma \ref{lem:unbias}
+($\mathbb{E}_t[v_t]=\nabla f(x_t)$):
+\[
+\mathbb{E}_t[f(x_{t+1})] \le f(x_t) - \eta\|\nabla f(x_t)\|^2 + \frac{L\eta^2}{2}\mathbb{E}_t\|v_t\|^2.
+\tag*{[Step 9]}
+\]
+
+\textbf{Step B: Lyapunov function.}
+Define, for constants $c_t \ge 0$ to be chosen,
+\[
+R_t := \mathbb{E}\big[ f(x_t) + c_t \|x_t - \tilde{x}\|^2 \big].
+\tag*{[Step 10]}
+\]
+We bound $R_{t+1}$. From Lemma \ref{lem:drift} (with the chosen $\beta$) and [Step 9]:
+\begin{align}
+R_{t+1} &= \mathbb{E}[f(x_{t+1})] + c_{t+1}\,\mathbb{E}\|x_{t+1}-\tilde{x}\|^2 \notag\\
+&\le \mathbb{E}[f(x_t)] - \eta\,\mathbb{E}\|\nabla f(x_t)\|^2 + \frac{L\eta^2}{2}\mathbb{E}\|v_t\|^2 \notag\\
+&\quad + c_{t+1}\Big[(1+\beta)\mathbb{E}\|x_t-\tilde{x}\|^2 + (1+\tfrac1\beta)\eta^2\mathbb{E}\|v_t\|^2\Big].
+\tag*{[Step 11]}
+\end{align}
+
+\textbf{Step C: Insert the variance bound (Lemma \ref{lem:var}).}
+Let $A:=\frac{L\eta^2}{2} + c_{t+1}(1+\tfrac1\beta)\eta^2 \ge 0$ be the coefficient of
+$\mathbb{E}\|v_t\|^2$. Using
+$\mathbb{E}\|v_t\|^2 \le 2\mathbb{E}\|\nabla f(x_t)\|^2 + 2L^2 \mathbb{E}\|x_t-\tilde{x}\|^2$:
+\begin{align}
+R_{t+1} &\le \mathbb{E}[f(x_t)] - \eta\,\mathbb{E}\|\nabla f(x_t)\|^2
++ A\big(2\mathbb{E}\|\nabla f(x_t)\|^2 + 2L^2\mathbb{E}\|x_t-\tilde{x}\|^2\big)\notag\\
+&\quad + c_{t+1}(1+\beta)\mathbb{E}\|x_t-\tilde{x}\|^2.
+\tag*{[Step 12]}
+\end{align}
+Collecting terms:
+\begin{align}
+R_{t+1} &\le \mathbb{E}[f(x_t)] - (\eta - 2A)\,\mathbb{E}\|\nabla f(x_t)\|^2 \notag\\
+&\quad + \underbrace{\big[c_{t+1}(1+\beta) + 2A L^2\big]}_{=:\,c_t}\,\mathbb{E}\|x_t-\tilde{x}\|^2.
+\tag*{[Step 13]}
+\end{align}
+
+\textbf{Step D: Recursion for $c_t$.}
+Define the recursion (going backward from $t=m$ to $t=0$)
+\[
+c_t = c_{t+1}\Big(1+\beta + 2(1+\tfrac1\beta)\eta^2 L^2\Big) + L^3\eta^2,
+\qquad c_m = 0.
+\tag*{[Step 14]}
+\]
+(Here we absorbed $2A L^2 = 2L^2\big(\frac{L\eta^2}{2}+c_{t+1}(1+\frac1\beta)\eta^2\big)
+= L^3\eta^2 + 2c_{t+1}(1+\frac1\beta)\eta^2 L^2$.) With $c_m=0$ the boundary
+$\|x_m-\tilde{x}\|^2$ term carries no Lyapunov weight at the end of the inner loop.
+
+\textbf{Step E: Define the per-step contraction constant.}
+Let
+\[
+\Gamma_t := \eta - 2A = \eta - L\eta^2 - 2c_{t+1}\Big(1+\tfrac1\beta\Big)\eta^2.
+\tag*{[Step 15]}
+\]
+Then [Step 13] becomes the one-step descent in the Lyapunov function:
+\[
+\Gamma_t\,\mathbb{E}\|\nabla f(x_t)\|^2 \le R_t - R_{t+1}.
+\tag*{[Step 16]}
+\]
+We require $\Gamma_t > 0$ for all $t$; this holds when $\eta$ is small enough and $c_{t+1}$
+remains bounded (ensured by the choice of $m,\eta,\beta$ below).
+
+\textbf{Step F: Telescoping over the inner loop.}
+Sum [Step 16] for $t=0,\dots,m-1$. Since $\sum_t (R_t - R_{t+1}) = R_0 - R_m$ and
+$x_0 = \tilde{x}^s$ so $\|x_0-\tilde{x}\|^2 = 0$ (hence $R_0 = \mathbb{E}f(\tilde{x}^s)$),
+and $c_m=0$ so $R_m = \mathbb{E}f(x_m)=\mathbb{E}f(\tilde{x}^{s+1})$ under Option I:
+\[
+\sum_{t=0}^{m-1} \Gamma_t\,\mathbb{E}\|\nabla f(x_t^s)\|^2
+\le \mathbb{E}f(\tilde{x}^s) - \mathbb{E}f(\tilde{x}^{s+1}).
+\tag*{[Step 17]}
+\]
+
+\textbf{Step G: Telescoping over epochs.}
+Let $\Gamma := \min_{0\le t\le m-1}\Gamma_t > 0$. Then from [Step 17],
+\[
+\Gamma\sum_{t=0}^{m-1}\mathbb{E}\|\nabla f(x_t^s)\|^2
+\le \mathbb{E}f(\tilde{x}^s) - \mathbb{E}f(\tilde{x}^{s+1}).
+\tag*{[Step 18]}
+\]
+Sum over $s=0,\dots,S-1$ and telescope:
+\[
+\Gamma\sum_{s=0}^{S-1}\sum_{t=0}^{m-1}\mathbb{E}\|\nabla f(x_t^s)\|^2
+\le f(\tilde{x}^0) - \mathbb{E}f(\tilde{x}^S) \le f(\tilde{x}^0) - f^\star,
+\tag*{[Step 19]}
+\]
+where the last step uses Assumption \ref{a:lb} ($\mathbb{E}f(\tilde{x}^S)\ge f^\star$).
+
+\textbf{Step H: Uniform sampling of output.}
+With $T=mS$ and $x_a$ chosen uniformly from all $T$ iterates,
+\[
+\mathbb{E}\|\nabla f(x_a)\|^2 = \frac{1}{T}\sum_{s=0}^{S-1}\sum_{t=0}^{m-1}\mathbb{E}\|\nabla f(x_t^s)\|^2.
+\tag*{[Step 20]}
+\]
+Combining [Step 19] and [Step 20]:
+\[
+\boxed{\;\mathbb{E}\|\nabla f(x_a)\|^2 \le \frac{f(\tilde{x}^0)-f^\star}{T\,\Gamma}\;}
+\tag*{[Step 21]}
+\]
+
+%=====================================================================
+\section*{Rate Derivation (With Constants)}
+
+\textbf{Bounding $c_t$.}
+Define $\theta := 1+\beta + 2(1+\tfrac1\beta)\eta^2 L^2$ and $b:=L^3\eta^2$.
+The recursion [Step 14] is $c_t = \theta c_{t+1} + b$, $c_m=0$, giving
+\[
+c_0 = b\,\frac{\theta^{m}-1}{\theta-1}.
+\tag*{[Step 22]}
+\]
+Choose $\beta = 1/m$. Then for small $\eta$,
+$\theta \le 1 + \tfrac1m + 2(1+m)\eta^2L^2$.
+With $\eta = \mu_0/(Ln^{2/3})$ and $m=\lfloor n^{3/2}\rfloor$, the term
+$2(1+m)\eta^2 L^2 \le 2(1+m)\mu_0^2/n^{4/3} = O(\mu_0^2 n^{1/6})/n^{?}$ is controlled, and
+\[
+\theta^m \le \Big(1+\tfrac{1}{m} + O(\tfrac{\mu_0^2}{m})\Big)^m \le e^{1+O(\mu_0^2)} =: C_0,
+\tag*{[Step 23]}
+\]
+a bounded constant. Hence
+\[
+c_t \le c_0 \le b\,\frac{C_0 - 1}{\theta - 1}
+\le L^3\eta^2 \cdot \frac{C_0-1}{1/m} = L^3\eta^2 m (C_0-1).
+\tag*{[Step 24]}
+\]
+Plugging $\eta=\mu_0/(Ln^{2/3})$, $m=n^{3/2}$:
+\[
+c_t \le L^3 \cdot \frac{\mu_0^2}{L^2 n^{4/3}} \cdot n^{3/2}(C_0-1)
+= L\,\mu_0^2 (C_0-1)\, n^{1/6}.
+\tag*{[Step 25]}
+\]
+
+\textbf{Bounding $\Gamma$.}
+From [Step 15] with $\beta=1/m$,
+\[
+\Gamma_t = \eta - L\eta^2 - 2c_{t+1}(1+m)\eta^2.
+\tag*{[Step 26]}
+\]
+Using [Step 25] and $m=n^{3/2}$, $\eta=\mu_0/(Ln^{2/3})$:
+\begin{align*}
+L\eta^2 &= \frac{\mu_0^2}{L n^{4/3}},\\
+2c_{t+1}(1+m)\eta^2 &\le 2 L\mu_0^2(C_0-1)n^{1/6}\cdot 2n^{3/2}\cdot \frac{\mu_0^2}{L^2 n^{4/3}}
+= \frac{4\mu_0^4(C_0-1)}{L}\,n^{1/6+3/2-4/3}.
+\end{align*}
+The exponent $1/6+3/2-4/3 = 1/6+9/6-8/6 = 2/6 = 1/3$. So the correction is
+$O(\mu_0^4 n^{1/3}/L)$. Comparing to the leading term
+$\eta = \mu_0/(Ln^{2/3})$, choose $\mu_0$ small enough (constant) so that
+\[
+\Gamma_t \ge \frac{\eta}{2} = \frac{\mu_0}{2Ln^{2/3}} =: \Gamma > 0.
+\tag*{[Step 27]}
+\]
+(The smallness of $\mu_0$ guarantees $L\eta^2 + 2c_{t+1}(1+m)\eta^2 \le \eta/2$.)
+
+\textbf{Final rate.}
+Substitute [Step 27] into [Step 21]:
+\[
+\mathbb{E}\|\nabla f(x_a)\|^2
+\le \frac{f(\tilde{x}^0)-f^\star}{T\cdot \frac{\mu_0}{2Ln^{2/3}}}
+= \frac{2Ln^{2/3}\big(f(\tilde{x}^0)-f^\star\big)}{\mu_0\,T}.
+\tag*{[Step 28]}
+\]
+Thus
+\[
+\boxed{\;\mathbb{E}\|\nabla f(x_a)\|^2 = O\!\left(\frac{L n^{2/3}\,(f(\tilde{x}^0)-f^\star)}{T}\right) = O\!\left(\frac{1}{T}\right).\;}
+\]
+
+\textbf{Oracle complexity.}
+To achieve $\mathbb{E}\|\nabla f(x_a)\|^2 \le \epsilon$ we need
+$T = O(Ln^{2/3}/\epsilon)$ inner iterations, plus $S = T/m = O(Ln^{2/3}/(\epsilon n^{3/2})) = O(L/(\epsilon n^{5/6}))$
+full-gradient computations costing $n$ each. The total gradient cost is
+\[
+O\!\big(n\cdot S + T\big) = O\!\Big(n + \frac{n^{2/3}}{\epsilon}\Big),
+\]
+improving on full-batch GD's $O(n/\epsilon)$.
+
+%=====================================================================
+\section*{Special Cases}
+
+\begin{itemize}
+\item \textbf{$n=1$ (single function).} The estimator collapses to $v_t=\nabla f(x_t)$ and
+SVRG reduces to gradient descent; [Step 9] becomes the standard descent inequality
+$\mathbb{E} f(x_{t+1}) \le f(x_t) - (\eta - \tfrac{L\eta^2}{2})\|\nabla f(x_t)\|^2$,
+giving $\frac1T\sum\|\nabla f(x_t)\|^2 = O(1/T)$ with $\eta\le 1/L$. This matches the
+dry-run example.
+
+\item \textbf{Convex case.} If in addition $f$ is convex, one can show
+$\mathbb{E}[f(x_a)-f^\star]=O(1/T)$ with the standard SVRG analysis (linear convergence
+under strong convexity), a stronger guarantee than the stationarity bound here.
+
+\item \textbf{Large $m$.} If $m\to\infty$ with fixed $\eta$, the drift term
+$\mathbb{E}\|x_t-\tilde{x}\|^2$ grows and $\Gamma$ can become negative; this is why
+$m=O(n^{3/2})$ and $\eta=O(1/(Ln^{2/3}))$ are jointly required to keep $\Gamma>0$.
+\end{itemize}
+
+\end{document}

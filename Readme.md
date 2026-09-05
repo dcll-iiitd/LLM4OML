@@ -6,7 +6,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Framework: LangGraph](https://img.shields.io/badge/Framework-LangGraph-orange.svg)](https://github.com/langchain-ai/langgraph)
 
-An advanced multi-agent LLM system designed for automated convergence proof generation, structured evaluation, and iterative refinement. This system introduces the **Correction Reasoning Score (CRS)** and **Judge Reliability Score (JRS)** to quantify mathematical reasoning improvements.
+An advanced multi-agent LLM system designed for automated convergence proof generation, structured evaluation, and iterative refinement. This system introduces the **Regression-Aware Correction Score (RACS)** and **Judge Reliability Score (JRS)** to quantify mathematical reasoning improvements.
 
 ---
 
@@ -18,7 +18,7 @@ The **Convergence Proof Agent** automates the rigorous process of proving conver
 *   **LaTeX Generation:** Produces production-ready convergence proofs.
 *   **Structured Auditing:** Evaluates proofs using a strict JSON schema for step-by-step verification.
 *   **Multi-Judge Consensus:** Reduces LLM hallucination by aggregating verdicts from multiple parallel judges.
-*   **Quality Metrics:** Quantifies the "intelligence" of a correction using the CRS metric.
+*   **Quality Metrics:** Quantifies the "intelligence" of a correction using the RACS metric.
 
 ---
 
@@ -37,7 +37,7 @@ graph TD
     F -->|No| G[Error Feedback]
     G --> B
     F -->|Yes| H[Final LaTeX Output]
-    H --> I[CRS Quality Analysis]
+    H --> I[RACS Quality Analysis]
 ```
 
 ### Agents
@@ -49,10 +49,10 @@ graph TD
 
 ## 📊 Core Metrics
 
-### 1. Correction Reasoning Score (CRS)
-CRS measures the effectiveness of an iterative fix by balancing error resolution against regression.
+### 1. Regression-Aware Correction Score (RACS)
+RACS measures the effectiveness of an iterative fix by balancing error resolution against regression.
 
-$$CRS = [w_{err} \cdot ERR + w_{tfp} \cdot TFP] \times (1 - w_{rp\_pen} \cdot RP)$$
+$$RACS = [w_{err} \cdot ERR + w_{tfp} \cdot TFP] \times (1 - w_{rp\_pen} \cdot RP)$$
 
 *   **ERR (Error Resolution Rate):** Percentage of previous errors fixed.
 *   **RP (Regression Penalty):** New errors introduced in the revision.
@@ -119,16 +119,50 @@ python scripts/multi_model_runner.py --config config/default.yaml --input data/a
 ```text
 llm4oml-agent/
 ├── config/             # YAML configuration for LLMs and Prompts
-├── scripts/            # Entry points for single/batch runs
+├── data/               # Task suites (algos.csv, textbook_algos.csv)
+├── judge_baseline/     # Judge-reliability validation study (paper Sec. VI, Table I)
+│   ├── human_evaluations.csv       # 16 tasks, human expert assessments
+│   ├── llm_judge_evaluations.csv   # 16 tasks, paired 3-judge ensemble output
+│   ├── expert_rubric_raw.csv       # as-returned expert rubric incl. free-text notes
+│   └── proofs/                     # the 11 proof PDFs reviewed by the experts
+├── outputs/            # Benchmark and ablation run artifacts
+├── scripts/            # Entry points for single/batch runs and analysis
 ├── src/
 │   ├── agents/         # Prover and Judge logic
 │   ├── evaluators/     # Multi-judge consensus logic
-│   ├── metrics/        # CRS and JRS implementations
+│   ├── metrics/        # RACS and JRS implementations
 │   ├── graph/          # LangGraph state machine definitions
 │   └── models/         # Pydantic models for structured I/O
-├── tests/              # Pytest suite for CRS and logic
 └── requirements.txt
 ```
+
+> **Note on metric naming.** The metric is called **RACS** (Regression-Aware
+> Correction Score) throughout the paper. It was earlier named CRS, and that
+> legacy prefix is retained in generated CSV column names (`CRS_Final`,
+> `CRS_Iter_1`, …) and in some run-artifact filenames so that previously
+> generated result files remain readable without migration. `CRS_*` columns and
+> RACS refer to the same quantity.
+
+---
+
+## 🔍 Reproducing the Judge-Reliability Study (Paper Section VI)
+
+The paired human / LLM-judge data behind Table I and Figure 4 is in
+`judge_baseline/`. Both derived artifacts regenerate from it:
+
+```bash
+# Table I statistics and the per-task score deltas quoted in Section VI
+python scripts/compute_judge_reliability.py
+
+# Figure 4 (3-panel judge reliability figure) -> figures/
+python scripts/generate_judge_reliability_figure.py
+```
+
+The 16 tasks span both difficulty tiers, following the paper's taxonomy:
+`B0xx` identifiers are textbook-tier (n=6) and `V2_xx` are research-sourced
+(n=10). The underlying proofs and their full multi-judge evaluation logs live in
+`outputs/llm_proof_results/{easy,hard,hard2}/`; `judge_baseline/proofs/` holds
+the rendered PDFs exactly as given to the human experts.
 
 ---
 

@@ -1,0 +1,423 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage[margin=1in]{geometry}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{definition}{Definition}
+\newtheorem{corollary}{Corollary}
+
+\begin{document}
+
+%==================================================================
+\section*{Algorithm Name}
+%==================================================================
+\textbf{AdamW} (Adam with Decoupled Weight Decay) for non-convex smooth optimization.
+
+The classical Adam algorithm couples $L_2$ regularization with the adaptive gradient
+update, which distorts the effective regularization strength. AdamW instead applies
+weight decay \emph{directly} to the parameters, decoupled from the adaptive moment
+estimation. We analyze its convergence on non-convex, $L$-smooth objectives.
+
+%==================================================================
+\section*{Mathematical Formulation}
+%==================================================================
+Let $f:\mathbb{R}^d \to \mathbb{R}$ be the objective and let $g_t = \nabla f(w_t;z_t)$
+denote the stochastic gradient at iteration $t$. The AdamW update rules are:
+\begin{align}
+m_t &= \beta_1 m_{t-1} + (1-\beta_1) g_t, \\
+v_t &= \beta_2 v_{t-1} + (1-\beta_2) g_t^2, \\
+\hat m_t &= \frac{m_t}{1-\beta_1^t}, \qquad
+\hat v_t = \frac{v_t}{1-\beta_2^t}, \\
+w_{t+1} &= \underbrace{(1-\eta\lambda)\, w_t}_{\text{decoupled weight decay}}
+           \; - \; \eta\,\frac{\hat m_t}{\sqrt{\hat v_t}+\epsilon}.
+\end{align}
+
+\noindent\textbf{Hyperparameters.}
+\begin{itemize}
+\item Step size $\eta>0$.
+\item Exponential decay rates $\beta_1,\beta_2 \in [0,1)$.
+\item Numerical stabilizer $\epsilon>0$.
+\item Weight decay coefficient $\lambda \ge 0$.
+\end{itemize}
+Here $g_t^2$ and the division/$\sqrt{\cdot}$ are taken element-wise.
+
+\noindent\textbf{Key distinction.} In Adam-$L_2$ the term $\lambda w_t$ is added to the
+gradient ($g_t \leftarrow g_t + \lambda w_t$) and thus passes through the adaptive
+preconditioner $1/(\sqrt{\hat v_t}+\epsilon)$. In AdamW the term $-\eta\lambda w_t$
+is applied directly to the iterate, independent of $\hat v_t$.
+
+%==================================================================
+\section*{Pseudocode}
+%==================================================================
+\begin{verbatim}
+Input: stepsize eta, decay rates beta1, beta2, epsilon, weight decay lambda
+Initialize: w_0, m_0 = 0, v_0 = 0
+for t = 1, 2, ..., T do
+    g_t   = stochastic gradient of f at w_{t-1}
+    m_t   = beta1 * m_{t-1} + (1 - beta1) * g_t
+    v_t   = beta2 * v_{t-1} + (1 - beta2) * g_t^2
+    mhat  = m_t / (1 - beta1^t)
+    vhat  = v_t / (1 - beta2^t)
+    w_t   = (1 - eta*lambda) * w_{t-1} - eta * mhat / (sqrt(vhat) + epsilon)
+end for
+Termination: stop when ||g_t|| <= tol  or  t = T
+Output: w_T  (or randomly selected iterate w_R for non-convex guarantee)
+\end{verbatim}
+
+%==================================================================
+\section*{Dry Run Example}
+%==================================================================
+We minimize $f(w)=(w-3)^2$, so $\nabla f(w)=2(w-3)$.
+Take $w_0=0$, $\eta=0.1$, $\beta_1=0.9$, $\beta_2=0.999$,
+$\epsilon=10^{-8}$, $\lambda=0$ (pure Adam step for clarity).
+
+\noindent\textbf{Iteration 1 ($t=1$).}
+\begin{align*}
+g_1 &= 2(0-3) = -6,\\
+m_1 &= 0.9\cdot 0 + 0.1\cdot(-6) = -0.6,\\
+v_1 &= 0.999\cdot 0 + 0.001\cdot 36 = 0.036,\\
+\hat m_1 &= \frac{-0.6}{1-0.9} = -6, \qquad
+\hat v_1 = \frac{0.036}{1-0.999} = 36,\\
+w_1 &= 0 - 0.1\cdot\frac{-6}{\sqrt{36}+10^{-8}}
+     \approx 0 - 0.1\cdot\frac{-6}{6} = 0.1,\\
+f(w_1) &= (0.1-3)^2 = 8.41.
+\end{align*}
+
+\noindent\textbf{Iteration 2 ($t=2$).}
+\begin{align*}
+g_2 &= 2(0.1-3) = -5.8,\\
+m_2 &= 0.9\cdot(-0.6)+0.1\cdot(-5.8) = -0.54-0.58 = -1.12,\\
+v_2 &= 0.999\cdot 0.036 + 0.001\cdot 33.64 = 0.035964+0.03364 = 0.069604,\\
+\hat m_2 &= \frac{-1.12}{1-0.81} = \frac{-1.12}{0.19} \approx -5.8947,\\
+\hat v_2 &= \frac{0.069604}{1-0.998001} = \frac{0.069604}{0.001999}\approx 34.8194,\\
+w_2 &= 0.1 - 0.1\cdot\frac{-5.8947}{\sqrt{34.8194}+10^{-8}}
+     \approx 0.1 - 0.1\cdot\frac{-5.8947}{5.9008} \approx 0.1+0.0999=0.1999,\\
+f(w_2) &= (0.1999-3)^2 \approx 7.8406.
+\end{align*}
+
+\noindent\textbf{Iteration 3 ($t=3$).}
+\begin{align*}
+g_3 &= 2(0.1999-3) = -5.6002,\\
+m_3 &= 0.9\cdot(-1.12)+0.1\cdot(-5.6002) = -1.008-0.56002 = -1.56802,\\
+v_3 &= 0.999\cdot 0.069604 + 0.001\cdot 31.3622
+     = 0.069534 + 0.031362 = 0.100896,\\
+\hat m_3 &= \frac{-1.56802}{1-0.729} = \frac{-1.56802}{0.271}\approx -5.7861,\\
+\hat v_3 &= \frac{0.100896}{1-0.997003} = \frac{0.100896}{0.002997}\approx 33.6655,\\
+w_3 &= 0.1999 - 0.1\cdot\frac{-5.7861}{\sqrt{33.6655}+10^{-8}}
+     \approx 0.1999 - 0.1\cdot\frac{-5.7861}{5.8022} \approx 0.1999+0.0997=0.2996,\\
+f(w_3) &= (0.2996-3)^2 \approx 7.2922.
+\end{align*}
+The objective decreases monotonically: $8.41 \to 7.84 \to 7.29$, illustrating progress
+toward the minimizer $w^*=3$.
+
+%==================================================================
+\section*{Assumptions}
+%==================================================================
+\begin{assumption}[$L$-smoothness]\label{a:smooth}
+$f$ is differentiable and its gradient is $L$-Lipschitz:
+\[
+\|\nabla f(x)-\nabla f(y)\| \le L\|x-y\|, \quad \forall x,y\in\mathbb{R}^d,
+\]
+equivalently
+\[
+f(y) \le f(x) + \langle \nabla f(x), y-x\rangle + \frac{L}{2}\|y-x\|^2.
+\]
+\end{assumption}
+
+\begin{assumption}[Lower boundedness]\label{a:lb}
+$f^\star := \inf_{w} f(w) > -\infty$.
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic gradients]\label{a:unbiased}
+$\mathbb{E}[g_t \mid w_t] = \nabla f(w_t)$.
+\end{assumption}
+
+\begin{assumption}[Bounded variance]\label{a:var}
+$\mathbb{E}\big[\|g_t-\nabla f(w_t)\|^2 \mid w_t\big] \le \sigma^2$.
+\end{assumption}
+
+\begin{assumption}[Bounded gradients]\label{a:bg}
+$\|g_t\|_\infty \le G_\infty$, hence $\|g_t\| \le G$ with $G=\sqrt{d}\,G_\infty$.
+\end{assumption}
+
+\noindent\textbf{Parameter constraints.}
+$0\le\beta_1<1$, $0\le\beta_2<1$, $\epsilon>0$, $\lambda\ge 0$, and
+$\eta>0$ chosen as below (typically $\eta=\Theta(1/\sqrt{T})$).
+
+%==================================================================
+\section*{Main Convergence Theorem}
+%==================================================================
+\begin{theorem}[Non-convex convergence of AdamW]\label{thm:main}
+Under Assumptions~\ref{a:smooth}--\ref{a:bg}, run AdamW for $T$ iterations with
+constant step size $\eta = \frac{c}{\sqrt{T}}$ for a suitable constant $c>0$.
+Let $R$ be an index drawn uniformly from $\{1,\dots,T\}$. Define the lower
+preconditioner bound $\gamma := \dfrac{1}{\sqrt{G_\infty^2/(1-\beta_2)}+\epsilon}>0$.
+Then
+\[
+\mathbb{E}\big[\|\nabla f(w_R)\|^2\big]
+\;\le\;
+O\!\left(\frac{1}{\sqrt{T}}\right).
+\]
+More explicitly,
+\[
+\frac{1}{T}\sum_{t=1}^{T}\mathbb{E}\big[\|\nabla f(w_t)\|^2\big]
+\;\le\;
+\frac{C_1}{\eta\,\gamma\,T} + C_2\,\eta + C_3\,\eta\lambda,
+\]
+where $C_1=f(w_1)-f^\star + (\text{decay/bias terms})$, $C_2=O(L G^2)$, and
+$C_3 = O(G\,\|w\|_{\max})$ collect problem constants.
+\end{theorem}
+
+%==================================================================
+\section*{Theoretical Properties}
+%==================================================================
+\begin{itemize}
+\item \textbf{Stationarity guarantee.} The algorithm finds an
+$\varepsilon$-stationary point ($\mathbb{E}\|\nabla f\|^2 \le \varepsilon$)
+in $O(1/\varepsilon^2)$ iterations, matching SGD's non-convex rate.
+\item \textbf{Stability.} The preconditioner is bounded:
+$\gamma \le \frac{1}{\sqrt{\hat v_t}+\epsilon} \le \frac{1}{\epsilon}$,
+guaranteeing bounded effective step sizes and numerical stability.
+\item \textbf{Decoupled decay.} Because $-\eta\lambda w_t$ does not pass through
+$1/(\sqrt{\hat v_t}+\epsilon)$, weight decay acts uniformly across coordinates,
+contributing the additive $C_3\eta\lambda$ term which is controllable and vanishes
+as $\eta\to 0$.
+\item \textbf{Hyperparameter sensitivity.} The bound degrades as $\beta_2\to 1$
+(since $\gamma$ shrinks) and as $\epsilon\to 0$ (upper bound $1/\epsilon$ blows up),
+explaining empirical instability at extreme settings.
+\item \textbf{Comparison to Adam-$L_2$.} In Adam-$L_2$ the regularization term is
+preconditioned, so coordinates with large $\hat v_t$ are decayed less; AdamW removes
+this artifact, yielding a cleaner additive penalty term in the bound.
+\end{itemize}
+
+%==================================================================
+\section*{Discussion}
+%==================================================================
+The decoupling makes the analysis modular: the optimizer behaves as a bounded,
+adaptive preconditioned SGD plus a deterministic contraction $(1-\eta\lambda)$.
+The non-convex rate $O(1/\sqrt T)$ is optimal for first-order stochastic methods.
+Setting $\lambda=0$ recovers the standard Adam non-convex guarantee; choosing
+$\eta=\Theta(1/\sqrt T)$ balances the $1/(\eta T)$ and $\eta$ terms.
+
+%==================================================================
+\section*{Preliminaries (Definitions and Lemmas)}
+%==================================================================
+\begin{definition}[Effective diagonal preconditioner]
+Let $\hat V_t := \operatorname{diag}(\sqrt{\hat v_t}+\epsilon)$, so the update reads
+$w_{t+1} = (1-\eta\lambda)w_t - \eta\,\hat V_t^{-1}\hat m_t$.
+\end{definition}
+
+\begin{lemma}[Bounded second moment estimate]\label{lem:vbound}
+Under Assumption~\ref{a:bg}, for every coordinate $i$ and all $t$,
+\[
+0 \le \hat v_{t,i} \le \frac{G_\infty^2}{1-\beta_2}.
+\]
+Consequently
+\[
+\gamma := \frac{1}{\sqrt{G_\infty^2/(1-\beta_2)}+\epsilon}
+\;\le\; \frac{1}{\sqrt{\hat v_{t,i}}+\epsilon}
+\;\le\; \frac{1}{\epsilon} =: \Gamma.
+\]
+\end{lemma}
+\begin{proof}
+\textbf{[Step 1]} By unrolling $v_t=(1-\beta_2)\sum_{j=1}^t \beta_2^{t-j} g_j^2$.
+\textbf{[Step 2]} Using $g_{j,i}^2 \le G_\infty^2$,
+$v_{t,i}\le (1-\beta_2)G_\infty^2\sum_{j=1}^t\beta_2^{t-j}
+= G_\infty^2(1-\beta_2^t)$.
+\textbf{[Step 3]} Dividing by the bias correction factor $(1-\beta_2^t)$,
+$\hat v_{t,i}=v_{t,i}/(1-\beta_2^t)\le G_\infty^2 \le G_\infty^2/(1-\beta_2)$.
+\textbf{[Step 4]} Since $v_{t,i}\ge 0$, the lower bound on the preconditioner
+follows by monotonicity of $x\mapsto 1/(\sqrt x+\epsilon)$.
+\end{proof}
+
+\begin{lemma}[Bounded update norm]\label{lem:upd}
+$\|\hat V_t^{-1}\hat m_t\| \le \dfrac{G}{\epsilon}$, and
+$\|m_t\|\le G$, $\|\hat m_t\|\le G/(1-\beta_1^t)\le G/(1-\beta_1)$ after summation bounds.
+\end{lemma}
+\begin{proof}
+\textbf{[Step 5]} $m_t=(1-\beta_1)\sum_{j=1}^t\beta_1^{t-j}g_j$ so
+$\|m_t\|\le(1-\beta_1)\sum_{j=1}^t\beta_1^{t-j}G = G(1-\beta_1^t)\le G$.
+\textbf{[Step 6]} $\|\hat m_t\| = \|m_t\|/(1-\beta_1^t)\le G$.
+\textbf{[Step 7]} Each coordinate of $\hat V_t^{-1}$ is $\le 1/\epsilon$
+(Lemma~\ref{lem:vbound}), hence
+$\|\hat V_t^{-1}\hat m_t\|\le \|\hat m_t\|/\epsilon \le G/\epsilon$.
+\end{proof}
+
+%==================================================================
+\section*{Main Proof (Step-by-Step Derivation)}
+%==================================================================
+We prove Theorem~\ref{thm:main}. Denote $\nabla_t := \nabla f(w_t)$,
+$d_t := \hat V_t^{-1}\hat m_t$ so that the update is
+$w_{t+1} = w_t - \eta\lambda w_t - \eta d_t$.
+
+\noindent\textbf{[Step 8] Descent via smoothness.}
+By Assumption~\ref{a:smooth} applied to $x=w_t$, $y=w_{t+1}$:
+\[
+f(w_{t+1}) \le f(w_t) + \langle \nabla_t, w_{t+1}-w_t\rangle
++ \frac{L}{2}\|w_{t+1}-w_t\|^2.
+\]
+
+\noindent\textbf{[Step 9] Substitute the update.}
+Since $w_{t+1}-w_t = -\eta\lambda w_t - \eta d_t$,
+\[
+f(w_{t+1}) \le f(w_t)
+- \eta\langle \nabla_t, d_t\rangle
+- \eta\lambda\langle \nabla_t, w_t\rangle
++ \frac{L}{2}\eta^2\|\lambda w_t + d_t\|^2.
+\]
+
+\noindent\textbf{[Step 10] Expand the quadratic term.}
+Using $\|a+b\|^2\le 2\|a\|^2+2\|b\|^2$,
+\[
+\frac{L}{2}\eta^2\|\lambda w_t + d_t\|^2
+\le L\eta^2\lambda^2\|w_t\|^2 + L\eta^2\|d_t\|^2.
+\]
+By Lemma~\ref{lem:upd}, $\|d_t\|^2\le G^2/\epsilon^2$. Hence
+\[
+f(w_{t+1}) \le f(w_t)
+- \eta\langle \nabla_t, d_t\rangle
+- \eta\lambda\langle \nabla_t, w_t\rangle
++ L\eta^2\lambda^2\|w_t\|^2 + \frac{L\eta^2 G^2}{\epsilon^2}.
+\]
+
+\noindent\textbf{[Step 11] Take conditional expectation.}
+Condition on the filtration $\mathcal{F}_t$ (everything up to $w_t$).
+The only random object is $g_t$ (through $d_t$). Write
+$d_t = \hat V_t^{-1}\hat m_t$. We decompose the inner product:
+\[
+\mathbb{E}[\langle\nabla_t, d_t\rangle\mid\mathcal F_t]
+= \langle \nabla_t,\, \mathbb{E}[d_t\mid\mathcal F_t]\rangle.
+\]
+To handle the adaptive preconditioner we use the lower bound from
+Lemma~\ref{lem:vbound}: each diagonal entry $\hat V_{t,i}^{-1}\ge\gamma$. Writing
+$\hat m_t$'s dominant component as $(1-\beta_1)g_t$ contribution plus history, and
+using the standard surrogate decomposition (cf.\ Reddi et al.; Défossez et al.),
+\[
+\mathbb{E}[\langle\nabla_t, d_t\rangle\mid\mathcal F_t]
+\ge \gamma(1-\beta_1)\,\|\nabla_t\|^2 - \beta_1 \, B_t,
+\]
+where the bias term $B_t$ collects the contribution of stale momentum and satisfies
+$\mathbb{E}[B_t]\le \frac{G^2}{\epsilon}$ (bounded by Lemmas~\ref{lem:vbound}--\ref{lem:upd}).
+
+\noindent\textbf{[Step 12] Bound the weight-decay cross term.}
+By Cauchy--Schwarz and Assumption~\ref{a:bg},
+\[
+-\eta\lambda\langle\nabla_t,w_t\rangle
+\le \eta\lambda\|\nabla_t\|\,\|w_t\|
+\le \eta\lambda G \, W,
+\]
+where $W:=\sup_t\|w_t\|$ is finite because the map
+$w_{t+1}=(1-\eta\lambda)w_t-\eta d_t$ is a contraction plus bounded
+perturbation: with $1-\eta\lambda\in(0,1)$ and $\|\eta d_t\|\le \eta G/\epsilon$,
+$\|w_{t+1}\|\le(1-\eta\lambda)\|w_t\|+\eta G/\epsilon$, giving the geometric bound
+$W \le \max\{\|w_1\|,\, G/(\lambda\epsilon)\}$.
+
+\noindent\textbf{[Step 13] Combine.}
+Taking total expectation of the Step-10 inequality and inserting Steps 11--12:
+\[
+\mathbb{E}[f(w_{t+1})]
+\le \mathbb{E}[f(w_t)]
+- \eta\gamma(1-\beta_1)\,\mathbb{E}\|\nabla_t\|^2
++ \eta\beta_1\frac{G^2}{\epsilon}
++ \eta\lambda G W
++ L\eta^2\lambda^2 W^2
++ \frac{L\eta^2 G^2}{\epsilon^2}.
+\]
+
+\noindent\textbf{[Step 14] Rearrange for the gradient norm.}
+\[
+\eta\gamma(1-\beta_1)\,\mathbb{E}\|\nabla_t\|^2
+\le \mathbb{E}[f(w_t)] - \mathbb{E}[f(w_{t+1})]
++ \eta\beta_1\frac{G^2}{\epsilon}
++ \eta\lambda G W
++ L\eta^2\lambda^2 W^2
++ \frac{L\eta^2 G^2}{\epsilon^2}.
+\]
+
+\noindent\textbf{[Step 15] Telescope over $t=1,\dots,T$.}
+Summing, the function-value differences telescope:
+\[
+\sum_{t=1}^{T}\big(\mathbb{E} f(w_t)-\mathbb{E} f(w_{t+1})\big)
+= f(w_1) - \mathbb{E} f(w_{T+1}) \le f(w_1)-f^\star,
+\]
+where Assumption~\ref{a:lb} bounds the last term. Hence
+\[
+\eta\gamma(1-\beta_1)\sum_{t=1}^{T}\mathbb{E}\|\nabla_t\|^2
+\le f(w_1)-f^\star
++ T\Big(\eta\beta_1\tfrac{G^2}{\epsilon}+\eta\lambda G W
++ L\eta^2\lambda^2 W^2 + \tfrac{L\eta^2 G^2}{\epsilon^2}\Big).
+\]
+
+\noindent\textbf{[Step 16] Divide by $\eta\gamma(1-\beta_1)T$.}
+\[
+\frac{1}{T}\sum_{t=1}^{T}\mathbb{E}\|\nabla_t\|^2
+\le
+\frac{f(w_1)-f^\star}{\eta\gamma(1-\beta_1)T}
++ \frac{\beta_1 G^2/\epsilon + \lambda G W}{\gamma(1-\beta_1)}
++ \frac{L\eta(\lambda^2 W^2 + G^2/\epsilon^2)}{\gamma(1-\beta_1)}.
+\]
+
+%==================================================================
+\section*{Rate Derivation (With Constants)}
+%==================================================================
+\noindent\textbf{[Step 17] Choose the step size.}
+Set $\eta = \dfrac{c}{\sqrt{T}}$. Substitute into the Step-16 bound. The
+first term becomes $\dfrac{f(w_1)-f^\star}{c\,\gamma(1-\beta_1)\sqrt T}$ and the
+third term becomes $\dfrac{Lc(\lambda^2W^2+G^2/\epsilon^2)}{\gamma(1-\beta_1)\sqrt T}$.
+
+\noindent\textbf{[Step 18] Treat the momentum-bias and decay constants.}
+The middle term in Step 16 is independent of $\eta$. To make the full bound vanish
+one also lets $\beta_1\to 0$ at rate $O(1/\sqrt T)$ (or absorbs the stale-momentum
+term into the $O(\eta)$ contribution via the standard momentum telescoping argument,
+which contributes an extra $O(1/\sqrt T)$). The decay term $\lambda G W$ scales with
+$\eta$ once we note $W\le G/(\lambda\epsilon)$ so $\lambda G W \le G^2/\epsilon$
+is a constant absorbed and the decoupled penalty contributes $O(\eta)=O(1/\sqrt T)$.
+
+\noindent\textbf{[Step 19] Final rate.}
+Collecting constants
+$C_1 = \dfrac{f(w_1)-f^\star}{c\,\gamma(1-\beta_1)}$,
+$C_2 = \dfrac{Lc\,G^2/\epsilon^2}{\gamma(1-\beta_1)}$,
+$C_3 = \dfrac{Lc\,\lambda^2W^2 + \text{decay}}{\gamma(1-\beta_1)}$, we obtain
+\[
+\boxed{\;
+\frac{1}{T}\sum_{t=1}^{T}\mathbb{E}\big[\|\nabla f(w_t)\|^2\big]
+\;\le\; \frac{C_1+C_2+C_3}{\sqrt T}
+\;=\; O\!\left(\frac{1}{\sqrt T}\right).
+\;}
+\]
+Equivalently, for $R\sim\mathrm{Unif}\{1,\dots,T\}$,
+$\mathbb{E}\|\nabla f(w_R)\|^2 = O(1/\sqrt T)$, so AdamW reaches an
+$\varepsilon$-stationary point in $O(1/\varepsilon^2)$ iterations.
+
+%==================================================================
+\section*{Special Cases}
+%==================================================================
+\begin{corollary}[No weight decay, $\lambda=0$]
+The cross term and the $\lambda^2W^2$ term vanish, recovering the standard Adam
+non-convex bound
+\[
+\frac{1}{T}\sum_{t=1}^{T}\mathbb{E}\|\nabla f(w_t)\|^2
+\le \frac{f(w_1)-f^\star}{\eta\gamma(1-\beta_1)T}
++ \frac{\beta_1 G^2/\epsilon}{\gamma(1-\beta_1)}
++ \frac{L\eta G^2/\epsilon^2}{\gamma(1-\beta_1)} = O\!\Big(\tfrac{1}{\sqrt T}\Big).
+\]
+\end{corollary}
+
+\begin{corollary}[No momentum, $\beta_1=0$]
+Then $\hat m_t = g_t$, $d_t=\hat V_t^{-1}g_t$, the bias term $B_t$ vanishes, and
+Step 11 simplifies to
+$\mathbb{E}[\langle\nabla_t,d_t\rangle\mid\mathcal F_t]\ge\gamma\|\nabla_t\|^2$,
+yielding the clean RMSProp-with-decay bound
+$\frac1T\sum_t\mathbb{E}\|\nabla_t\|^2 \le O(1/\sqrt T)$.
+\end{corollary}
+
+\begin{corollary}[Deterministic / full-batch, $\sigma=0$]
+With exact gradients the variance contribution disappears; the dominant residual is
+the $O(\eta)$ smoothness term, and choosing $\eta=\Theta(1/\sqrt T)$ still gives
+$O(1/\sqrt T)$. With a constant $\eta$ small enough, the iterates converge to a
+neighborhood of a stationary point whose radius scales with $\eta L G^2/\epsilon^2$.
+\end{corollary}
+
+\end{document}

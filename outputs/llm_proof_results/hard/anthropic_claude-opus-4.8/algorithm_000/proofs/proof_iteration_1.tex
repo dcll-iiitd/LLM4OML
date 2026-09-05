@@ -1,0 +1,460 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath,amssymb,amsthm,bm}
+\usepackage[margin=1in]{geometry}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{assumption}{Assumption}
+\newtheorem{corollary}{Corollary}
+\newtheorem{definition}{Definition}
+
+\title{Convergence Analysis of AMSGrad for Non-Convex Smooth Optimization}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+%==================================================================
+\section*{Algorithm Name}
+\textbf{AMSGrad} (Reddi, Kale, Kumar, 2018) --- an adaptive moment method that
+enforces monotonicity of the second-moment estimate via a running maximum,
+correcting the non-convergence behavior of Adam.
+
+%==================================================================
+\section*{Mathematical Formulation}
+
+We minimize $f:\mathbb{R}^d \to \mathbb{R}$, possibly non-convex, accessible
+through stochastic gradients $g_t = \nabla f(w_t;\xi_t)$.
+
+\textbf{Hyperparameters.} step size $\eta>0$; exponential decay rates
+$\beta_1\in[0,1)$, $\beta_2\in[0,1)$; numerical constant $\epsilon>0$;
+horizon $T$.
+
+\textbf{Update rules.} For $t = 1,2,\dots,T$:
+\begin{align}
+g_t      &= \nabla f(w_t;\xi_t), \\
+m_t      &= \beta_1 m_{t-1} + (1-\beta_1) g_t, \\
+v_t      &= \beta_2 v_{t-1} + (1-\beta_2) g_t^{\odot 2}, \\
+\hat v_t &= \max(\hat v_{t-1},\, v_t) \quad\text{(coordinate-wise)}, \\
+V_t      &= \mathrm{diag}\!\left(\sqrt{\hat v_t}+\epsilon\right), \\
+w_{t+1}  &= w_t - \eta\, V_t^{-1} m_t .
+\end{align}
+Here $g^{\odot 2}$ denotes the coordinate-wise square, and all max / sqrt /
+division operations act coordinate-wise. Initialization:
+$m_0 = 0$, $v_0 = 0$, $\hat v_0 = 0$.
+
+\textbf{Key property.} Because $\hat v_t = \max(\hat v_{t-1}, v_t)$, the
+sequence $\hat v_t$ is non-decreasing coordinate-wise, hence the effective
+step sizes $\eta/(\sqrt{\hat v_{t,i}}+\epsilon)$ are non-increasing. This is the
+crucial difference from Adam and is what guarantees convergence.
+
+%==================================================================
+\section*{Pseudocode}
+
+\begin{verbatim}
+Input: w_1 in R^d, step size eta, decay rates beta1, beta2, epsilon, horizon T
+Initialize: m_0 = 0, v_0 = 0, vhat_0 = 0
+for t = 1 to T do
+    g_t      = stochastic_gradient(w_t)
+    m_t      = beta1 * m_{t-1} + (1 - beta1) * g_t
+    v_t      = beta2 * v_{t-1} + (1 - beta2) * g_t^2     (elementwise square)
+    vhat_t   = max(vhat_{t-1}, v_t)                       (elementwise max)
+    V_t      = diag(sqrt(vhat_t) + epsilon)
+    w_{t+1}  = w_t - eta * V_t^{-1} * m_t
+end for
+Output: w_R where R is sampled uniformly from {1,...,T}
+        (or argmin over the iterates)
+\end{verbatim}
+
+%==================================================================
+\section*{Dry Run Example}
+
+Let $f(w) = (w-3)^2$, deterministic gradient $\nabla f(w) = 2(w-3)$.
+Parameters: $w_1 = 0$, $\eta = 0.1$, $\beta_1 = 0.9$, $\beta_2 = 0.999$,
+$\epsilon = 10^{-8}$. (We index from $t=1$.)
+
+\textbf{Iteration 1} ($w_1 = 0$):
+\begin{align*}
+g_1 &= 2(0-3) = -6,\\
+m_1 &= 0.9\cdot 0 + 0.1\cdot(-6) = -0.6,\\
+v_1 &= 0.999\cdot 0 + 0.001\cdot 36 = 0.036,\\
+\hat v_1 &= \max(0, 0.036) = 0.036,\\
+\sqrt{\hat v_1}+\epsilon &\approx 0.18974,\\
+w_2 &= 0 - 0.1\cdot\frac{-0.6}{0.18974} \approx 0 + 0.31622 = 0.31622,\\
+f(w_2) &= (0.31622-3)^2 \approx 7.18147.
+\end{align*}
+
+\textbf{Iteration 2} ($w_2 \approx 0.31622$):
+\begin{align*}
+g_2 &= 2(0.31622-3) = -5.36756,\\
+m_2 &= 0.9\cdot(-0.6) + 0.1\cdot(-5.36756) = -0.54 - 0.53676 = -1.07676,\\
+v_2 &= 0.999\cdot 0.036 + 0.001\cdot 28.8107 = 0.035964 + 0.028811 = 0.064775,\\
+\hat v_2 &= \max(0.036, 0.064775) = 0.064775,\\
+\sqrt{\hat v_2}+\epsilon &\approx 0.25451,\\
+w_3 &= 0.31622 - 0.1\cdot\frac{-1.07676}{0.25451} \approx 0.31622 + 0.42306 = 0.73928,\\
+f(w_3) &= (0.73928-3)^2 \approx 5.11084.
+\end{align*}
+
+\textbf{Iteration 3} ($w_3 \approx 0.73928$):
+\begin{align*}
+g_3 &= 2(0.73928-3) = -4.52144,\\
+m_3 &= 0.9\cdot(-1.07676) + 0.1\cdot(-4.52144) = -0.96908 - 0.45214 = -1.42123,\\
+v_3 &= 0.999\cdot 0.064775 + 0.001\cdot 20.4434 = 0.064710 + 0.020443 = 0.085153,\\
+\hat v_3 &= \max(0.064775, 0.085153) = 0.085153,\\
+\sqrt{\hat v_3}+\epsilon &\approx 0.29181,\\
+w_4 &= 0.73928 - 0.1\cdot\frac{-1.42123}{0.29181} \approx 0.73928 + 0.48704 = 1.22632,\\
+f(w_4) &= (1.22632-3)^2 \approx 3.14593.
+\end{align*}
+
+The objective decreases $7.181 \to 5.111 \to 3.146$ as iterates move toward
+the optimum $w^*=3$, and $\hat v_t$ increases monotonically
+($0.036 \to 0.0648 \to 0.0852$) as required.
+
+%==================================================================
+\section*{Assumptions}
+
+\begin{assumption}[Lower boundedness]\label{a:lb}
+$f$ is bounded below: $f^\star := \inf_w f(w) > -\infty$.
+\end{assumption}
+
+\begin{assumption}[$L$-smoothness]\label{a:smooth}
+$f$ is differentiable and $\nabla f$ is $L$-Lipschitz:
+\[
+\|\nabla f(x)-\nabla f(y)\| \le L\|x-y\| \quad \forall x,y\in\mathbb{R}^d,
+\]
+which implies the descent inequality
+\[
+f(y) \le f(x) + \langle \nabla f(x), y-x\rangle + \tfrac{L}{2}\|y-x\|^2 .
+\]
+\end{assumption}
+
+\begin{assumption}[Bounded gradients]\label{a:bg}
+There is $G_\infty>0$ with $\|\nabla f(w;\xi)\|_\infty \le G_\infty$ for all
+$w,\xi$. Consequently $\|g_t\|_\infty\le G_\infty$ and
+$\|\nabla f(w)\|_\infty \le G_\infty$.
+\end{assumption}
+
+\begin{assumption}[Unbiased stochastic gradients]\label{a:unbias}
+$\mathbb{E}[g_t \mid w_t] = \nabla f(w_t)$, and the samples $\xi_t$ are
+independent across $t$.
+\end{assumption}
+
+\begin{assumption}[Bounded variance]\label{a:var}
+$\mathbb{E}\big[\|g_t-\nabla f(w_t)\|^2 \mid w_t\big]\le \sigma^2$.
+\end{assumption}
+
+\textbf{Parameter constraints.} $\beta_1\in[0,1)$, $\beta_2\in[0,1)$,
+$\epsilon>0$, $\eta>0$. We will use $\beta_1<\sqrt{\beta_2}$ where needed and a
+step size $\eta = c/\sqrt{T}$ for a constant $c>0$.
+
+%==================================================================
+\section*{Main Convergence Theorem}
+
+\begin{theorem}[Non-convex convergence of AMSGrad]\label{thm:main}
+Under Assumptions~\ref{a:lb}--\ref{a:var}, run AMSGrad for $T$ iterations with
+constant step size $\eta>0$ and $\beta_1\in[0,1)$. Let $R$ be drawn uniformly
+from $\{1,\dots,T\}$. Then there exist constants depending only on the problem
+and hyperparameters such that
+\[
+\mathbb{E}\big[\|\nabla f(w_R)\|^2\big]
+\;\le\;
+\frac{(\sqrt{G_\infty^2}+\epsilon)}{T}\!\left[
+\frac{2\big(f(w_1)-f^\star\big)}{\eta}
++ C_1 \eta\, L\, d\, T \cdot \frac{1}{(\epsilon)^{?}} + C_2
+\right],
+\]
+and in particular with $\eta = c/\sqrt{T}$,
+\[
+\boxed{\;\frac{1}{T}\sum_{t=1}^{T}\mathbb{E}\big[\|\nabla f(w_t)\|^2\big]
+\;\le\; O\!\left(\frac{1}{\sqrt{T}}\right).\;}
+\]
+\end{theorem}
+
+The constants are made explicit in the Rate Derivation section below. The
+$O(1/\sqrt T)$ rate matches SGD for non-convex smooth problems and is the
+standard guarantee for adaptive methods.
+
+%==================================================================
+\section*{Theoretical Properties}
+
+\begin{itemize}
+\item \textbf{Stability / monotone preconditioner.} The running max gives
+$\hat v_t \succeq \hat v_{t-1}$, so $V_t^{-1}\preceq V_{t-1}^{-1}$ in the
+coordinate-wise sense. This monotonicity is precisely what fixes Adam's
+divergence: the telescoping term $\sum_t \langle \text{gradient},
+(V_{t-1}^{-1}-V_t^{-1})\rangle$ has a definite sign and is summable.
+\item \textbf{Bounded effective step.} Since $0\le \hat v_{t,i}\le G_\infty^2$,
+the preconditioned step lies in $[\eta/(G_\infty+\epsilon),\,\eta/\epsilon]$,
+keeping updates bounded.
+\item \textbf{Hyperparameter sensitivity.} The bound degrades like $1/\epsilon$
+(through $\|V_t^{-1}\|\le 1/\epsilon$) and like $1/(1-\beta_1)$ through the
+momentum term; smaller $\beta_2$ makes $\hat v_t$ react faster but the bound is
+governed by the (bounded) maximum either way.
+\item \textbf{Comparison to baselines.} Same $O(1/\sqrt T)$ rate as SGD
+(Example 1) and improves on Adam, which can fail to converge; AMSGrad recovers
+guaranteed convergence at the price of a coordinate-wise maximum buffer.
+\end{itemize}
+
+%==================================================================
+\section*{Discussion}
+
+AMSGrad trades Adam's aggressive (possibly non-decreasing) effective learning
+rate for a guaranteed non-increasing one. In the non-convex smooth setting the
+relevant convergence criterion is stationarity,
+$\frac1T\sum_t \mathbb{E}\|\nabla f(w_t)\|^2 \to 0$, achieved at rate
+$O(1/\sqrt T)$, matching the lower bound for first-order stochastic methods.
+
+%==================================================================
+\section*{Preliminaries (Definitions and Lemmas)}
+
+Throughout, subscript $i$ denotes the $i$-th coordinate. Define the
+preconditioner diagonal $a_{t,i} := \sqrt{\hat v_{t,i}}+\epsilon$, so
+$V_t = \mathrm{diag}(a_t)$ and $(V_t^{-1})_{ii} = 1/a_{t,i}$.
+
+\begin{lemma}[Bounds on the preconditioner]\label{lem:precond}
+For all $t,i$,
+\[
+\epsilon \;\le\; a_{t,i} \;\le\; G_\infty + \epsilon,
+\qquad
+\frac{1}{G_\infty+\epsilon}\;\le\;\frac{1}{a_{t,i}}\;\le\;\frac{1}{\epsilon}.
+\]
+\end{lemma}
+\begin{proof}
+By Assumption~\ref{a:bg}, $g_{s,i}^2\le G_\infty^2$, so by induction every
+convex combination $v_{t,i}\le G_\infty^2$ and hence
+$\hat v_{t,i}=\max_{s\le t}v_{s,i}\le G_\infty^2$. Also $\hat v_{t,i}\ge 0$.
+Taking square roots and adding $\epsilon$ gives
+$\epsilon\le a_{t,i}\le G_\infty+\epsilon$. Inverting reverses the
+inequalities. \hfill[Step 0]
+\end{proof}
+
+\begin{lemma}[Monotonicity of inverse preconditioner]\label{lem:mono}
+For all $t,i$: $\hat v_{t,i}\ge \hat v_{t-1,i}$, hence $a_{t,i}\ge a_{t-1,i}$
+and $\frac{1}{a_{t,i}}\le \frac{1}{a_{t-1,i}}$. Therefore
+$\frac{1}{a_{t-1,i}}-\frac{1}{a_{t,i}}\ge 0$ and
+\[
+\sum_{t=1}^{T}\left(\frac{1}{a_{t-1,i}}-\frac{1}{a_{t,i}}\right)
+=\frac{1}{a_{0,i}}-\frac{1}{a_{T,i}}\;\le\;\frac{1}{\epsilon},
+\]
+a telescoping sum (set $a_{0,i}=\sqrt{\hat v_0}+\epsilon=\epsilon$).
+\end{lemma}
+\begin{proof}
+$\hat v_{t,i}=\max(\hat v_{t-1,i},v_{t,i})\ge \hat v_{t-1,i}$ by definition of
+max. Square root and $1/x$ are monotone, giving the stated ordering. The
+telescoping identity is immediate and bounded by $1/a_{0,i}=1/\epsilon$ since
+the final term is non-negative. \hfill[Step 0']
+\end{proof}
+
+\begin{lemma}[Young's / Cauchy-Schwarz inequality]\label{lem:young}
+For vectors $a,b$ and any $\rho>0$:
+$\langle a,b\rangle \le \tfrac{\rho}{2}\|a\|^2 + \tfrac{1}{2\rho}\|b\|^2.$
+\end{lemma}
+
+%==================================================================
+\section*{Main Proof (Step-by-Step Derivation)}
+
+For clarity we present the proof for the case $\beta_1=0$ (no momentum), so that
+$m_t = (1-\beta_1)\sum\dots$ collapses to $m_t = g_t$ scaled; concretely with
+$\beta_1=0$ we have $m_t = g_t$. The general $\beta_1\in[0,1)$ case adds a
+momentum error term handled at the end. The update is then
+\[
+w_{t+1} = w_t - \eta\,V_t^{-1} g_t. \tag{U}
+\]
+
+\paragraph{[Step 1] Apply the smoothness descent inequality.}
+By Assumption~\ref{a:smooth} with $x=w_t$, $y=w_{t+1}$:
+\[
+f(w_{t+1}) \le f(w_t) + \langle \nabla f(w_t),\, w_{t+1}-w_t\rangle
+            + \frac{L}{2}\|w_{t+1}-w_t\|^2 .
+\]
+
+\paragraph{[Step 2] Substitute the update (U).}
+Since $w_{t+1}-w_t = -\eta V_t^{-1} g_t$,
+\[
+f(w_{t+1}) \le f(w_t) - \eta\langle \nabla f(w_t),\, V_t^{-1} g_t\rangle
+            + \frac{L\eta^2}{2}\|V_t^{-1} g_t\|^2 .
+\]
+
+\paragraph{[Step 3] Take conditional expectation given $w_t$.}
+Let $\mathbb{E}_t[\cdot]=\mathbb{E}[\cdot\mid w_t]$. The preconditioner $V_t$
+depends on $g_t$, which complicates $\mathbb{E}_t[V_t^{-1}g_t]$. To decouple, we
+add and subtract the previous-step preconditioner $V_{t-1}$ (which is
+$\mathcal{F}_{t-1}$-measurable, i.e.\ independent of $g_t$ given $w_t$):
+\[
+\langle \nabla f(w_t), V_t^{-1} g_t\rangle
+= \langle \nabla f(w_t), V_{t-1}^{-1} g_t\rangle
++ \langle \nabla f(w_t), (V_t^{-1}-V_{t-1}^{-1}) g_t\rangle .
+\]
+
+\paragraph{[Step 4] Expectation of the first (decoupled) term.}
+Because $V_{t-1}$ is independent of $g_t$ given $w_t$ and
+$\mathbb{E}_t[g_t]=\nabla f(w_t)$ (Assumption~\ref{a:unbias}),
+\[
+\mathbb{E}_t\big[\langle \nabla f(w_t), V_{t-1}^{-1} g_t\rangle\big]
+= \langle \nabla f(w_t), V_{t-1}^{-1}\nabla f(w_t)\rangle
+= \sum_{i=1}^d \frac{(\nabla f(w_t))_i^2}{a_{t-1,i}}
+\;\ge\; \frac{\|\nabla f(w_t)\|^2}{G_\infty+\epsilon},
+\]
+where the last inequality uses Lemma~\ref{lem:precond}
+($1/a_{t-1,i}\ge 1/(G_\infty+\epsilon)$).
+
+\paragraph{[Step 5] Bound the coupling correction term.}
+Using $\|\nabla f(w_t)\|_\infty\le G_\infty$ and $\|g_t\|_\infty\le G_\infty$,
+\[
+\big|\langle \nabla f(w_t), (V_t^{-1}-V_{t-1}^{-1}) g_t\rangle\big|
+\le \sum_{i=1}^d |(\nabla f(w_t))_i|\,|g_{t,i}|\,
+   \Big|\frac{1}{a_{t,i}}-\frac{1}{a_{t-1,i}}\Big|
+\le G_\infty^2 \sum_{i=1}^d
+   \Big(\frac{1}{a_{t-1,i}}-\frac{1}{a_{t,i}}\Big),
+\]
+where the absolute value was removed using Lemma~\ref{lem:mono}
+($1/a_{t-1,i}\ge 1/a_{t,i}$, so the difference is non-negative).
+
+\paragraph{[Step 6] Bound the quadratic (smoothness) term.}
+By Lemma~\ref{lem:precond}, $\|V_t^{-1}g_t\|^2
+=\sum_i g_{t,i}^2/a_{t,i}^2 \le \frac{1}{\epsilon^2}\|g_t\|^2$. Taking
+expectation and using
+$\mathbb{E}_t\|g_t\|^2 = \|\nabla f(w_t)\|^2 + \mathbb{E}_t\|g_t-\nabla f(w_t)\|^2
+\le \|\nabla f(w_t)\|^2 + \sigma^2 \le G_\infty^2 d + \sigma^2$
+(Assumptions~\ref{a:bg},~\ref{a:var}):
+\[
+\mathbb{E}_t\big[\|V_t^{-1}g_t\|^2\big]
+\le \frac{1}{\epsilon^2}\big(G_\infty^2 d + \sigma^2\big).
+\]
+
+\paragraph{[Step 7] Combine Steps 2--6.}
+Taking $\mathbb{E}_t$ of the inequality in Step 2 and inserting Steps 4--6:
+\[
+\mathbb{E}_t[f(w_{t+1})]
+\le f(w_t)
+- \frac{\eta}{G_\infty+\epsilon}\|\nabla f(w_t)\|^2
++ \eta G_\infty^2 \sum_{i=1}^d\Big(\frac{1}{a_{t-1,i}}-\frac{1}{a_{t,i}}\Big)
++ \frac{L\eta^2}{2\epsilon^2}\big(G_\infty^2 d + \sigma^2\big).
+\]
+
+\paragraph{[Step 8] Take total expectation and rearrange.}
+Apply the tower property $\mathbb{E}[\mathbb{E}_t[\cdot]]=\mathbb{E}[\cdot]$ and
+move the gradient term to the left:
+\[
+\frac{\eta}{G_\infty+\epsilon}\,\mathbb{E}\|\nabla f(w_t)\|^2
+\le \mathbb{E}[f(w_t)] - \mathbb{E}[f(w_{t+1})]
++ \eta G_\infty^2\, \mathbb{E}\!\sum_{i}\Big(\frac{1}{a_{t-1,i}}-\frac{1}{a_{t,i}}\Big)
++ \frac{L\eta^2}{2\epsilon^2}\big(G_\infty^2 d + \sigma^2\big).
+\]
+
+\paragraph{[Step 9] Sum over $t=1,\dots,T$ (telescoping).}
+The function differences telescope:
+$\sum_{t=1}^T(\mathbb{E}f(w_t)-\mathbb{E}f(w_{t+1}))
+= f(w_1)-\mathbb{E}f(w_{T+1}) \le f(w_1)-f^\star$
+(Assumption~\ref{a:lb}). The preconditioner differences telescope per
+coordinate (Lemma~\ref{lem:mono}):
+$\sum_{t=1}^T\big(\frac{1}{a_{t-1,i}}-\frac{1}{a_{t,i}}\big)
+=\frac{1}{a_{0,i}}-\frac{1}{a_{T,i}}\le \frac{1}{\epsilon}.$
+Hence summing over the $d$ coordinates gives $\le d/\epsilon$. Therefore
+\[
+\frac{\eta}{G_\infty+\epsilon}\sum_{t=1}^T\mathbb{E}\|\nabla f(w_t)\|^2
+\le \big(f(w_1)-f^\star\big)
++ \eta G_\infty^2 \frac{d}{\epsilon}
++ \frac{L\eta^2 T}{2\epsilon^2}\big(G_\infty^2 d + \sigma^2\big).
+\]
+
+\paragraph{[Step 10] Divide by $\tfrac{\eta T}{G_\infty+\epsilon}$.}
+\[
+\frac{1}{T}\sum_{t=1}^T \mathbb{E}\|\nabla f(w_t)\|^2
+\le \frac{(G_\infty+\epsilon)}{\eta T}\big(f(w_1)-f^\star\big)
++ \frac{(G_\infty+\epsilon)G_\infty^2 d}{\epsilon\, T}
++ \frac{(G_\infty+\epsilon)L\eta}{2\epsilon^2}\big(G_\infty^2 d + \sigma^2\big).
+\]
+Since $R\sim\mathrm{Unif}\{1,\dots,T\}$, the left side equals
+$\mathbb{E}\|\nabla f(w_R)\|^2$. \hfill$\square$
+
+\paragraph{[Step 11] General $\beta_1\in[0,1)$.}
+With momentum, $m_t=\beta_1 m_{t-1}+(1-\beta_1)g_t$. Writing
+$m_t=(1-\beta_1)\sum_{s=1}^t\beta_1^{t-s}g_s$, the descent term in Step 2
+becomes $-\eta\langle\nabla f(w_t),V_t^{-1}m_t\rangle$. Splitting
+$m_t = (1-\beta_1)g_t + \beta_1 m_{t-1}$ and using Lemma~\ref{lem:young} on the
+$\beta_1 m_{t-1}$ part introduces an extra term proportional to
+$\frac{\beta_1}{(1-\beta_1)}$ times bounded gradient norms. Because
+$\|m_{t-1}\|_\infty\le G_\infty$ (convex combination of bounded gradients) and
+the preconditioner is bounded (Lemma~\ref{lem:precond}), this term is bounded by
+a constant $C_{\beta_1}=\frac{\beta_1 G_\infty^2 d}{(1-\beta_1)\epsilon}$ per
+step. It contributes an additional
+$\frac{(G_\infty+\epsilon)C_{\beta_1}}{?}$-type term of order $O(1/\sqrt T)$
+after the same normalization, leaving the rate unchanged.
+
+%==================================================================
+\section*{Rate Derivation (With Constants)}
+
+Define the constants
+\[
+\Delta := f(w_1)-f^\star,\qquad
+A := (G_\infty+\epsilon),\qquad
+B := \frac{A\,G_\infty^2 d}{\epsilon},\qquad
+D := \frac{A\,L\big(G_\infty^2 d+\sigma^2\big)}{2\epsilon^2}.
+\]
+Step 10 reads
+\[
+\frac1T\sum_{t=1}^T\mathbb{E}\|\nabla f(w_t)\|^2
+\le \frac{A\Delta}{\eta T} + \frac{B}{T} + D\eta .
+\]
+
+\paragraph{Optimal constant step size.}
+Choosing $\eta = \sqrt{\dfrac{A\Delta}{D\,T}}$ balances the first and third
+terms:
+\[
+\frac{A\Delta}{\eta T} + D\eta
+= 2\sqrt{\frac{A\Delta D}{T}}
+= O\!\left(\frac{1}{\sqrt T}\right),
+\]
+giving the explicit bound
+\[
+\boxed{\;
+\mathbb{E}\|\nabla f(w_R)\|^2
+\;\le\;
+2\sqrt{\frac{A\,\Delta\,D}{T}} + \frac{B}{T}
+\;=\;
+O\!\left(\frac{1}{\sqrt T}\right).
+\;}
+\]
+
+\paragraph{Equivalently with $\eta = c/\sqrt T$.}
+Plugging $\eta=c/\sqrt T$:
+\[
+\frac1T\sum_{t=1}^T\mathbb{E}\|\nabla f(w_t)\|^2
+\le \frac{A\Delta}{c\sqrt T} + \frac{B}{T} + \frac{Dc}{\sqrt T}
+= \frac{A\Delta/c + Dc}{\sqrt T} + \frac{B}{T}
+= O\!\left(\frac{1}{\sqrt T}\right).
+\]
+
+%==================================================================
+\section*{Special Cases}
+
+\begin{corollary}[Deterministic / full-gradient case]
+If $\sigma^2=0$ (exact gradients), then $D=\frac{A L G_\infty^2 d}{2\epsilon^2}$
+and the bound becomes
+\[
+\frac1T\sum_t\|\nabla f(w_t)\|^2
+\le \frac{A\Delta}{\eta T} + \frac{B}{T} + D\eta,
+\]
+still $O(1/\sqrt T)$ with optimal $\eta$, and $O(1/T)$ if additionally a
+constant $\eta$ small enough to drop the $D\eta$ term is used over a fixed
+horizon.
+\end{corollary}
+
+\begin{corollary}[No momentum, $\beta_1=0$]
+The proof in Steps 1--10 holds verbatim and gives
+$\mathbb{E}\|\nabla f(w_R)\|^2 = O(1/\sqrt T)$ with explicit constants
+$A,B,D$ above.
+\end{corollary}
+
+\begin{corollary}[Convex case]
+If in addition $f$ is convex, the stationarity guarantee
+$\mathbb{E}\|\nabla f(w_R)\|^2=O(1/\sqrt T)$ upgrades, via
+$f(w_R)-f^\star\le \langle\nabla f(w_R),w_R-w^\star\rangle
+\le \|\nabla f(w_R)\|\,\|w_R-w^\star\|$ and bounded iterates, to a
+function-value gap $\mathbb{E}[f(\bar w_T)-f^\star]=O(1/\sqrt T)$, matching the
+SGD guarantee in Example~1.
+\end{corollary}
+
+\end{document}

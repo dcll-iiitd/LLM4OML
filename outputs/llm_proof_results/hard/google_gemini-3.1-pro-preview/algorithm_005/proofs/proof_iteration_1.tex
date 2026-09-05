@@ -1,0 +1,214 @@
+\documentclass{article}
+\usepackage{amsmath, amssymb, amsthm}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage[margin=1in]{geometry}
+\usepackage{hyperref}
+
+\title{Detailed Convergence Analysis of Top-$K$ Error Feedback SGD \\ (Non-Convex and Smooth Setting)}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section*{Algorithm Name}
+Top-$K$ Error Feedback Stochastic Gradient Descent (Top-$K$ EF-SGD)
+
+\section*{Mathematical Formulation}
+Top-$K$ EF-SGD is designed for communication-efficient or memory-efficient distributed training. Instead of transmitting the full dense gradient, the algorithm communicates only the largest $K$ components (in magnitude). To prevent the loss of information from the uncommunicated components (which would otherwise lead to divergence or heavy bias), the algorithm maintains an \textit{error} (or residual) state $e_t$.
+
+The update rules at iteration $t$ are mathematically defined as follows:
+\begin{align*}
+    g_t &= \nabla f(w_t; z_t) \quad \text{(Stochastic Gradient)} \\
+    p_t &= e_t + g_t \quad \text{(Error Accumulation)} \\
+    \Delta_t &= \text{Top}_K(p_t) \quad \text{(Compression)} \\
+    e_{t+1} &= p_t - \Delta_t \quad \text{(Error Update)} \\
+    w_{t+1} &= w_t - \eta \Delta_t \quad \text{(Weight Update)}
+\end{align*}
+where $\eta > 0$ is the learning rate, and $\text{Top}_K(x)$ is an operator that preserves the $K$ coordinates of $x$ with the largest absolute values and sets the rest to zero.
+
+\section*{Pseudocode}
+\begin{algorithm}[H]
+\caption{Top-$K$ EF-SGD}
+\begin{algorithmic}[1]
+\REQUIRE Learning rate $\eta$, sparsity level $K$, initial weights $w_0$, total iterations $T$
+\STATE Initialize error vector $e_0 = \mathbf{0}$
+\FOR{$t = 0, 1, \dots, T-1$}
+    \STATE Sample batch $z_t$ and compute stochastic gradient $g_t = \nabla f(w_t; z_t)$
+    \STATE Accumulate past errors with current gradient: $p_t = e_t + g_t$
+    \STATE Compress to find top-$K$ elements: $\Delta_t = \text{Top}_K(p_t)$
+    \STATE Update residual error: $e_{t+1} = p_t - \Delta_t$
+    \STATE Update model parameters: $w_{t+1} = w_t - \eta \Delta_t$
+\ENDFOR
+\RETURN $w_T$ (or a randomly chosen iterate $\bar{w}_T$)
+\end{algorithmic}
+\end{algorithm}
+
+\section*{Dry Run Example}
+We apply the algorithm to a simple 1D quadratic function $f(w) = (w-3)^2$ where $\nabla f(w) = 2(w-3)$. 
+Let $w_0 = 0$, $\eta = 0.1$, and $K=1$. Note that since the parameter dimension $d=1$, $K=d$, meaning the $\text{Top}_K$ operator acts as the identity mapping ($\Delta_t = p_t$). This means no compression actually occurs, and EF-SGD reduces to standard SGD.
+
+\textbf{Initialization:} $w_0 = 0$, $e_0 = 0$.
+
+\textbf{Iteration 1 ($t=0$):}
+\begin{itemize}
+    \item Gradient: $g_0 = 2(0 - 3) = -6$
+    \item Accumulate: $p_0 = e_0 + g_0 = 0 - 6 = -6$
+    \item Compress: $\Delta_0 = \text{Top}_1(-6) = -6$
+    \item Error update: $e_1 = p_0 - \Delta_0 = -6 - (-6) = 0$
+    \item Weight update: $w_1 = w_0 - \eta \Delta_0 = 0 - 0.1(-6) = 0.6$
+    \item Objective value: $f(w_1) = (0.6 - 3)^2 = 5.76$
+\end{itemize}
+
+\textbf{Iteration 2 ($t=1$):}
+\begin{itemize}
+    \item Gradient: $g_1 = 2(0.6 - 3) = -4.8$
+    \item Accumulate: $p_1 = e_1 + g_1 = 0 - 4.8 = -4.8$
+    \item Compress: $\Delta_1 = \text{Top}_1(-4.8) = -4.8$
+    \item Error update: $e_2 = p_1 - \Delta_1 = 0$
+    \item Weight update: $w_2 = w_1 - \eta \Delta_1 = 0.6 - 0.1(-4.8) = 1.08$
+    \item Objective value: $f(w_2) = (1.08 - 3)^2 = 3.6864$
+\end{itemize}
+
+\textbf{Iteration 3 ($t=2$):}
+\begin{itemize}
+    \item Gradient: $g_2 = 2(1.08 - 3) = -3.84$
+    \item Accumulate: $p_2 = e_2 + g_2 = 0 - 3.84 = -3.84$
+    \item Compress: $\Delta_2 = \text{Top}_1(-3.84) = -3.84$
+    \item Error update: $e_3 = p_2 - \Delta_2 = 0$
+    \item Weight update: $w_3 = w_2 - \eta \Delta_2 = 1.08 - 0.1(-3.84) = 1.464$
+    \item Objective value: $f(w_3) = (1.464 - 3)^2 \approx 2.359$
+\end{itemize}
+
+\section*{Assumptions}
+To establish the convergence of Top-$K$ EF-SGD for non-convex functions, we make the following standard assumptions:
+
+\begin{enumerate}
+    \item \textbf{Smoothness:} The objective function $f: \mathbb{R}^d \to \mathbb{R}$ is differentiable and $L$-smooth. For all $x, y \in \mathbb{R}^d$:
+    $$ f(y) \leq f(x) + \langle \nabla f(x), y - x \rangle + \frac{L}{2} \|y - x\|^2 $$
+    \item \textbf{Lower Boundedness:} The function $f$ is bounded below by $f^* > -\infty$.
+    \item \textbf{Unbiased Stochastic Gradients:} Let $\mathcal{F}_t$ be the filtration up to time $t$. The stochastic gradient is unbiased:
+    $$ \mathbb{E}[g_t \mid \mathcal{F}_t] = \nabla f(w_t) $$
+    \item \textbf{Bounded Second Moment:} The stochastic gradients have a uniformly bounded second moment:
+    $$ \mathbb{E}[\|g_t\|^2 \mid \mathcal{F}_t] \leq G^2 $$
+    \item \textbf{Contractive Compressor:} The $\text{Top}_K$ operator satisfies a contraction property. There exists a constant $\delta \in (0, 1]$ such that for all $x \in \mathbb{R}^d$:
+    $$ \|x - \text{Top}_K(x)\|^2 \leq (1 - \delta) \|x\|^2 $$
+    For $\text{Top}_K$ in $d$ dimensions, $\delta = \frac{K}{d}$.
+\end{enumerate}
+
+\section*{Main Convergence Theorem}
+\textbf{Theorem 1.} Under Assumptions 1-5, if we run Top-$K$ EF-SGD for $T$ iterations with a constant learning rate $\eta \leq \frac{1}{2L}$, the average expected squared gradient norm is bounded by:
+$$ \frac{1}{T} \sum_{t=0}^{T-1} \mathbb{E}[\|\nabla f(w_t)\|^2] \leq \frac{2(f(w_0) - f^*)}{\eta T} + \eta L G^2 + \frac{4 \eta^2 L^2 G^2}{\delta^2} $$
+Choosing $\eta = \frac{1}{L \sqrt{T}}$, we achieve a convergence rate of $\mathcal{O}\left(\frac{1}{\sqrt{T}}\right)$.
+
+\section*{Theoretical Properties}
+\begin{itemize}
+    \item \textbf{Error Compensation:} Without error feedback, applying Top-$K$ directly to gradients diverges or plateaus because the ignored components accumulate bias. By tracking $e_t$, EF-SGD ensures that all gradient components are eventually applied.
+    \item \textbf{Asymptotic Rate:} The dominant term in the bound is $\mathcal{O}(1/\sqrt{T})$, which matches the optimal rate for standard non-convex SGD. The compression error introduces an $\mathcal{O}(1/T)$ term, which decays faster and becomes negligible asymptotically.
+    \item \textbf{Hyperparameter Sensitivity:} The error term depends heavily on the compression ratio via $1/\delta^2 = (d/K)^2$. Extremely aggressive compression (very small $K$) requires a smaller learning rate or longer training to wash out the compression artifacts.
+\end{itemize}
+
+\section*{Discussion}
+The analysis relies on the technique of \textit{perturbed iterate analysis} (or virtual sequence). By defining a virtual sequence that moves purely in the direction of the true stochastic gradients, we can track the progress of the algorithm as if it were performing standard SGD, plus an error term bounded by the compressor's contractive properties.
+
+\section*{Preliminaries (Definitions and Lemmas)}
+\textbf{Lemma 1 (Young's Inequality):} For any vectors $a, b \in \mathbb{R}^d$ and any $\alpha > 0$:
+$$ \|a + b\|^2 \leq (1 + \alpha)\|a\|^2 + (1 + \frac{1}{\alpha})\|b\|^2 $$
+
+\textbf{Definition 1 (Virtual Sequence):} We define the virtual parameter sequence $\tilde{w}_t$ as:
+$$ \tilde{w}_t = w_t - \eta e_t $$
+This sequence represents where the parameters \textit{would} be if all accumulated gradients had been fully applied without compression.
+
+\section*{Main Proof (Step-by-Step Derivation)}
+
+\textbf{[Step 1]} Establish the recurrence for the virtual sequence $\tilde{w}_t$.
+\begin{align*}
+    \tilde{w}_{t+1} &= w_{t+1} - \eta e_{t+1} \\
+    &= (w_t - \eta \Delta_t) - \eta (p_t - \Delta_t) \\
+    &= w_t - \eta p_t \\
+    &= w_t - \eta (e_t + g_t) \\
+    &= (w_t - \eta e_t) - \eta g_t \\
+    &= \tilde{w}_t - \eta g_t
+\end{align*}
+Remarkably, the virtual sequence undergoes exact SGD updates.
+
+\textbf{[Step 2]} Apply the $L$-smoothness assumption (Assumption 1) to the virtual sequence $\tilde{w}_t$.
+$$ f(\tilde{w}_{t+1}) \leq f(\tilde{w}_t) + \langle \nabla f(\tilde{w}_t), \tilde{w}_{t+1} - \tilde{w}_t \rangle + \frac{L}{2} \|\tilde{w}_{t+1} - \tilde{w}_t\|^2 $$
+
+\textbf{[Step 3]} Substitute $\tilde{w}_{t+1} - \tilde{w}_t = -\eta g_t$ into the smoothness inequality.
+$$ f(\tilde{w}_{t+1}) \leq f(\tilde{w}_t) - \eta \langle \nabla f(\tilde{w}_t), g_t \rangle + \frac{L\eta^2}{2} \|g_t\|^2 $$
+
+\textbf{[Step 4]} Take the conditional expectation $\mathbb{E}[\cdot \mid \mathcal{F}_t]$ on both sides.
+$$ \mathbb{E}[f(\tilde{w}_{t+1}) \mid \mathcal{F}_t] \leq f(\tilde{w}_t) - \eta \langle \nabla f(\tilde{w}_t), \mathbb{E}[g_t \mid \mathcal{F}_t] \rangle + \frac{L\eta^2}{2} \mathbb{E}[\|g_t\|^2 \mid \mathcal{F}_t] $$
+
+\textbf{[Step 5]} Apply Assumptions 3 (unbiased gradient) and 4 (bounded second moment).
+$$ \mathbb{E}[f(\tilde{w}_{t+1}) \mid \mathcal{F}_t] \leq f(\tilde{w}_t) - \eta \langle \nabla f(\tilde{w}_t), \nabla f(w_t) \rangle + \frac{L\eta^2 G^2}{2} $$
+
+\textbf{[Step 6]} Use the algebraic identity $\langle a, b \rangle = \frac{1}{2}(\|a\|^2 + \|b\|^2 - \|a - b\|^2)$ to rewrite the inner product $\langle \nabla f(\tilde{w}_t), \nabla f(w_t) \rangle$.
+$$ -\langle \nabla f(\tilde{w}_t), \nabla f(w_t) \rangle = -\frac{1}{2}\|\nabla f(\tilde{w}_t)\|^2 - \frac{1}{2}\|\nabla f(w_t)\|^2 + \frac{1}{2}\|\nabla f(\tilde{w}_t) - \nabla f(w_t)\|^2 $$
+
+\textbf{[Step 7]} Substitute the inner product identity back into the descent inequality from Step 5.
+$$ \mathbb{E}[f(\tilde{w}_{t+1}) \mid \mathcal{F}_t] \leq f(\tilde{w}_t) - \frac{\eta}{2}\|\nabla f(\tilde{w}_t)\|^2 - \frac{\eta}{2}\|\nabla f(w_t)\|^2 + \frac{\eta}{2}\|\nabla f(\tilde{w}_t) - \nabla f(w_t)\|^2 + \frac{L\eta^2 G^2}{2} $$
+
+\textbf{[Step 8]} Drop the non-positive term $-\frac{\eta}{2}\|\nabla f(\tilde{w}_t)\|^2 \leq 0$.
+$$ \mathbb{E}[f(\tilde{w}_{t+1}) \mid \mathcal{F}_t] \leq f(\tilde{w}_t) - \frac{\eta}{2}\|\nabla f(w_t)\|^2 + \frac{\eta}{2}\|\nabla f(\tilde{w}_t) - \nabla f(w_t)\|^2 + \frac{L\eta^2 G^2}{2} $$
+
+\textbf{[Step 9]} Bound the gradient difference using $L$-smoothness (which implies $L$-Lipschitz gradients) and the definition of the virtual sequence $\tilde{w}_t - w_t = -\eta e_t$.
+$$ \|\nabla f(\tilde{w}_t) - \nabla f(w_t)\|^2 \leq L^2 \|\tilde{w}_t - w_t\|^2 = L^2 \eta^2 \|e_t\|^2 $$
+Substituting this yields:
+$$ \mathbb{E}[f(\tilde{w}_{t+1}) \mid \mathcal{F}_t] \leq f(\tilde{w}_t) - \frac{\eta}{2}\|\nabla f(w_t)\|^2 + \frac{L^2 \eta^3}{2} \|e_t\|^2 + \frac{L\eta^2 G^2}{2} $$
+Taking the full expectation yields:
+$$ \mathbb{E}[f(\tilde{w}_{t+1})] \leq \mathbb{E}[f(\tilde{w}_t)] - \frac{\eta}{2}\mathbb{E}[\|\nabla f(w_t)\|^2] + \frac{L^2 \eta^3}{2} \mathbb{E}[\|e_t\|^2] + \frac{L\eta^2 G^2}{2} $$
+
+\textbf{[Step 10]} We must now bound the expected error magnitude $\mathbb{E}[\|e_t\|^2]$. Use the definition $e_{t+1} = p_t - \text{Top}_K(p_t)$ and Assumption 5 (contractive compressor).
+$$ \|e_{t+1}\|^2 = \|p_t - \text{Top}_K(p_t)\|^2 \leq (1 - \delta)\|p_t\|^2 = (1 - \delta)\|e_t + g_t\|^2 $$
+
+\textbf{[Step 11]} Apply Young's Inequality (Lemma 1) to $\|e_t + g_t\|^2$ with parameter $\alpha = \frac{\delta}{2 - \delta}$.
+$$ \|e_{t+1}\|^2 \leq (1 - \delta) \left( \left(1 + \frac{\delta}{2-\delta}\right)\|e_t\|^2 + \left(1 + \frac{2-\delta}{\delta}\right)\|g_t\|^2 \right) $$
+
+\textbf{[Step 12]} Simplify the coefficients from Step 11.
+Note that $1 + \frac{\delta}{2-\delta} = \frac{2}{2-\delta}$. Thus, $(1-\delta)\frac{2}{2-\delta} = \frac{2-2\delta}{2-\delta} = 1 - \frac{\delta}{2-\delta} \leq 1 - \frac{\delta}{2}$.
+For the second term: $1 + \frac{2-\delta}{\delta} = \frac{2}{\delta}$. Thus, $(1-\delta)\frac{2}{\delta} \leq \frac{2}{\delta}$.
+Therefore, taking expectations:
+$$ \mathbb{E}[\|e_{t+1}\|^2] \leq \left(1 - \frac{\delta}{2}\right) \mathbb{E}[\|e_t\|^2] + \frac{2}{\delta} \mathbb{E}[\|g_t\|^2] $$
+
+\textbf{[Step 13]} Unroll the recurrence relation for $\mathbb{E}[\|e_t\|^2]$ starting from $e_0 = 0$.
+\begin{align*}
+    \mathbb{E}[\|e_t\|^2] &\leq \sum_{i=0}^{t-1} \left(1 - \frac{\delta}{2}\right)^{t-1-i} \frac{2}{\delta} \mathbb{E}[\|g_i\|^2]
+\end{align*}
+
+\textbf{[Step 14]} Apply the bounded second moment (Assumption 4) $\mathbb{E}[\|g_i\|^2] \leq G^2$ and bound the sum by an infinite geometric series.
+$$ \mathbb{E}[\|e_t\|^2] \leq \frac{2 G^2}{\delta} \sum_{i=0}^{\infty} \left(1 - \frac{\delta}{2}\right)^i = \frac{2 G^2}{\delta} \left( \frac{1}{1 - (1 - \delta/2)} \right) = \frac{2 G^2}{\delta} \left( \frac{2}{\delta} \right) = \frac{4 G^2}{\delta^2} $$
+
+\textbf{[Step 15]} Substitute the bound for $\mathbb{E}[\|e_t\|^2]$ back into the descent lemma from Step 9.
+$$ \mathbb{E}[f(\tilde{w}_{t+1})] \leq \mathbb{E}[f(\tilde{w}_t)] - \frac{\eta}{2}\mathbb{E}[\|\nabla f(w_t)\|^2] + \frac{L^2 \eta^3}{2} \left( \frac{4 G^2}{\delta^2} \right) + \frac{L\eta^2 G^2}{2} $$
+$$ \mathbb{E}[f(\tilde{w}_{t+1})] \leq \mathbb{E}[f(\tilde{w}_t)] - \frac{\eta}{2}\mathbb{E}[\|\nabla f(w_t)\|^2] + \frac{2 L^2 \eta^3 G^2}{\delta^2} + \frac{L\eta^2 G^2}{2} $$
+
+\textbf{[Step 16]} Rearrange the inequality to isolate $\frac{\eta}{2}\mathbb{E}[\|\nabla f(w_t)\|^2]$.
+$$ \frac{\eta}{2}\mathbb{E}[\|\nabla f(w_t)\|^2] \leq \mathbb{E}[f(\tilde{w}_t)] - \mathbb{E}[f(\tilde{w}_{t+1})] + \frac{2 L^2 \eta^3 G^2}{\delta^2} + \frac{L\eta^2 G^2}{2} $$
+
+\textbf{[Step 17]} Sum the inequality over $t = 0, \dots, T-1$.
+$$ \frac{\eta}{2} \sum_{t=0}^{T-1} \mathbb{E}[\|\nabla f(w_t)\|^2] \leq f(\tilde{w}_0) - \mathbb{E}[f(\tilde{w}_T)] + \frac{2 L^2 \eta^3 G^2 T}{\delta^2} + \frac{L\eta^2 G^2 T}{2} $$
+
+\textbf{[Step 18]} Apply the lower bound assumption $f(\tilde{w}_T) \geq f^*$, note that $\tilde{w}_0 = w_0 - \eta e_0 = w_0$, and multiply the entire inequality by $\frac{2}{\eta T}$ to find the average gradient norm.
+$$ \frac{1}{T} \sum_{t=0}^{T-1} \mathbb{E}[\|\nabla f(w_t)\|^2] \leq \frac{2(f(w_0) - f^*)}{\eta T} + \frac{4 L^2 \eta^2 G^2}{\delta^2} + \eta L G^2 $$
+This completes the proof.
+
+\section*{Rate Derivation (With Constants)}
+To minimize the upper bound and achieve convergence, we analyze the learning rate $\eta$.
+Let $\eta = \frac{1}{L \sqrt{T}}$.
+Substituting this into the final bound:
+\begin{align*}
+    \frac{1}{T} \sum_{t=0}^{T-1} \mathbb{E}[\|\nabla f(w_t)\|^2] &\leq \frac{2 L (f(w_0) - f^*)}{\sqrt{T}} + \frac{4 L^2 G^2}{L^2 T \delta^2} + \frac{L G^2}{L \sqrt{T}} \\
+    &= \frac{2 L (f(w_0) - f^*) + G^2}{\sqrt{T}} + \frac{4 G^2}{\delta^2 T}
+\end{align*}
+For sufficiently large $T$, the $\mathcal{O}(1/T)$ term induced by the Top-$K$ compression error is dominated by the $\mathcal{O}(1/\sqrt{T})$ term, yielding an asymptotic convergence rate of $\mathcal{O}(1/\sqrt{T})$.
+
+\section*{Special Cases}
+\begin{itemize}
+    \item \textbf{No Compression ($K=d$):} In this case, $\delta = 1$. The compression error vanishes rapidly, and the algorithm behaves identically to standard SGD. The bound strictly recovers the standard non-convex SGD rate.
+    \item \textbf{Extreme Sparsity ($K=1$):} $\delta = 1/d$. The error feedback term scales as $\mathcal{O}(d^2 / T)$. This reveals that while convergence is guaranteed, highly sparse updates require proportionally more iterations ($T \gg d^2$) for the compression error to become negligible compared to the stochastic noise.
+\end{itemize}
+
+\end{document}

@@ -1,0 +1,184 @@
+{
+  "metadata": {
+    "start_time": "2026-06-06T15:44:25.981711",
+    "end_time": "2026-06-06T15:52:11.764582",
+    "status": "completed"
+  },
+  "configuration": {
+    "provider": "openrouter",
+    "judge_provider": "nvidia",
+    "prover_model": "openai/gpt-5",
+    "evaluator_models": [
+      "openai/gpt-oss-20b",
+      "meta/llama-3.3-70b-instruct",
+      "qwen/qwen3.5-122b-a10b"
+    ],
+    "use_multi_judge": true,
+    "max_iterations": 3,
+    "temperature_config": {
+      "generation": 0.7,
+      "correction": 0.4,
+      "evaluation": 0.05,
+      "verification": 0.05
+    },
+    "timeout": 300,
+    "max_retries": 3,
+    "crs_weights": {}
+  },
+  "algorithm_description": "The algorithm iteratively updates parameters by linearizing the inner network model while keeping the outer loss exact. Computes an optimal step size in closed form via a composite proximal framework, eliminating hand-designed schedules.",
+  "assumptions": "Non-Convex and Smooth Inner with Convex Outer Loss (Deep Frank-Wolfe)",
+  "iterations": [
+    {
+      "iteration_number": 1,
+      "nodes": {
+        "prover": {
+          "timestamp": "2026-06-06T15:47:56.561148",
+          "node_name": "prover",
+          "proof_content": "\\documentclass[11pt]{article}\n\n\\usepackage{amsmath,amssymb,amsthm}\n\\usepackage{algorithm}\n\\usepackage{algorithmic}\n\\usepackage{fullpage}\n\\usepackage{bm}\n\n\\newtheorem{theorem}{Theorem}\n\\newtheorem{assumption}{Assumption}\n\\newtheorem{lemma}{Lemma}\n\\newtheorem{definition}{Definition}\n\\newtheorem{corollary}{Corollary}\n\n\\newcommand{\\R}{\\mathbb{R}}\n\\newcommand{\\E}{\\mathbb{E}}\n\\newcommand{\\inner}[2]{\\left\\langle #1,\\, #2 \\right\\rangle}\n\\newcommand{\\norm}[1]{\\left\\lVert #1 \\right\\rVert}\n\n\\begin{document}\n\n\\section*{Algorithm Name}\nDeep Frank-Wolfe with Proximal Linearization (DFW-PL)\n\n\\section*{Mathematical Formulation}\nWe consider a composite objective of the form\n\\[\n\\Phi(w) \\;=\\; \\E_{z=(x,y)}\\big[\\ell(h(w;x),y)\\big],\n\\]\nwhere\n- $w\\in\\R^d$ are parameters,\n- $h:\\R^d\\to\\R^m$ is a (possibly non-convex) inner network, differentiable with Jacobian $J(w)=\\nabla h(w)\\in\\R^{m\\times d}$,\n- $\\ell:\\R^m\\times\\mathcal{Y}\\to\\R_+$ is a convex and smooth outer loss in its first argument (the prediction), applied to $u=h(w;x)$.\n\nAt iterate $w_t$, define\n\\[\nu_t := h(w_t;x),\\qquad J_t := J(w_t),\\qquad g_{u,t} := \\nabla_u \\ell(u_t,y),\\qquad g_t := \\nabla \\Phi(w_t) \\;=\\; J_t^\\top g_{u,t}.\n\\]\nDFW-PL chooses the descent direction $p_t := -g_t$ and an adaptive closed-form step size $\\alpha_t$ by minimizing a tight quadratic upper bound on the exact outer loss applied to the \\emph{linearized inner model}:\n\\[\nw_{t+1} \\;=\\; w_t + \\alpha_t p_t,\\qquad \n\\alpha_t \\;=\\; \\frac{\\norm{g_t}^2}{L_\\ell \\norm{J_t p_t}^2 + \\mu \\norm{p_t}^2}.\n\\]\nHere $L_\\ell$ is the smoothness constant of $\\ell$ in its first argument, and $\\mu\\ge 1$ is a curvature buffer arising from the nonlinearity of the inner model (specified precisely in the convergence analysis). The Jacobian-vector product $J_t p_t$ is computed efficiently by automatic differentiation without forming $J_t$ explicitly.\n\nHyperparameters and constants:\n- $L_\\ell>0$: Lipschitz gradient constant of $\\ell(\\cdot,y)$ in its prediction argument.\n- $G_\\ell>0$: bound on $\\|\\nabla_u \\ell(u,y)\\|$ over the trajectory.\n- $\\beta>0$: Lipschitz constant of the Jacobian of $h$, i.e., $\\|J(w)-J(w')\\|\\le \\beta \\|w-w'\\|$.\n- $\\sigma_J>0$: bound on $\\|J(w)\\|$ over the trajectory.\n- $\\mu:=\\max\\!\\Big\\{1,\\, G_\\ell \\beta + \\frac{L_\\ell \\beta^2}{4}\\,(\\sigma_J G_\\ell)^2\\Big\\}$ (used in the proofs; any larger $\\mu$ is valid).\n\nRemarks:\n- The outer loss is kept exact; only the inner model is linearized to derive a provable local quadratic upper bound that yields the closed-form $\\alpha_t$ above.\n- No hand-designed learning-rate schedule is required.\n\n\\section*{Pseudocode}\n\\begin{algorithm}[H]\n\\caption{Deep Frank-Wolfe with Proximal Linearization (DFW-PL)}\n\\begin{algorithmic}[1]\n\\STATE Input: $w_0\\in\\R^d$; constants $L_\\ell>0$, $G_\\ell>0$, $\\beta>0$, $\\sigma_J>0$\n\\STATE Set $\\mu \\leftarrow \\max\\!\\Big\\{1,\\, G_\\ell \\beta + \\frac{L_\\ell \\beta^2}{4}\\,(\\sigma_J G_\\ell)^2\\Big\\}$\n\\FOR{$t=0,1,2,\\dots,T-1$}\n  \\STATE Compute prediction $u_t = h(w_t;x)$ and $g_{u,t} = \\nabla_u \\ell(u_t,y)$\n  \\STATE Backprop composite gradient $g_t = J_t^\\top g_{u,t}$ (via reverse-mode AD)\n  \\STATE Set descent direction $p_t = -g_t$\n  \\STATE Compute Jacobian-vector product $s_t = J_t p_t$ (via forward-mode or reverse-over-reverse)\n  \\STATE Set step size $\\displaystyle \\alpha_t = \\frac{\\|g_t\\|^2}{L_\\ell \\|s_t\\|^2 + \\mu \\|p_t\\|^2}$  // closed-form from quadratic upper bound\n  \\STATE Update $w_{t+1} = w_t + \\alpha_t p_t$\n  \\IF{stopping criterion satisfied (e.g., $\\|g_t\\| \\le \\varepsilon$)}\n    \\STATE break\n  \\ENDIF\n\\ENDFOR\n\\STATE Output: $w_T$\n\\end{algorithmic}\n\\end{algorithm}\n\n\\section*{Dry Run Example}\nWe follow the requested template on the scalar function $f(w)=(w-3)^2$. Here the inner model is the identity $h(w)=w$, the outer loss is $\\ell(u)=(u-3)^2$, and $L_\\ell=2$ (since $\\nabla \\ell(u)=2(u-3)$ is $2$-Lipschitz). The requested illustration uses a fixed step $\\eta=0.1$ for three iterations.\n\nInitialization: $w_0=0$, gradient $g_0 = \\nabla f(w_0)=2(w_0-3) = -6$, objective $f(w_0)=9$.\n\nIteration 1:\n\\[\n\\begin{aligned}\ng_0 &= 2(0-3) = -6,\\\\\nw_1 &= w_0 - \\eta g_0 = 0 - 0.1(-6) = 0.6,\\\\\nf(w_1) &= (0.6-3)^2 = 2.4^2 = 5.76.\n\\end{aligned}\n\\]\n\nIteration 2:\n\\[\n\\begin{aligned}\ng_1 &= 2(0.6-3) = -4.8,\\\\\nw_2 &= w_1 - \\eta g_1 = 0.6 - 0.1(-4.8) = 1.08,\\\\\nf(w_2) &= (1.08-3)^2 = 1.92^2 = 3.6864.\n\\end{aligned}\n\\]\n\nIteration 3:\n\\[\n\\begin{aligned}\ng_2 &= 2(1.08-3) = -3.84,\\\\\nw_3 &= w_2 - \\eta g_2 = 1.08 - 0.1(-3.84) = 1.464,\\\\\nf(w_3) &= (1.464-3)^2 = 1.536^2 = 2.359296.\n\\end{aligned}\n\\]\n\nNote: For this example, the DFW-PL closed-form step specializes to $\\alpha_t=\\frac{1}{2+\\mu}$; choosing $\\mu=8$ recovers $\\alpha_t=0.1$.\n\n\\section*{Assumptions}\nWe work with the following standard conditions.\n\n\\begin{assumption}[Outer loss convex and smooth]\\label{asmp:ell}\nFor each $y$, $\\ell(\\cdot,y)$ is convex and $L_\\ell$-smooth in its first argument:\n\\[\n\\ell(v,y) \\le \\ell(u,y) + \\inner{\\nabla \\ell(u,y)}{v-u} + \\frac{L_\\ell}{2}\\|v-u\\|^2,\\quad \\forall u,v\\in\\R^m.\n\\]\nMoreover, $\\|\\nabla \\ell(u,y)\\| \\le G_\\ell$ for all $u$ encountered along the iterates.\n\\end{assumption}\n\n\\begin{assumption}[Inner model smoothness]\\label{asmp:h}\nThe inner model $h$ is differentiable with $\\beta$-Lipschitz Jacobian:\n\\[\n\\|J(w)-J(w')\\| \\le \\beta \\|w-w'\\|,\\quad \\forall w,w'\\in\\R^d.\n\\]\nConsequently, for any $w$ and any direction $p$, the second-order Taylor remainder obeys\n\\[\n\\|h(w+\\alpha p)-h(w)-\\alpha J(w)p\\| \\le \\frac{\\beta}{2}\\alpha^2\\|p\\|^2,\\quad \\forall \\alpha\\ge 0.\n\\]\n\\end{assumption}\n\n\\begin{assumption}[Bounded Jacobian]\\label{asmp:J}\nAlong the iterates $\\{w_t\\}$ we have $\\|J(w_t)\\|\\le \\sigma_J$ for some $\\sigma_J>0$.\n\\end{assumption}\n\n\\begin{assumption}[Lower bounded objective]\\label{asmp:lower}\n$\\inf_{w}\\Phi(w) > -\\infty$.\n\\end{assumption}\n\n\\section*{Main Convergence Theorem}\nWe state a deterministic descent and stationarity-rate guarantee.\n\n\\begin{theorem}[Monotone descent and stationarity rate]\\label{thm:rate}\nUnder Assumptions \\ref{asmp:ell}--\\ref{asmp:lower}, consider DFW-PL with $p_t=-g_t$ and\n\\[\n\\alpha_t \\;=\\; \\frac{\\|g_t\\|^2}{L_\\ell \\|J_t p_t\\|^2 + \\mu \\|p_t\\|^2},\\qquad \\mu := \\max\\!\\Big\\{1,\\, G_\\ell \\beta + \\frac{L_\\ell \\beta^2}{4}\\,(\\sigma_J G_\\ell)^2\\Big\\}.\n\\]\nThen the iterates satisfy the one-step decrease\n\\[\n\\Phi(w_{t+1}) \\;\\le\\; \\Phi(w_t) \\;-\\; \\frac{1}{2}\\cdot \\frac{\\|g_t\\|^4}{L_\\ell \\|J_t g_t\\|^2 + \\mu \\|g_t\\|^2}\n\\;\\le\\; \\Phi(w_t) \\;-\\; \\frac{1}{2(L_\\ell \\sigma_J^2+\\mu)}\\,\\|g_t\\|^2.\n\\]\nSumming from $t=0$ to $T-1$ yields\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\|g_t\\|^2 \\;\\le\\; \\frac{2\\,(L_\\ell \\sigma_J^2+\\mu)}{T}\\,\\big(\\Phi(w_0)-\\inf_w \\Phi(w)\\big).\n\\]\nIn particular, $\\min_{0\\le t\\le T-1}\\|g_t\\|^2 = O\\big(1/T\\big)$, i.e., the method converges to a first-order stationary point at the standard nonconvex rate with explicit constants.\n\\end{theorem}\n\n\\section*{Theoretical Properties}\n- Stability: The step size satisfies $\\alpha_t \\le 1/\\mu \\le 1$, ensuring conservative steps when curvature is large.\n- Hyperparameter sensitivity: Only $\\mu$ aggregates problem constants $(L_\\ell,G_\\ell,\\beta,\\sigma_J)$; any larger $\\mu$ preserves all guarantees (more conservative).\n- Comparison to baselines:\n  - Versus SGD with hand-tuned schedules, DFW-PL computes $\\alpha_t$ in closed form from curvature proxies $L_\\ell\\|J_t p_t\\|^2$ and $\\mu\\|p_t\\|^2$.\n  - Versus Frank-Wolfe on parameter domains, DFW-PL performs a Frank-Wolfe-like linearization in the \\emph{model space} while keeping the outer loss exact.\n  - Versus first-order methods with global $L$, DFW-PL adapts locally through $J_t p_t$ without backtracking.\n\n\\section*{Discussion}\n- When $h$ is linear ($\\beta=0$), we may set $\\mu=1$; the step size simplifies and the bound matches classical smooth convex descent guarantees.\n- For common losses (squared, logistic), the same derivation applies with the same $L_\\ell$.\n\n\\section*{Preliminaries (Definitions and Lemmas)}\nWe first collect two standard lemmas.\n\n\\begin{lemma}[Smoothness of $\\ell$]\\label{lem:ell_smooth}\nUnder Assumption \\ref{asmp:ell}, for any $a,r\\in\\R^m$,\n\\[\n\\ell(a+r,y) \\;\\le\\; \\ell(a,y) + \\inner{\\nabla \\ell(a,y)}{r} + \\frac{L_\\ell}{2}\\|r\\|^2.\n\\]\n\\end{lemma}\n\n\\begin{lemma}[Second-order remainder bound for $h$]\\label{lem:h_remainder}\nUnder Assumption \\ref{asmp:h}, for any $w\\in\\R^d$, direction $p\\in\\R^d$, and $\\alpha\\ge 0$,\n\\[\nR(\\alpha;w,p) \\;:=\\; h(w+\\alpha p)-h(w)-\\alpha J(w)p,\\qquad \\|R(\\alpha;w,p)\\| \\;\\le\\; \\frac{\\beta}{2}\\alpha^2\\|p\\|^2.\n\\]\n\\end{lemma}\n\n\\noindent We also record a bound following from Assumptions \\ref{asmp:ell} and \\ref{asmp:J}:\n\\begin{equation}\\label{eq:gw_bound}\n\\|g_t\\| = \\|J_t^\\top g_{u,t}\\| \\le \\|J_t\\|\\,\\|g_{u,t}\\| \\le \\sigma_J G_\\ell.\n\\end{equation}\n\n\\section*{Main Proof (Step-by-Step Derivation)}\nWe prove Theorem \\ref{thm:rate}. Fix an iteration $t$, write $w=w_t$, $J=J_t$, $u=h(w)$, $g_u=\\nabla\\ell(u,y)$, $g=\\nabla\\Phi(w)=J^\\top g_u$, and consider any direction $p\\in\\R^d$ and scalar $\\alpha\\ge 0$.\n\nDefine the actual next prediction and its linear approximation:\n\\[\nu^+ \\;:=\\; h(w+\\alpha p),\\qquad \\tilde{u} \\;:=\\; u + \\alpha J p,\\qquad R := u^+ - \\tilde{u}.\n\\]\nBy Lemma \\ref{lem:h_remainder}, $\\|R\\| \\le \\frac{\\beta}{2}\\alpha^2\\|p\\|^2$. We bound the one-step change in $\\Phi$.\n\n\\noindent\\textbf{Part I: Keep the outer loss exact while using the linearized inner model.}\n\\begin{align}\n\\Phi(w+\\alpha p) &= \\E\\big[\\ell(u^+,y)\\big] \\nonumber\\\\\n&= \\E\\big[\\ell(\\tilde{u}+R,y)\\big]. \\nonumber\n\\end{align}\nApply Lemma \\ref{lem:ell_smooth} at $a=\\tilde{u}$ and $r=R$:\n\\begin{align}\n\\ell(\\tilde{u}+R,y) \n&\\le \\ell(\\tilde{u},y) + \\inner{\\nabla\\ell(\\tilde{u},y)}{R} + \\frac{L_\\ell}{2}\\|R\\|^2. \\tag*{[Step 1]}\n\\end{align}\nTake expectation and use $\\|\\nabla\\ell(\\tilde{u},y)\\|\\le G_\\ell$:\n\\begin{align}\n\\Phi(w+\\alpha p)\n&\\le \\E[\\ell(\\tilde{u},y)] + \\E\\big[\\inner{\\nabla\\ell(\\tilde{u},y)}{R}\\big] + \\frac{L_\\ell}{2}\\E\\|R\\|^2 \\nonumber\\\\\n&\\le \\E[\\ell(\\tilde{u},y)] + G_\\ell\\,\\E\\|R\\| + \\frac{L_\\ell}{2}\\E\\|R\\|^2. \\tag*{[Step 2]: Cauchy-Schwarz and gradient bound}\n\\end{align}\nUsing Lemma \\ref{lem:h_remainder} and dropping the expectation (deterministic upper bound):\n\\begin{align}\n\\E\\|R\\| \\le \\frac{\\beta}{2}\\alpha^2\\|p\\|^2,\\qquad\n\\E\\|R\\|^2 \\le \\left(\\frac{\\beta}{2}\\alpha^2\\|p\\|^2\\right)^2 = \\frac{\\beta^2}{4}\\alpha^4\\|p\\|^4. \\tag*{[Step 3]}\n\\end{align}\nThus\n\\begin{align}\n\\Phi(w+\\alpha p) \\le \\E[\\ell(\\tilde{u},y)] + \\frac{G_\\ell \\beta}{2}\\alpha^2\\|p\\|^2 + \\frac{L_\\ell \\beta^2}{8}\\alpha^4\\|p\\|^4. \\tag*{[Step 4]}\n\\end{align}\n\n\\noindent\\textbf{Part II: Upper bound $\\E[\\ell(\\tilde{u},y)]$ via smoothness of $\\ell$.}\nApply Lemma \\ref{lem:ell_smooth} at $a=u$ and $r=\\alpha J p$:\n\\begin{align}\n\\ell(\\tilde{u},y) = \\ell(u+\\alpha J p,y)\n&\\le \\ell(u,y) + \\alpha\\,\\inner{\\nabla\\ell(u,y)}{J p} + \\frac{L_\\ell}{2}\\alpha^2 \\|J p\\|^2. \\tag*{[Step 5]}\n\\end{align}\nTaking expectation and recognizing $\\E[\\ell(u,y)]=\\Phi(w)$ and $\\E[\\nabla\\ell(u,y)]=g_u$:\n\\begin{align}\n\\E[\\ell(\\tilde{u},y)] \n&\\le \\Phi(w) + \\alpha\\,\\inner{g_u}{J p} + \\frac{L_\\ell}{2}\\alpha^2 \\|J p\\|^2. \\tag*{[Step 6]}\n\\end{align}\nUse $\\inner{g_u}{J p} = \\inner{J^\\top g_u}{p} = \\inner{g}{p}$:\n\\begin{align}\n\\E[\\ell(\\tilde{u},y)] \n&\\le \\Phi(w) + \\alpha\\,\\inner{g}{p} + \\frac{L_\\ell}{2}\\alpha^2 \\|J p\\|^2. \\tag*{[Step 7]}\n\\end{align}\n\n\\noindent\\textbf{Part III: Combine Parts I and II, and dominate the $\\alpha^4$ term.}\nFrom [Step 4] and [Step 7],\n\\begin{align}\n\\Phi(w+\\alpha p) \n&\\le \\Phi(w) + \\alpha\\,\\inner{g}{p} + \\frac{L_\\ell}{2}\\alpha^2 \\|J p\\|^2 + \\frac{G_\\ell \\beta}{2}\\alpha^2\\|p\\|^2 + \\frac{L_\\ell \\beta^2}{8}\\alpha^4\\|p\\|^4. \\tag*{[Step 8]}\n\\end{align}\nBy \\eqref{eq:gw_bound}, for the DFW-PL direction we will set $p=-g$ and then $\\|p\\|=\\|g\\|\\le \\sigma_J G_\\ell$; thus\n\\begin{align}\n\\|p\\|^4 \\le (\\sigma_J G_\\ell)^2 \\|p\\|^2. \\tag*{[Step 9]}\n\\end{align}\nMoreover, we preselect any $\\mu$ such that\n\\begin{align}\n\\mu \\;\\ge\\; G_\\ell \\beta + \\frac{L_\\ell \\beta^2}{4}(\\sigma_J G_\\ell)^2 \\qquad\\Longrightarrow\\qquad\n\\frac{G_\\ell \\beta}{2}\\alpha^2\\|p\\|^2 + \\frac{L_\\ell \\beta^2}{8}\\alpha^4\\|p\\|^4 \\;\\le\\; \\frac{\\mu}{2}\\alpha^2\\|p\\|^2, \\quad \\forall \\alpha\\in[0,1]. \\tag*{[Step 10]}\n\\end{align}\nCombining [Step 8]--[Step 10], for any $\\alpha\\in[0,1]$,\n\\begin{align}\n\\Phi(w+\\alpha p) \n&\\le \\Phi(w) + \\alpha\\,\\inner{g}{p} + \\frac{1}{2}\\alpha^2\\Big(L_\\ell \\|J p\\|^2 + \\mu \\|p\\|^2\\Big). \\tag*{[Step 11]}\n\\end{align}\n\n\\noindent\\textbf{Part IV: Choose $p=-g$ and minimize the quadratic upper bound in $\\alpha$.}\nSet $p^\\star=-g$ so that $\\inner{g}{p^\\star} = -\\|g\\|^2$ and $Jp^\\star = -Jg$. Then the right-hand side of [Step 11] is a convex quadratic in $\\alpha\\in[0,1]$:\n\\begin{align}\nQ(\\alpha) := \\Phi(w) - \\alpha \\|g\\|^2 + \\frac{1}{2}\\alpha^2\\Big(L_\\ell \\|J g\\|^2 + \\mu \\|g\\|^2\\Big). \\tag*{[Step 12]}\n\\end{align}\nIts unconstrained minimizer over $\\alpha\\ge 0$ is\n\\begin{align}\n\\alpha_{\\mathrm{quad}} \\;=\\; \\frac{\\|g\\|^2}{L_\\ell \\|J g\\|^2 + \\mu \\|g\\|^2}. \\tag*{[Step 13]: derivative zero condition}\n\\end{align}\nNote that $\\alpha_{\\mathrm{quad}}\\le \\frac{1}{\\mu}\\le 1$ by $\\mu\\ge 1$, so $\\alpha_{\\mathrm{quad}}\\in[0,1]$. Plugging $\\alpha_{\\mathrm{quad}}$ into $Q$ yields \n\\begin{align}\nQ(\\alpha_{\\mathrm{quad}}) \n&= \\Phi(w) - \\frac{1}{2}\\cdot \\frac{\\|g\\|^4}{L_\\ell \\|J g\\|^2 + \\mu \\|g\\|^2}. \\tag*{[Step 14]: standard quadratic completion}\n\\end{align}\nTherefore, with $p=-g$ and $\\alpha=\\alpha_{\\mathrm{quad}}$, [Step 11] implies\n\\begin{align}\n\\Phi(w+\\alpha_{\\mathrm{quad}} p) \\le Q(\\alpha_{\\mathrm{quad}}) \n= \\Phi(w) - \\frac{1}{2}\\cdot \\frac{\\|g\\|^4}{L_\\ell \\|J g\\|^2 + \\mu \\|g\\|^2}. \\tag*{[Step 15]}\n\\end{align}\nFinally, using $\\|J g\\|\\le \\|J\\|\\,\\|g\\| \\le \\sigma_J \\|g\\|$,\n\\begin{align}\n\\frac{\\|g\\|^4}{L_\\ell \\|J g\\|^2 + \\mu \\|g\\|^2} \n\\;\\ge\\; \\frac{\\|g\\|^4}{(L_\\ell \\sigma_J^2 + \\mu)\\|g\\|^2}\n\\;=\\; \\frac{\\|g\\|^2}{L_\\ell \\sigma_J^2 + \\mu}. \\tag*{[Step 16]}\n\\end{align}\nCombining [Step 15] and [Step 16] proves the one-step decrease:\n\\begin{align}\n\\Phi(w_{t+1}) \\le \\Phi(w_t) - \\frac{1}{2}\\cdot \\frac{\\|g_t\\|^4}{L_\\ell \\|J_t g_t\\|^2 + \\mu \\|g_t\\|^2}\n\\le \\Phi(w_t) - \\frac{1}{2(L_\\ell \\sigma_J^2 + \\mu)}\\,\\|g_t\\|^2. \\tag*{[Step 17]}\n\\end{align}\nSumming [Step 17] over $t=0,\\dots,T-1$ and using $\\Phi(w_T)\\ge \\inf_w \\Phi(w)$ yields\n\\begin{align}\n\\sum_{t=0}^{T-1}\\|g_t\\|^2 \\;\\le\\; 2\\,(L_\\ell \\sigma_J^2 + \\mu)\\,\\big(\\Phi(w_0)-\\inf_w \\Phi(w)\\big). \\tag*{[Step 18]}\n\\end{align}\nDividing by $T$ completes the proof of Theorem \\ref{thm:rate}. \\qed\n\n\\section*{Rate Derivation (With Constants)}\nFrom [Step 18],\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\|\\nabla \\Phi(w_t)\\|^2 \n\\;\\le\\; \\frac{2\\,(L_\\ell \\sigma_J^2 + \\mu)}{T}\\,\\big(\\Phi(w_0)-\\Phi^\\star\\big),\n\\]\nwhere $\\Phi^\\star:=\\inf_w \\Phi(w)$. With the explicit choice\n\\[\n\\mu \\;=\\; \\max\\!\\Big\\{1,\\, G_\\ell \\beta + \\frac{L_\\ell \\beta^2}{4}\\,(\\sigma_J G_\\ell)^2\\Big\\},\n\\]\nthe constants are fully specified. In particular, if $h$ is linear ($\\beta=0$), we may set $\\mu=1$ and obtain\n\\[\n\\frac{1}{T}\\sum_{t=0}^{T-1}\\|\\nabla \\Phi(w_t)\\|^2 \n\\;\\le\\; \\frac{2\\,(L_\\ell \\sigma_J^2 + 1)}{T}\\,\\big(\\Phi(w_0)-\\Phi^\\star\\big).\n\\]\n\n\\section*{Special Cases}\n- Linear inner model ($\\beta=0$): $h(w)=Aw+b$, $J\\equiv A$, no remainder term; the step size reduces to\n\\[\n\\alpha_t = \\frac{\\|g_t\\|^2}{L_\\ell \\|A g_t\\|^2 + \\|g_t\\|^2} \\le 1,\n\\]\nand the descent bound is\n\\[\n\\Phi(w_{t+1}) \\le \\Phi(w_t) - \\frac{1}{2(L_\\ell \\|A\\|^2+1)}\\|g_t\\|^2.\n\\]\n- Identity inner model with squared loss: $h(w)=w$, $\\ell(u)=(u-y)^2$, $L_\\ell=2$, $\\beta=0$, $\\mu=1$. Then\n\\[\n\\alpha_t = \\frac{\\|g_t\\|^2}{2\\|g_t\\|^2 + \\|g_t\\|^2} = \\frac{1}{3},\\quad\nw_{t+1} = w_t - \\tfrac{1}{3} g_t,\n\\]\nand $\\Phi(w_{t+1})\\le \\Phi(w_t) - \\frac{1}{2(2+1)}\\|g_t\\|^2$.\n\n\\end{document}",
+          "proof_length": 15481,
+          "previous_proof_length": 0,
+          "iteration": 1
+        },
+        "evaluator": {
+          "timestamp": "2026-06-06T15:52:11.763397",
+          "node_name": "evaluator",
+          "feedback": "=== CONSENSUS: FAIL ===\nMean Completeness: 0.26\nMean Assumption Score: 0.26\nOutlier Judges: none\n\n--- judge_0 (openai/gpt-oss-20b, JRS=0.317) ---\nSYSTEM ERROR: Evaluation parsing failed after all retries. Judge: judge_0, Model: openai/gpt-oss-20b\n\n--- judge_1 (meta/llama-3.3-70b-instruct, JRS=0.034) ---\nThe proof provided is detailed and well-structured, covering all necessary steps for the convergence analysis of the Deep Frank-Wolfe with Proximal Linearization (DFW-PL) algorithm. The assumptions are clearly stated and used correctly throughout the proof. The derivation of the convergence rate is thorough, and the final guarantee is clearly stated. The use of lemmas and the application of mathematical properties such as smoothness and convexity are appropriate and well-justified. The proof does not contain any false inequalities, invalid deductions, or misuses of assumptions. The convergence rate extracted is O(1/T), which matches the derived rate. All dimensions of evaluation (convergence rate extraction, assumption usage analysis, logical soundness, mathematical rigor, and completeness assessment) have been thoroughly examined, and no critical errors were found.\n\n--- judge_2 (qwen/qwen3.5-122b-a10b, JRS=0.317) ---\nSYSTEM ERROR: Evaluation parsing failed after all retries. Judge: judge_2, Model: qwen/qwen3.5-122b-a10b\n",
+          "verdict": "FAIL",
+          "metrics": {
+            "HA": false,
+            "MS": false,
+            "OP": false,
+            "completeness_score": 0,
+            "assumption_use_score": 0,
+            "weighted_cfrs": 0.05132078828084533
+          },
+          "error_set": {
+            "hallucinations": [],
+            "missing_steps": [],
+            "operator_errors": [],
+            "assumption_violations": []
+          },
+          "flagged_steps": [],
+          "correction_metrics": {
+            "error_resolution_rate": 0.0,
+            "regression_penalty": 0.0,
+            "targeted_fix_precision": 1.0,
+            "correction_reasoning_score": 0.0,
+            "crs_raw": 0.0,
+            "errors_fixed": 0,
+            "errors_introduced": 0,
+            "flagged_fixed": 0,
+            "total_flagged": 0,
+            "is_mixed_transition": false,
+            "prev_error_count": 0,
+            "curr_error_count": 0
+          },
+          "judge_evaluations": [
+            {
+              "judge_id": "judge_0",
+              "model_name": "openai/gpt-oss-20b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 0,
+                "assumption_use_score": 0,
+                "correctness_verdict": "INCORRECT",
+                "critical_errors": [
+                  "SYSTEM ERROR: Parsing failed"
+                ],
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "SYSTEM ERROR: Evaluation parsing failed after all retries. Judge: judge_0, Model: openai/gpt-oss-20b",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 36.94273328781128
+            },
+            {
+              "judge_id": "judge_1",
+              "model_name": "meta/llama-3.3-70b-instruct",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 5,
+                "assumption_use_score": 5,
+                "correctness_verdict": "CORRECT",
+                "critical_errors": [],
+                "overall_verdict": "PASS",
+                "detailed_feedback": "The proof provided is detailed and well-structured, covering all necessary steps for the convergence analysis of the Deep Frank-Wolfe with Proximal Linearization (DFW-PL) algorithm. The assumptions are clearly stated and used correctly throughout the proof. The derivation of the convergence rate is thorough, and the final guarantee is clearly stated. The use of lemmas and the application of mathematical properties such as smoothness and convexity are appropriate and well-justified. The proof does not contain any false inequalities, invalid deductions, or misuses of assumptions. The convergence rate extracted is O(1/T), which matches the derived rate. All dimensions of evaluation (convergence rate extraction, assumption usage analysis, logical soundness, mathematical rigor, and completeness assessment) have been thoroughly examined, and no critical errors were found.",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 4.499276638031006
+            },
+            {
+              "judge_id": "judge_2",
+              "model_name": "qwen/qwen3.5-122b-a10b",
+              "metrics": {
+                "hallucination_error": false,
+                "missing_step": false,
+                "operator_error": false,
+                "completeness_score": 0,
+                "assumption_use_score": 0,
+                "correctness_verdict": "INCORRECT",
+                "critical_errors": [
+                  "SYSTEM ERROR: Parsing failed"
+                ],
+                "overall_verdict": "FAIL",
+                "detailed_feedback": "SYSTEM ERROR: Evaluation parsing failed after all retries. Judge: judge_2, Model: qwen/qwen3.5-122b-a10b",
+                "hallucination_steps": "set()",
+                "missing_step_indices": "set()",
+                "operator_error_steps": "set()",
+                "assumption_violation_steps": "set()",
+                "flagged_steps": "set()"
+              },
+              "response_time": 255.18900752067566
+            }
+          ],
+          "judge_reliability": [
+            0.3171572875253809,
+            0.03431457505076185,
+            0.3171572875253809
+          ]
+        }
+      },
+      "summary": {
+        "verdict": "FAIL",
+        "completeness_score": 0,
+        "has_errors": false,
+        "crs": 0.0
+      }
+    }
+  ],
+  "final_results": {
+    "verdict": "FAIL",
+    "total_iterations": 1,
+    "final_proof_length": 0,
+    "convergence_achieved": false
+  },
+  "statistics": {
+    "total_errors_identified": 0,
+    "errors_by_type": {
+      "hallucinations": 0,
+      "missing_steps": 0,
+      "operator_errors": 0,
+      "assumption_violations": 0
+    },
+    "verdict_progression": [
+      "FAIL"
+    ],
+    "crs_progression": [
+      0.0
+    ],
+    "proof_length_progression": [
+      15481
+    ]
+  }
+}
